@@ -981,73 +981,68 @@ const WelcomePage = ({ onSuccess, onDemoMode }: { onSuccess: () => void, onDemoM
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const username = name.trim();
-    if (!username || !password.trim()) return;
-    
-    setLoading(true);
-    setError('');
-
-    try {
-      const normalizedUsername = username.toLowerCase().replace(/\s+/g, '');
-      const email = `${normalizedUsername}@habitflow.app`;
-
-     
-        if (mode === 'login') {
-       // LOGIN MODE
-        try {
-        await signInWithEmailAndPassword(auth, email, password);
-        // Firebase's onAuthStateChanged will handle the transition automatically
-        } catch (loginErr: any) {
-          if (loginErr.code === 'auth/user-not-found') {
-            setError('Account not found. Please sign up first.');
-          } else if (loginErr.code === 'auth/wrong-password') {
-            setError('Incorrect password. Please try again.');
-          } else if (loginErr.code === 'auth/invalid-credential') {
-            setError('Invalid username or password.');
-          } else {
-            setError('Login failed. Please try again.');
-          }
-          setLoading(false);
-          return;
-        }
-      } else {
-  // SIGNUP MODE - CREATE NEW ACCOUNT DIRECTLY
-  const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-  const newUser = userCredential.user;
-
-  // Update display name
-  await updateProfile(newUser, { displayName: username });
-
-  // Store additional data in Firestore
-  try {
-    await setDoc(doc(db, 'users', newUser.uid, 'profile'), {
-      username: username,
-      onboardingComplete: true,
-      createdAt: serverTimestamp()
-    });
-
-    // Reserve username
-    await setDoc(doc(db, 'usernames', normalizedUsername), {
-      uid: newUser.uid,
-      username: username,
-      createdAt: serverTimestamp()
-    });
-  } catch (firestoreErr) {
-    console.warn("Firestore write failed (likely permissions), continuing with auth only", firestoreErr);
-  }
+ const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  e.preventDefault();
+  const username = name.trim();
+  if (!username || !password.trim()) return;
   
-  // Firebase's onAuthStateChanged will handle the transition automatically
-}
+  setLoading(true);
+  setError('');
+
+  try {
+    const normalizedUsername = username.toLowerCase().replace(/\s+/g, '');
+    const email = `${normalizedUsername}@habitflow.app`;
+
+    if (mode === 'login') {
+      // LOGIN MODE
+      await signInWithEmailAndPassword(auth, email, password);
+      // Firebase's onAuthStateChanged will handle the transition
+    } else {
+      // SIGNUP MODE - CREATE NEW ACCOUNT DIRECTLY
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const newUser = userCredential.user;
+
+      // Update display name
+      await updateProfile(newUser, { displayName: username });
+
+      // Store additional data in Firestore
+      try {
+        await setDoc(doc(db, 'users', newUser.uid, 'profile'), {
+          username: username,
+          onboardingComplete: true,
+          createdAt: serverTimestamp()
+        });
+
+        // Reserve username
+        await setDoc(doc(db, 'usernames', normalizedUsername), {
+          uid: newUser.uid,
+          username: username,
+          createdAt: serverTimestamp()
+        });
+      } catch (firestoreErr) {
+        console.warn("Firestore write failed (likely permissions), continuing with auth only", firestoreErr);
       }
-    } catch (err: any) {
-      console.error("Auth Failed:", err);
-      setError('Something went wrong. Please try again.');
-    } finally {
-      setLoading(false);
+      
+      // Firebase's onAuthStateChanged will handle the transition
     }
-  };
+  } catch (err: any) {
+    console.error("Auth Failed:", err);
+    
+    // Handle specific auth errors
+    if (err.code === 'auth/user-not-found') {
+      setError('Account not found. Please sign up first.');
+    } else if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+      setError('Invalid username or password.');
+    } else if (err.code === 'auth/email-already-in-use') {
+      setError('Username already taken. Please try logging in instead.');
+    } else if (err.code === 'auth/weak-password') {
+      setError('Password should be at least 6 characters.');
+    } else {
+      setError('Something went wrong. Please try again.');
+    }
+    setLoading(false);
+  }
+};
 
   return (
     <div className={`min-h-screen flex flex-col justify-center items-center p-4 relative overflow-hidden transition-colors duration-500 ${isDark ? (isLgbt ? 'bg-rainbow-dark' : 'bg-slate-950') : isGreen ? 'bg-green-50' : isLgbt ? 'bg-rainbow-light' : 'bg-pink-50'}`}>
