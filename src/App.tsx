@@ -1012,50 +1012,39 @@ const WelcomePage = ({ onSuccess, onDemoMode }: { onSuccess: () => void, onDemoM
           return;
         }
       } else {
-  // SIGNUP MODE - CREATE NEW ACCOUNT DIRECTLY
-  try {
-    // Create the account directly with email/password
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const newUser = userCredential.user;
+        // SIGNUP MODE - CREATE NEW ACCOUNT DIRECTLY
+const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+const newUser = userCredential.user;
 
-    // Update display name
-    await updateProfile(newUser, { displayName: username });
+// Update display name
+await updateProfile(newUser, { displayName: username });
 
-    // Store additional data in Firestore
-    try {
-      await setDoc(doc(db, 'users', newUser.uid, 'profile'), {
-        username: username,
-        onboardingComplete: true,
-        createdAt: serverTimestamp()
-      });
+// Store additional data in Firestore
+try {
+  await setDoc(doc(db, 'users', newUser.uid, 'profile'), {
+    username: username,
+    onboardingComplete: true,
+    createdAt: serverTimestamp()
+  });
 
-      // Reserve username
-      await setDoc(doc(db, 'usernames', normalizedUsername), {
-        uid: newUser.uid,
-        username: username,
-        createdAt: serverTimestamp()
-      });
-    } catch (firestoreErr) {
-      console.warn("Firestore write failed (likely permissions), continuing with auth only", firestoreErr);
-    }
-
-    onSuccess();
-  } catch (signupErr: any) {
-    if (signupErr.code === 'auth/email-already-in-use') {
-      setError('Username already taken. Please try logging in instead.');
-    } else if (signupErr.code === 'auth/weak-password') {
-      setError('Password should be at least 6 characters.');
-    } else if (signupErr.code === 'auth/invalid-email') {
-      setError('Invalid username format.');
-    } else {
-      setError('Sign up failed. Please try again.');
-      console.error("Signup error:", signupErr);
-    }
-    setLoading(false);
-    return;
-  }
+  // Reserve username
+  await setDoc(doc(db, 'usernames', normalizedUsername), {
+    uid: newUser.uid,
+    username: username,
+    createdAt: serverTimestamp()
+  });
+} catch (firestoreErr) {
+  console.warn("Firestore write failed (likely permissions), continuing with auth only", firestoreErr);
 }
-        
+
+onSuccess();
+      }
+    } catch (err: any) {
+      console.error("Auth Failed:", err);
+      setError('Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
