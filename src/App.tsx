@@ -993,11 +993,12 @@ const WelcomePage = ({ onSuccess, onDemoMode }: { onSuccess: () => void, onDemoM
       const normalizedUsername = username.toLowerCase().replace(/\s+/g, '');
       const email = `${normalizedUsername}@habitflow.app`;
 
-      if (mode === 'login') {
-        // LOGIN MODE
+     
+        if (mode === 'login') {
+       // LOGIN MODE
         try {
-          const userCredential = await signInWithEmailAndPassword(auth, email, password);
-          onSuccess();
+        await signInWithEmailAndPassword(auth, email, password);
+        // Firebase's onAuthStateChanged will handle the transition automatically
         } catch (loginErr: any) {
           if (loginErr.code === 'auth/user-not-found') {
             setError('Account not found. Please sign up first.');
@@ -1012,32 +1013,33 @@ const WelcomePage = ({ onSuccess, onDemoMode }: { onSuccess: () => void, onDemoM
           return;
         }
       } else {
-        // SIGNUP MODE - CREATE NEW ACCOUNT DIRECTLY
-const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-const newUser = userCredential.user;
+  // SIGNUP MODE - CREATE NEW ACCOUNT DIRECTLY
+  const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+  const newUser = userCredential.user;
 
-// Update display name
-await updateProfile(newUser, { displayName: username });
+  // Update display name
+  await updateProfile(newUser, { displayName: username });
 
-// Store additional data in Firestore
-try {
-  await setDoc(doc(db, 'users', newUser.uid, 'profile'), {
-    username: username,
-    onboardingComplete: true,
-    createdAt: serverTimestamp()
-  });
+  // Store additional data in Firestore
+  try {
+    await setDoc(doc(db, 'users', newUser.uid, 'profile'), {
+      username: username,
+      onboardingComplete: true,
+      createdAt: serverTimestamp()
+    });
 
-  // Reserve username
-  await setDoc(doc(db, 'usernames', normalizedUsername), {
-    uid: newUser.uid,
-    username: username,
-    createdAt: serverTimestamp()
-  });
-} catch (firestoreErr) {
-  console.warn("Firestore write failed (likely permissions), continuing with auth only", firestoreErr);
+    // Reserve username
+    await setDoc(doc(db, 'usernames', normalizedUsername), {
+      uid: newUser.uid,
+      username: username,
+      createdAt: serverTimestamp()
+    });
+  } catch (firestoreErr) {
+    console.warn("Firestore write failed (likely permissions), continuing with auth only", firestoreErr);
+  }
+  
+  // Firebase's onAuthStateChanged will handle the transition automatically
 }
-
-onSuccess();
       }
     } catch (err: any) {
       console.error("Auth Failed:", err);
