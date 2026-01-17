@@ -1012,80 +1012,50 @@ const WelcomePage = ({ onSuccess, onDemoMode }: { onSuccess: () => void, onDemoM
           return;
         }
       } else {
-        // SIGNUP MODE
-        let userUser = auth.currentUser;
-        if (!userUser) {
-          const result = await signInAnonymously(auth);
-          userUser = result.user;
-        }
+  // SIGNUP MODE - CREATE NEW ACCOUNT DIRECTLY
+  try {
+    // Create the account directly with email/password
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const newUser = userCredential.user;
 
-        // Check if username is taken
-        const usernameRef = doc(db, 'usernames', normalizedUsername);
-        
-        try {
-          const usernameSnap = await getDoc(usernameRef);
-          if (usernameSnap.exists()) {
-            setError('Username is already taken. Please choose another or try logging in.');
-            setLoading(false);
-            return;
-          }
-        } catch (e) {
-          console.warn("Skipping username uniqueness check due to permissions.", e);
-        }
+    // Update display name
+    await updateProfile(newUser, { displayName: username });
 
-        // Reserve Username
-        try {
-             await setDoc(usernameRef, { 
-              uid: userUser.uid,
-              username: username,
-              createdAt: serverTimestamp()
-              });
-        } catch (e) {
-          console.warn("Could not reserve username publicly (permissions?)", e);
-        }
+    // Store additional data in Firestore
+    try {
+      await setDoc(doc(db, 'users', newUser.uid, 'profile'), {
+        username: username,
+        onboardingComplete: true,
+        createdAt: serverTimestamp()
+      });
 
-        // Update Profile
-        await updateProfile(userUser, { displayName: username });
-
-        // Link Credential
-        try {
-          const credential = EmailAuthProvider.credential(email, password);
-          await linkWithCredential(userUser, credential);
-        } catch (linkErr: any) {
-          if (linkErr.code === 'auth/email-already-in-use') {
-            setError('Username already registered. Please login instead.'); 
-            setLoading(false);
-            return; 
-          } else if (linkErr.code === 'auth/weak-password') {
-            setError('Password should be at least 6 characters.');
-            setLoading(false);
-            return;
-          } else if (linkErr.code === 'auth/operation-not-allowed') {
-            console.warn("Email/Password provider not enabled. Proceeding as guest.");
-          } else {
-            console.error("Link failed:", linkErr);
-          }
-        }
-        
-        // Store additional data
-        try {
-          await setDoc(doc(db, 'users', userUser.uid, 'profile'), {
-          username: username, 
-          onboardingComplete: true,
-          createdAt: serverTimestamp()
-          });
-        } catch (firestoreErr) {
-          console.warn("Firestore write failed (likely permissions), continuing with auth only", firestoreErr);
-        }
-        
-        onSuccess();
-      }
-    } catch (err: any) {
-      console.error("Auth Failed:", err);
-      setError('Something went wrong. Please try again.');
-    } finally {
-      setLoading(false);
+      // Reserve username
+      await setDoc(doc(db, 'usernames', normalizedUsername), {
+        uid: newUser.uid,
+        username: username,
+        createdAt: serverTimestamp()
+      });
+    } catch (firestoreErr) {
+      console.warn("Firestore write failed (likely permissions), continuing with auth only", firestoreErr);
     }
+
+    onSuccess();
+  } catch (signupErr: any) {
+    if (signupErr.code === 'auth/email-already-in-use') {
+      setError('Username already taken. Please try logging in instead.');
+    } else if (signupErr.code === 'auth/weak-password') {
+      setError('Password should be at least 6 characters.');
+    } else if (signupErr.code === 'auth/invalid-email') {
+      setError('Invalid username format.');
+    } else {
+      setError('Sign up failed. Please try again.');
+      console.error("Signup error:", signupErr);
+    }
+    setLoading(false);
+    return;
+  }
+}
+        
   };
 
   return (
