@@ -1443,10 +1443,17 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
     }
     
     // Firebase Real-time Listener
+    // 🟢 SAFETY CHECK: If there is no user, stop immediately.
+    if (!user || !user.uid) {
+      setHabits([]); // Optional: clear habits on logout
+      setLoading(false);
+      return;
+    }
+
     const q = query(
-     collection(db, 'users', user.uid, 'habits'),
-     orderBy('createdAt', 'desc')
-      );
+      collection(db, 'users', user.uid, 'habits'),
+      orderBy('createdAt', 'desc')
+    );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const habitsData = snapshot.docs.map(doc => ({
@@ -1458,9 +1465,10 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
       setLoading(false);
     }, (error) => {
       console.error("Error fetching habits:", error);
-      // Fallback for visual stability if auth token fails mid-session
-      setLoading(false); 
+      setLoading(false);
     });
+
+    return () => unsubscribe();
 
     return () => unsubscribe();
   }, [user]);
@@ -2021,8 +2029,8 @@ const App = () => {
   const handleLogout = async () => {
     localStorage.removeItem('habitflow_guest_mode');
     await signOut(auth);
-    setUser(null);
-    setView('landing');
+    setView('landing'); // 🟢 Switch screen first
+    setTimeout(() => setUser(null), 0); // Clear user after unmount
   };
 
   if (authLoading) {
