@@ -820,12 +820,15 @@ const LandingPage = ({ onGetStarted }: { onGetStarted: () => void }) => {
 };
 
 // Welcome Component (Replaces AuthPage)
+// Replace the WelcomePage component with this updated version
+
 const WelcomePage = ({ onSuccess, onDemoMode }: { onSuccess: () => void, onDemoMode: (name: string, password: string) => void }) => {
+  const [mode, setMode] = useState<'signup' | 'login'>('login'); // Default to login
   const [name, setName] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string>(''); // New error state
+  const [error, setError] = useState<string>('');
   const { theme, accent } = useTheme();
   const isDark = theme === 'dark';
   const isGreen = accent === 'green';
@@ -840,82 +843,99 @@ const WelcomePage = ({ onSuccess, onDemoMode }: { onSuccess: () => void, onDemoM
     setError('');
 
     try {
-      // 1. Auth FIRST (Rule 3: Auth Before Queries)
-      let userUser = auth.currentUser;
-      if (!userUser) {
-         const result = await signInAnonymously(auth);
-         userUser = result.user;
-      }
-
-      // 2. Check if username is taken (by checking public data)
       const normalizedUsername = username.toLowerCase().replace(/\s+/g, '');
-      const usernameRef = doc(db, 'artifacts', appId, 'public', 'data', 'usernames', normalizedUsername);
-      
-      try {
-        const usernameSnap = await getDoc(usernameRef);
-        if (usernameSnap.exists()) {
-          setError('Username is already taken. Please choose another.');
+      const email = `${normalizedUsername}@habitflow.app`;
+
+      if (mode === 'login') {
+        // LOGIN MODE
+        try {
+          const userCredential = await signInWithEmailAndPassword(auth, email, password);
+          onSuccess();
+        } catch (loginErr: any) {
+          if (loginErr.code === 'auth/user-not-found') {
+            setError('Account not found. Please sign up first.');
+          } else if (loginErr.code === 'auth/wrong-password') {
+            setError('Incorrect password. Please try again.');
+          } else if (loginErr.code === 'auth/invalid-credential') {
+            setError('Invalid username or password.');
+          } else {
+            setError('Login failed. Please try again.');
+          }
           setLoading(false);
           return;
         }
-      } catch (e) {
-        console.warn("Skipping username uniqueness check due to permissions.", e);
-        // Continue if permission denied
-      }
-
-      // 3. Reserve Username
-      try {
-        await setDoc(usernameRef, { 
-          uid: userUser.uid,
-          username: username,
-          createdAt: serverTimestamp()
-        });
-      } catch (e) {
-        console.warn("Could not reserve username publicly (permissions?)", e);
-      }
-
-      // 4. Update Profile
-      await updateProfile(userUser, { displayName: username });
-
-      // 5. Link Credential to make it a real account
-      const email = `${normalizedUsername}@habitflow.app`;
-      try {
-        const credential = EmailAuthProvider.credential(email, password);
-        await linkWithCredential(userUser, credential);
-      } catch (linkErr: any) {
-        if (linkErr.code === 'auth/email-already-in-use') {
-           setError('Username already registered. Please login instead.'); 
-           setLoading(false);
-           return; 
-        } else if (linkErr.code === 'auth/weak-password') {
-           setError('Password should be at least 6 characters.');
-           setLoading(false);
-           return;
-        } else if (linkErr.code === 'auth/operation-not-allowed') {
-           console.warn("Email/Password provider not enabled. Proceeding as guest.");
-           // Do NOT return; allow to proceed to onSuccess()
-        } else {
-           // If linking fails for other reasons, proceed as guest/anonymous for now 
-           console.error("Link failed:", linkErr);
+      } else {
+        // SIGNUP MODE
+        let userUser = auth.currentUser;
+        if (!userUser) {
+          const result = await signInAnonymously(auth);
+          userUser = result.user;
         }
+
+        // Check if username is taken
+        const usernameRef = doc(db, 'artifacts', appId, 'public', 'data', 'usernames', normalizedUsername);
+        
+        try {
+          const usernameSnap = await getDoc(usernameRef);
+          if (usernameSnap.exists()) {
+            setError('Username is already taken. Please choose another or try logging in.');
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          console.warn("Skipping username uniqueness check due to permissions.", e);
+        }
+
+        // Reserve Username
+        try {
+          await setDoc(usernameRef, { 
+            uid: userUser.uid,
+            username: username,
+            createdAt: serverTimestamp()
+          });
+        } catch (e) {
+          console.warn("Could not reserve username publicly (permissions?)", e);
+        }
+
+        // Update Profile
+        await updateProfile(userUser, { displayName: username });
+
+        // Link Credential
+        try {
+          const credential = EmailAuthProvider.credential(email, password);
+          await linkWithCredential(userUser, credential);
+        } catch (linkErr: any) {
+          if (linkErr.code === 'auth/email-already-in-use') {
+            setError('Username already registered. Please login instead.'); 
+            setLoading(false);
+            return; 
+          } else if (linkErr.code === 'auth/weak-password') {
+            setError('Password should be at least 6 characters.');
+            setLoading(false);
+            return;
+          } else if (linkErr.code === 'auth/operation-not-allowed') {
+            console.warn("Email/Password provider not enabled. Proceeding as guest.");
+          } else {
+            console.error("Link failed:", linkErr);
+          }
+        }
+        
+        // Store additional data
+        try {
+          await setDoc(doc(db, 'artifacts', appId, 'users', userUser.uid, 'profile'), {
+            username: username, 
+            onboardingComplete: true,
+            createdAt: serverTimestamp()
+          });
+        } catch (firestoreErr) {
+          console.warn("Firestore write failed (likely permissions), continuing with auth only", firestoreErr);
+        }
+        
+        onSuccess();
       }
-      
-      // 6. Store additional data in Private User Data
-      try {
-        await setDoc(doc(db, 'artifacts', appId, 'users', userUser.uid, 'profile'), {
-          username: username, 
-          onboardingComplete: true,
-          createdAt: serverTimestamp()
-        });
-      } catch (firestoreErr) {
-        console.warn("Firestore write failed (likely permissions), continuing with auth only", firestoreErr);
-      }
-      
-      onSuccess();
     } catch (err: any) {
       console.error("Auth Failed:", err);
-      // Fallback to local demo mode if auth fails
-      onDemoMode(username, password);
+      setError('Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -932,17 +952,57 @@ const WelcomePage = ({ onSuccess, onDemoMode }: { onSuccess: () => void, onDemoM
       </div>
 
       <div className={`backdrop-blur-xl p-6 sm:p-8 rounded-3xl shadow-2xl w-full max-w-md border relative z-10 transition-colors duration-300 ${isDark ? 'bg-slate-900/80 border-slate-700' : 'bg-white/80 border-white'}`}>
+        
+        {/* Tabs */}
+        <div className={`flex gap-2 p-1.5 rounded-2xl mb-6 ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+          <button
+            type="button"
+            onClick={() => { setMode('login'); setError(''); }}
+            className={`flex-1 py-3 rounded-xl font-bold transition-all ${
+              mode === 'login'
+                ? `${isDark 
+                    ? (isGreen ? 'bg-green-500 text-white shadow-lg' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white shadow-lg' : 'bg-pink-500 text-white shadow-lg')
+                    : (isGreen ? 'bg-green-600 text-white shadow-lg' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white shadow-lg' : 'bg-pink-600 text-white shadow-lg')
+                  }`
+                : `${isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'}`
+            }`}
+          >
+            Login
+          </button>
+          <button
+            type="button"
+            onClick={() => { setMode('signup'); setError(''); }}
+            className={`flex-1 py-3 rounded-xl font-bold transition-all ${
+              mode === 'signup'
+                ? `${isDark 
+                    ? (isGreen ? 'bg-green-500 text-white shadow-lg' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white shadow-lg' : 'bg-pink-500 text-white shadow-lg')
+                    : (isGreen ? 'bg-green-600 text-white shadow-lg' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white shadow-lg' : 'bg-pink-600 text-white shadow-lg')
+                  }`
+                : `${isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'}`
+            }`}
+          >
+            Sign Up
+          </button>
+        </div>
+
         <div className="text-center mb-8">
           <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 shadow-lg transform rotate-3 ${isDark ? (isGreen ? 'bg-green-500 text-white shadow-green-500/40' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white shadow-pink-500/40') : (isGreen ? 'bg-green-600 text-white shadow-green-200' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-600 text-white shadow-pink-200')}`}>
-            <Sparkles className="w-8 h-8" />
+            {mode === 'login' ? <UserCircle2 className="w-8 h-8" /> : <Sparkles className="w-8 h-8" />}
           </div>
-          <h2 className={`text-3xl font-black mt-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>Welcome!</h2>
-          <p className={`mt-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Let's get to know you better to personalize your experience.</p>
+          <h2 className={`text-3xl font-black mt-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            {mode === 'login' ? 'Welcome Back!' : 'Welcome!'}
+          </h2>
+          <p className={`mt-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+            {mode === 'login' 
+              ? 'Great to see you again! Ready to continue your journey?' 
+              : "Let's get to know you better to personalize your experience."
+            }
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
           {error && (
-            <div className={`p-3 rounded-xl text-sm font-bold text-center ${isDark ? 'bg-red-900/30 text-red-300 border border-red-800' : 'bg-red-50 text-red-600 border border-red-100'}`}>
+            <div className={`p-3 rounded-xl text-sm font-bold text-center animate-pop ${isDark ? 'bg-red-900/30 text-red-300 border border-red-800' : 'bg-red-50 text-red-600 border border-red-100'}`}>
               {error}
             </div>
           )}
@@ -957,7 +1017,7 @@ const WelcomePage = ({ onSuccess, onDemoMode }: { onSuccess: () => void, onDemoM
                   ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-500 focus:bg-slate-800 placeholder-slate-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-500 focus:bg-slate-800 placeholder-slate-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-500 focus:bg-slate-800 placeholder-slate-500') 
                   : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-600 focus:bg-white focus:ring-4 focus:ring-green-100' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-600 focus:bg-white focus:ring-4 focus:ring-indigo-100' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-600 focus:bg-white focus:ring-4 focus:ring-pink-100')
               }`}
-              placeholder="e.g. warrior123"
+              placeholder={mode === 'login' ? 'Enter your username' : 'e.g. warrior123'}
               value={name}
               onChange={(e: ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
             />
@@ -999,13 +1059,47 @@ const WelcomePage = ({ onSuccess, onDemoMode }: { onSuccess: () => void, onDemoM
               isDark ? (isGreen ? 'bg-green-500 hover:bg-green-400 shadow-green-500/40' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400 shadow-pink-500/40') : (isGreen ? 'bg-green-600 hover:bg-green-700 shadow-green-200' : isLgbt ? 'bg-gradient-to-r from-red-600 via-green-600 to-blue-700 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700 shadow-pink-200')
             } ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
           >
-            {loading ? 'Setting up...' : (
+            {loading ? (mode === 'login' ? 'Logging in...' : 'Setting up...') : (
               <>
-                Start Journey <ArrowRight className="w-5 h-5" />
+                {mode === 'login' ? (
+                  <>
+                    Login <ArrowRight className="w-5 h-5" />
+                  </>
+                ) : (
+                  <>
+                    Start Journey <ArrowRight className="w-5 h-5" />
+                  </>
+                )}
               </>
             )}
           </button>
         </form>
+
+        {mode === 'login' && (
+          <p className={`text-center text-sm mt-4 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+            Don't have an account?{' '}
+            <button
+              type="button"
+              onClick={() => { setMode('signup'); setError(''); }}
+              className={`font-bold ${isDark ? (isGreen ? 'text-green-400 hover:text-green-300' : isLgbt ? 'text-indigo-400 hover:text-indigo-300' : 'text-pink-400 hover:text-pink-300') : (isGreen ? 'text-green-600 hover:text-green-700' : isLgbt ? 'text-indigo-600 hover:text-indigo-700' : 'text-pink-600 hover:text-pink-700')}`}
+            >
+              Sign up here
+            </button>
+          </p>
+        )}
+
+        {mode === 'signup' && (
+          <p className={`text-center text-sm mt-4 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+            Already have an account?{' '}
+            <button
+              type="button"
+              onClick={() => { setMode('login'); setError(''); }}
+              className={`font-bold ${isDark ? (isGreen ? 'text-green-400 hover:text-green-300' : isLgbt ? 'text-indigo-400 hover:text-indigo-300' : 'text-pink-400 hover:text-pink-300') : (isGreen ? 'text-green-600 hover:text-green-700' : isLgbt ? 'text-indigo-600 hover:text-indigo-700' : 'text-pink-600 hover:text-pink-700')}`}
+            >
+              Login here
+            </button>
+          </p>
+        )}
       </div>
     </div>
   );
