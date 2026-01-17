@@ -276,6 +276,136 @@ const HABIT_THEMES_RAINBOW: HabitThemeData[] = [
     dark: { bg: 'bg-purple-900/20', border: 'border-purple-500/30', text: 'text-purple-100', icon: 'text-purple-400', hover: 'hover:bg-purple-900/40', check: 'bg-purple-500', gradient: 'from-purple-600 to-fuchsia-600' }
   },
 ];
+// HABIT TEMPLATES
+interface HabitTemplate {
+  title: string;
+  icon: string;
+  colorTheme: string;
+  category: 'student' | 'adult' | 'health' | 'productivity';
+  description: string;
+}
+
+const HABIT_TEMPLATES: HabitTemplate[] = [
+  // STUDENT TEMPLATES
+  { 
+    title: 'Study Session', 
+    icon: 'Book', 
+    colorTheme: 'Blue', 
+    category: 'student',
+    description: 'Daily focused study time'
+  },
+  { 
+    title: 'Review Lecture Notes', 
+    icon: 'Brain', 
+    colorTheme: 'Purple', 
+    category: 'student',
+    description: 'Go over today\'s class material'
+  },
+  { 
+    title: 'Practice Problems', 
+    icon: 'Target', 
+    colorTheme: 'Teal', 
+    category: 'student',
+    description: 'Solve practice questions'
+  },
+  { 
+    title: 'Read Textbook Chapter', 
+    icon: 'Book', 
+    colorTheme: 'Cyan', 
+    category: 'student',
+    description: 'Daily reading assignment'
+  },
+  
+  // HEALTH & FITNESS
+  { 
+    title: 'Morning Workout', 
+    icon: 'Dumbbell', 
+    colorTheme: 'Green', 
+    category: 'health',
+    description: 'Start your day with exercise'
+  },
+  { 
+    title: 'Drink 8 Glasses of Water', 
+    icon: 'Droplet', 
+    colorTheme: 'Cyan', 
+    category: 'health',
+    description: 'Stay hydrated throughout the day'
+  },
+  { 
+    title: 'Meditation', 
+    icon: 'Brain', 
+    colorTheme: 'Purple', 
+    category: 'health',
+    description: '10 minutes of mindfulness'
+  },
+  { 
+    title: 'Take Vitamins', 
+    icon: 'Pill', 
+    colorTheme: 'Orange', 
+    category: 'health',
+    description: 'Daily supplements routine'
+  },
+  
+  // PRODUCTIVITY
+  { 
+    title: 'Wake Up Early', 
+    icon: 'Coffee', 
+    colorTheme: 'Rose', 
+    category: 'productivity',
+    description: 'Rise before 7 AM'
+  },
+  { 
+    title: 'Morning Journaling', 
+    icon: 'Book', 
+    colorTheme: 'Violet', 
+    category: 'productivity',
+    description: 'Reflect and plan your day'
+  },
+  { 
+    title: 'No Phone Before 9 AM', 
+    icon: 'Target', 
+    colorTheme: 'Red', 
+    category: 'productivity',
+    description: 'Start day distraction-free'
+  },
+  { 
+    title: 'Plan Tomorrow', 
+    icon: 'Briefcase', 
+    colorTheme: 'Sky', 
+    category: 'productivity',
+    description: 'Evening planning session'
+  },
+  
+  // ADULT/CAREER
+  { 
+    title: 'Learn New Skill', 
+    icon: 'Brain', 
+    colorTheme: 'Emerald', 
+    category: 'adult',
+    description: '30 mins of professional development'
+  },
+  { 
+    title: 'Network with 1 Person', 
+    icon: 'Briefcase', 
+    colorTheme: 'Blue', 
+    category: 'adult',
+    description: 'Expand your professional circle'
+  },
+  { 
+    title: 'Side Project Work', 
+    icon: 'Target', 
+    colorTheme: 'Fuchsia', 
+    category: 'adult',
+    description: '1 hour on personal projects'
+  },
+  { 
+    title: 'Clean Workspace', 
+    icon: 'Home', 
+    colorTheme: 'Green', 
+    category: 'adult',
+    description: 'Organize your environment'
+  },
+];
 
 // --- Helper Functions ---
 const getTodayString = (): string => new Date().toISOString().split('T')[0];
@@ -428,6 +558,23 @@ const AnimationStyles = () => (
       background: linear-gradient(135deg, #4c0519 0%, #422006 20%, #064e3b 40%, #1e3a8a 60%, #4c1d95 80%, #701a75 100%);
       background-size: 200% 200%;
       animation: gradient-xy 15s ease infinite;
+    }
+    
+    .scrollbar-hide {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    .scrollbar-hide::-webkit-scrollbar {
+      display: none;
+    }
+    
+    .animate-fade-in {
+      animation: fade-in 0.3s ease-out;
+    }
+    
+    @keyframes fade-in {
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
   `}</style>
 );
@@ -873,7 +1020,7 @@ const WelcomePage = ({ onSuccess, onDemoMode }: { onSuccess: () => void, onDemoM
         }
 
         // Check if username is taken
-        const usernameRef = doc(db, 'artifacts', appId, 'public', 'data', 'usernames', normalizedUsername);
+        const usernameRef = doc(db, 'usernames', normalizedUsername);
         
         try {
           const usernameSnap = await getDoc(usernameRef);
@@ -888,11 +1035,11 @@ const WelcomePage = ({ onSuccess, onDemoMode }: { onSuccess: () => void, onDemoM
 
         // Reserve Username
         try {
-          await setDoc(usernameRef, { 
-            uid: userUser.uid,
-            username: username,
-            createdAt: serverTimestamp()
-          });
+             await setDoc(usernameRef, { 
+              uid: userUser.uid,
+              username: username,
+              createdAt: serverTimestamp()
+              });
         } catch (e) {
           console.warn("Could not reserve username publicly (permissions?)", e);
         }
@@ -922,10 +1069,10 @@ const WelcomePage = ({ onSuccess, onDemoMode }: { onSuccess: () => void, onDemoM
         
         // Store additional data
         try {
-          await setDoc(doc(db, 'artifacts', appId, 'users', userUser.uid, 'profile'), {
-            username: username, 
-            onboardingComplete: true,
-            createdAt: serverTimestamp()
+          await setDoc(doc(db, 'users', userUser.uid, 'profile'), {
+          username: username, 
+          onboardingComplete: true,
+          createdAt: serverTimestamp()
           });
         } catch (firestoreErr) {
           console.warn("Firestore write failed (likely permissions), continuing with auth only", firestoreErr);
@@ -1104,6 +1251,164 @@ const WelcomePage = ({ onSuccess, onDemoMode }: { onSuccess: () => void, onDemoM
     </div>
   );
 };
+// Template Browser Component
+const TemplateBrowser = ({ 
+  onSelectTemplate, 
+  onClose 
+}: { 
+  onSelectTemplate: (template: HabitTemplate) => void;
+  onClose: () => void;
+}) => {
+  const [selectedCategory, setSelectedCategory] = useState<'all' | 'student' | 'adult' | 'health' | 'productivity'>('all');
+  const { theme, accent } = useTheme();
+  const isDark = theme === 'dark';
+  const isGreen = accent === 'green';
+  const isLgbt = accent === 'lgbt';
+
+  const categories = [
+    { id: 'all', label: 'All Templates', icon: Layout },
+    { id: 'student', label: 'Student', icon: Book },
+    { id: 'adult', label: 'Career', icon: Briefcase },
+    { id: 'health', label: 'Health', icon: Heart },
+    { id: 'productivity', label: 'Productivity', icon: Zap },
+  ];
+
+  const filteredTemplates = selectedCategory === 'all' 
+    ? HABIT_TEMPLATES 
+    : HABIT_TEMPLATES.filter(t => t.category === selectedCategory);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}></div>
+      
+      <div className={`relative w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-3xl shadow-2xl animate-pop ${
+        isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'
+      } border-2`}>
+        
+        {/* Header */}
+        <div className={`sticky top-0 z-10 p-6 border-b backdrop-blur-md ${
+          isDark ? 'bg-slate-900/95 border-slate-800' : 'bg-white/95 border-slate-100'
+        }`}>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                isDark 
+                  ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-indigo-500/20 text-indigo-400' : 'bg-pink-500/20 text-pink-400')
+                  : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')
+              }`}>
+                <Sparkles className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Habit Templates
+                </h2>
+                <p className={`text-sm font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Choose a pre-made habit to get started quickly
+                </p>
+              </div>
+            </div>
+            <button 
+              onClick={onClose}
+              className={`p-2 rounded-xl transition ${
+                isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
+              }`}
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Category Filter */}
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+            {categories.map((cat) => {
+              const Icon = cat.icon;
+              const isSelected = selectedCategory === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCategory(cat.id as any)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm whitespace-nowrap transition ${
+                    isSelected
+                      ? (isDark 
+                          ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
+                          : (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white' : 'bg-pink-600 text-white')
+                        )
+                      : (isDark ? 'bg-slate-800 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {cat.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Templates Grid */}
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {filteredTemplates.map((template, idx) => {
+              const IconComponent = HABIT_ICONS.find(i => i.name === template.icon)?.icon || CheckCircle2;
+              
+              return (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    onSelectTemplate(template);
+                    onClose();
+                  }}
+                  className={`group text-left p-5 rounded-2xl border-2 transition-all duration-300 ${
+                    isDark 
+                      ? 'bg-slate-800 border-slate-700 hover:border-slate-600 hover:shadow-lg hover:shadow-slate-900'
+                      : (isGreen 
+                          ? 'bg-white border-green-100 hover:border-green-300 hover:shadow-lg hover:shadow-green-100'
+                          : isLgbt
+                            ? 'bg-white border-indigo-100 hover:border-indigo-300 hover:shadow-lg hover:shadow-indigo-100'
+                            : 'bg-white border-pink-100 hover:border-pink-300 hover:shadow-lg hover:shadow-pink-100'
+                        )
+                  }`}
+                  style={{ animationDelay: `${idx * 0.05}s` }}
+                >
+                  <div className="flex items-start gap-4">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition ${
+                      isDark
+                        ? (isGreen ? 'bg-green-900/40 text-green-400 group-hover:bg-green-900/60' : isLgbt ? 'bg-indigo-900/40 text-indigo-400 group-hover:bg-indigo-900/60' : 'bg-pink-900/40 text-pink-400 group-hover:bg-pink-900/60')
+                        : (isGreen ? 'bg-green-100 text-green-600 group-hover:bg-green-200' : isLgbt ? 'bg-indigo-100 text-indigo-600 group-hover:bg-indigo-200' : 'bg-pink-100 text-pink-600 group-hover:bg-pink-200')
+                    }`}>
+                      <IconComponent className="w-6 h-6" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className={`font-bold text-lg mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {template.title}
+                      </h3>
+                      <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {template.description}
+                      </p>
+                      <div className={`inline-flex items-center gap-1 mt-2 px-2 py-1 rounded-lg text-xs font-bold ${
+                        isDark ? 'bg-slate-700 text-slate-300' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        <span className="capitalize">{template.category}</span>
+                      </div>
+                    </div>
+                    <ChevronRight className={`w-5 h-5 opacity-0 group-hover:opacity-100 transition ${
+                      isDark ? 'text-slate-500' : 'text-slate-400'
+                    }`} />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {filteredTemplates.length === 0 && (
+            <div className={`text-center py-12 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+              <p className="text-lg font-bold mb-2">No templates found</p>
+              <p className="text-sm">Try selecting a different category</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // Dashboard Component
 const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => void }) => {
@@ -1111,6 +1416,7 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
   const [newHabitTitle, setNewHabitTitle] = useState('');
   const [newHabitIcon, setNewHabitIcon] = useState(HABIT_ICONS[0].name); // Added state for icon
   const [isAdding, setIsAdding] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);  // ← ADD THIS
   const [loading, setLoading] = useState(true);
   const [showCelebration, setShowCelebration] = useState(false);
   const [showStats, setShowStats] = useState(false);
@@ -1138,9 +1444,9 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
     
     // Firebase Real-time Listener
     const q = query(
-      collection(db, 'artifacts', appId, 'users', user.uid, 'habits'),
-      orderBy('createdAt', 'desc')
-    );
+     collection(db, 'users', user.uid, 'habits'),
+     orderBy('createdAt', 'desc')
+      );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const habitsData = snapshot.docs.map(doc => ({
@@ -1173,6 +1479,13 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
     }
   }, [progress, totalHabits]);
 
+  const selectTemplate = (template: HabitTemplate) => {
+    setNewHabitTitle(template.title);
+    setNewHabitIcon(template.icon);
+    setIsAdding(true);
+  };
+
+
   const addHabit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newHabitTitle.trim() || !user) return;
@@ -1201,10 +1514,10 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
     }
 
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'habits'), newHabit);
+      await addDoc(collection(db, 'users', user.uid, 'habits'), newHabit);
     } catch (error) {
       console.error("Error adding habit", error);
-      setToast({ id: Date.now().toString(), message: 'Failed to create habit.', type: 'error' });
+     setToast({ id: Date.now().toString(), message: 'Failed to create habit.', type: 'error' });
     }
   };
 
@@ -1228,13 +1541,13 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
     }
 
     try {
-      const habitRef = doc(db, 'artifacts', appId, 'users', user.uid, 'habits', habit.id);
-      await updateDoc(habitRef, {
-        completedDates: newDates
-      });
+     const habitRef = doc(db, 'users', user.uid, 'habits', habit.id);
+     await updateDoc(habitRef, {
+     completedDates: newDates
+     });
     } catch (error) {
-      console.error("Error updating habit", error);
-      setToast({ id: Date.now().toString(), message: 'Failed to update habit.', type: 'error' });
+     console.error("Error updating habit", error);
+     setToast({ id: Date.now().toString(), message: 'Failed to update habit.', type: 'error' });
     }
   };
 
@@ -1252,11 +1565,11 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
       return;
     }
 
-    deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'habits', habitId))
-      .catch((error) => {
-        console.error("Error deleting habit", error);
-        setToast({ id: Date.now().toString(), message: 'Failed to delete habit.', type: 'error' });
-      });
+     deleteDoc(doc(db, 'users', user.uid, 'habits', habitId))
+       .catch((error) => {
+         console.error("Error deleting habit", error);
+         setToast({ id: Date.now().toString(), message: 'Failed to delete habit.', type: 'error' });
+        });
   };
 
   // Helper to get correct theme set
@@ -1354,7 +1667,7 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <Heart className={`w-5 h-5 fill-current ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-red-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-red-500' : 'text-pink-600')}`} />
-                <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>Daily Health</h3>
+                <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>Habit Health</h3>
               </div>
               <p className={`text-sm font-medium ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
                 {progress === 100 ? "Amazing work! You're fully charged." : "Complete habits to boost your daily health."}
@@ -1408,22 +1721,48 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
           </div>
         </div>
 
-        {/* Add Habit Section */}
+         {/* Add Habit Section */}
         <div className="mb-8">
           {!isAdding ? (
-             <button 
-               onClick={() => setIsAdding(true)}
-               className={`group w-full py-5 border-2 border-dashed rounded-3xl font-bold transition flex items-center justify-center gap-3 text-lg ${
-                 isDark 
-                  ? (isGreen ? 'border-slate-800 text-slate-500 hover:border-green-500 hover:text-green-300 hover:bg-slate-900' : isLgbt ? 'border-slate-800 text-slate-500 hover:border-indigo-500 hover:text-indigo-300 hover:bg-slate-900' : 'border-slate-800 text-slate-500 hover:border-pink-500 hover:text-pink-300 hover:bg-slate-900') 
-                  : (isGreen ? 'border-green-200 text-green-400 hover:border-green-400 hover:text-green-600 hover:bg-green-50' : isLgbt ? 'border-indigo-200 text-indigo-400 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50' : 'border-pink-200 text-pink-400 hover:border-pink-400 hover:text-pink-600 hover:bg-pink-50')
-               }`}
-             >
-               <div className={`w-8 h-8 rounded-full flex items-center justify-center transition ${isDark ? (isGreen ? 'bg-slate-800 group-hover:bg-green-900/50' : isLgbt ? 'bg-slate-800 group-hover:bg-indigo-900/50' : 'bg-slate-800 group-hover:bg-pink-900/50') : (isGreen ? 'bg-green-100 group-hover:bg-green-200' : isLgbt ? 'bg-indigo-100 group-hover:bg-indigo-200' : 'bg-pink-100 group-hover:bg-pink-200')}`}>
-                 <Plus className={`w-5 h-5 ${isDark ? (isGreen ? 'text-slate-500 group-hover:text-green-300' : isLgbt ? 'text-slate-500 group-hover:text-indigo-300' : 'text-slate-500 group-hover:text-pink-300') : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')}`} />
-               </div>
-               Create New Habit
-             </button>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Browse Templates Button */}
+              <button 
+                onClick={() => setShowTemplates(true)}
+                className={`group py-5 border-2 rounded-3xl font-bold transition flex items-center justify-center gap-3 text-lg ${
+                  isDark 
+                    ? (isGreen ? 'border-green-500 bg-green-500/10 text-green-300 hover:bg-green-500/20' : isLgbt ? 'border-indigo-500 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20' : 'border-pink-500 bg-pink-500/10 text-pink-300 hover:bg-pink-500/20') 
+                    : (isGreen ? 'border-green-400 bg-green-50 text-green-600 hover:bg-green-100' : isLgbt ? 'border-indigo-400 bg-indigo-50 text-indigo-600 hover:bg-indigo-100' : 'border-pink-400 bg-pink-50 text-pink-600 hover:bg-pink-100')
+                }`}
+              >
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
+                  isDark 
+                    ? (isGreen ? 'bg-green-500/20 group-hover:bg-green-500/30' : isLgbt ? 'bg-indigo-500/20 group-hover:bg-indigo-500/30' : 'bg-pink-500/20 group-hover:bg-pink-500/30') 
+                    : (isGreen ? 'bg-green-200 group-hover:bg-green-300' : isLgbt ? 'bg-indigo-200 group-hover:bg-indigo-300' : 'bg-pink-200 group-hover:bg-pink-300')
+                }`}>
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                Browse Templates
+              </button>
+
+              {/* Create Custom Habit Button */}
+              <button 
+                onClick={() => setIsAdding(true)}
+                className={`group py-5 border-2 border-dashed rounded-3xl font-bold transition flex items-center justify-center gap-3 text-lg ${
+                  isDark 
+                    ? (isGreen ? 'border-slate-800 text-slate-500 hover:border-green-500 hover:text-green-300 hover:bg-slate-900' : isLgbt ? 'border-slate-800 text-slate-500 hover:border-indigo-500 hover:text-indigo-300 hover:bg-slate-900' : 'border-slate-800 text-slate-500 hover:border-pink-500 hover:text-pink-300 hover:bg-slate-900') 
+                    : (isGreen ? 'border-green-200 text-green-400 hover:border-green-400 hover:text-green-600 hover:bg-green-50' : isLgbt ? 'border-indigo-200 text-indigo-400 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50' : 'border-pink-200 text-pink-400 hover:border-pink-400 hover:text-pink-600 hover:bg-pink-50')
+                }`}
+              >
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
+                  isDark 
+                    ? (isGreen ? 'bg-slate-800 group-hover:bg-green-900/50' : isLgbt ? 'bg-slate-800 group-hover:bg-indigo-900/50' : 'bg-slate-800 group-hover:bg-pink-900/50') 
+                    : (isGreen ? 'bg-green-100 group-hover:bg-green-200' : isLgbt ? 'bg-indigo-100 group-hover:bg-indigo-200' : 'bg-pink-100 group-hover:bg-pink-200')
+                }`}>
+                  <Plus className="w-5 h-5" />
+                </div>
+                Create Custom Habit
+              </button>
+            </div>
           ) : (
             <form onSubmit={addHabit} className={`p-6 rounded-3xl shadow-xl border animate-pop ${isDark ? 'bg-slate-900 border-slate-700 shadow-slate-950' : (isGreen ? 'bg-white shadow-green-100 border-green-100' : isLgbt ? 'bg-white shadow-indigo-100 border-indigo-100' : 'bg-white shadow-pink-100 border-pink-100')}`}>
               <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>What's your new goal?</h3>
@@ -1564,6 +1903,14 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
             );
           })}
         </div>
+
+        {/* Template Browser Modal */}
+        {showTemplates && (
+          <TemplateBrowser 
+            onSelectTemplate={selectTemplate}
+            onClose={() => setShowTemplates(false)}
+          />
+        )}
       </main>
     </div>
   );
