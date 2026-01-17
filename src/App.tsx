@@ -114,6 +114,8 @@ interface Habit {
   colorTheme?: string;
   icon?: string;
   order?: number;
+  reminderTime?: string;
+  reminderEnabled?: boolean;
 }
 
 interface UserProfile {
@@ -481,6 +483,41 @@ const getCurrentWeekDays = () => {
   return days;
 };
 
+
+const scheduleNotification = (habit: Habit) => {
+  if (!habit.reminderEnabled || !habit.reminderTime) return;
+  if ('Notification' in window && Notification.permission === 'granted') {
+    const [hours, minutes] = habit.reminderTime.split(':');
+    const now = new Date();
+    const scheduledTime = new Date();
+    scheduledTime.setHours(parseInt(hours), parseInt(minutes), 0);
+    
+    if (scheduledTime <= now) {
+      scheduledTime.setDate(scheduledTime.getDate() + 1);
+    }
+    
+    const timeUntil = scheduledTime.getTime() - now.getTime();
+    
+    setTimeout(() => {
+      const today = getTodayString();
+      const isCompleted = habit.completedDates?.includes(today);
+      
+      if (!isCompleted) {
+        new Notification(`⏰ Time for: ${habit.title}`, {
+          body: habit.streak > 0 
+            ? `You're on a ${habit.streak}-day streak! Don't break it today!` 
+            : "Let's build this habit together!",
+          icon: '/icon-192.png',
+          badge: '/icon-192.png',
+          tag: habit.id,
+          requireInteraction: false
+        });
+      }
+      
+      setTimeout(() => scheduleNotification(habit), 24 * 60 * 60 * 1000);
+    }, timeUntil);
+  }
+};
 // --- Animations Style Block ---
 const AnimationStyles = () => (
   <style>{`
@@ -1392,7 +1429,11 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
     };
   }, []);
   // 👆 ADD UNTIL HERE
-  
+   useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
   
   const { theme, accent } = useTheme();
   const isDark = theme === 'dark';
@@ -1446,6 +1487,13 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
 
     return () => unsubscribe();
   }, [user]);
+   useEffect(() => {
+    habits.forEach(habit => {
+      if (habit.reminderEnabled) {
+        scheduleNotification(habit);
+      }
+    });
+  }, [habits]);
 
   const today = getTodayString();
   const totalHabits = habits.length;
@@ -1873,7 +1921,27 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
 
                 <div className="flex items-center justify-between w-full md:w-auto gap-4 relative z-10 pl-[88px] md:pl-0">
                   <WeeklyProgress completedDates={habit.completedDates} />
-                  
+                  <button
+                    onClick={() => {
+                      const updatedHabits = habits.map(h => 
+                        h.id === habit.id 
+                          ? { ...h, reminderEnabled: !h.reminderEnabled, reminderTime: h.reminderTime || '09:00' }
+                          : h
+                      );
+                      setHabits(updatedHabits);
+                      if (user.uid === 'demo-user') {
+                        localStorage.setItem('demo_habits', JSON.stringify(updatedHabits));
+                      }
+                    }}
+                    className={`p-3 rounded-xl transition ${
+                      habit.reminderEnabled
+                        ? (isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
+                        : (isDark ? 'text-slate-600 hover:bg-slate-800' : 'text-slate-300 hover:bg-slate-100')
+                    }`}
+                    title={habit.reminderEnabled ? "Reminder On" : "Reminder Off"}
+                  >
+                    <span className="text-lg">{habit.reminderEnabled ? '🔔' : '🔕'}</span>
+                  </button>
                   <button 
                     onClick={() => deleteHabit(habit.id)}
                     className={`opacity-0 group-hover:opacity-100 transition-opacity p-3 rounded-xl ${
