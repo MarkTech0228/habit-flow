@@ -1985,20 +1985,26 @@ const PWAInstallPrompt = () => {
   const isLgbt = accent === 'lgbt';
 
   useEffect(() => {
-    const handler = (e: Event) => {
+    const handler = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
       setShowInstall(true);
     };
-
+    
     window.addEventListener('beforeinstallprompt', handler);
     
-    // Check if already installed
     if (window.matchMedia('(display-mode: standalone)').matches) {
       setShowInstall(false);
     }
-
+    
     return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  useEffect(() => {
+    const dismissed = localStorage.getItem('pwa-install-dismissed');
+    if (dismissed && Date.now() - parseInt(dismissed) < 7 * 24 * 60 * 60 * 1000) {
+      setShowInstall(false);
+    }
   }, []);
 
   const handleInstall = async () => {
@@ -2013,10 +2019,15 @@ const PWAInstallPrompt = () => {
     setDeferredPrompt(null);
   };
 
+  const handleDismiss = () => {
+    setShowInstall(false);
+    localStorage.setItem('pwa-install-dismissed', Date.now().toString());
+  };
+
   if (!showInstall) return null;
 
   return (
-    <div className="fixed bottom-6 left-4 right-4 z-50 animate-slide-up">
+    <div className="fixed bottom-6 left-4 right-4 z-50 animate-slide-up max-w-md mx-auto">
       <div className={`p-4 rounded-2xl shadow-2xl flex items-center justify-between backdrop-blur-xl border-2 ${
         isDark 
           ? (isGreen ? 'bg-green-900/90 border-green-700' : isLgbt ? 'bg-gradient-to-r from-red-900/90 to-blue-900/90 border-indigo-700' : 'bg-pink-900/90 border-pink-700')
@@ -2041,7 +2052,7 @@ const PWAInstallPrompt = () => {
             Install
           </button>
           <button
-            onClick={() => setShowInstall(false)}
+            onClick={handleDismiss}
             className="p-2 hover:bg-white/20 rounded-lg transition"
           >
             <X className="w-5 h-5" />
@@ -2051,6 +2062,7 @@ const PWAInstallPrompt = () => {
     </div>
   );
 };
+
 // 5. Main App Container
 const App = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
