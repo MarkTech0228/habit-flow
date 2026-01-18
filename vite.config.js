@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
-  base: '/my-habit-app/',
+  base: process.env.VITE_BASE_PATH || '/',  // ✅ Dynamic base path
   plugins: [
     react(),
     VitePWA({
@@ -17,8 +17,8 @@ export default defineConfig({
         background_color: '#fdf2f8',
         display: 'standalone',
         orientation: 'portrait',
-        scope: '/my-habit-app/',
-        start_url: '/my-habit-app/',
+        scope: '/',           // ✅ Always use '/' for manifest
+        start_url: '/',       // ✅ Always use '/' for manifest
         icons: [
           {
             src: 'icon-192.png',
@@ -35,9 +35,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-         skipWaiting: true,
-         clientsClaim: true,
-         navigateFallback: null,
+        skipWaiting: true,
+        clientsClaim: true,
+        navigateFallback: null,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/firebasestorage\.googleapis\.com\/.*/i,

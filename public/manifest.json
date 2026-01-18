@@ -1,5 +1,6 @@
 {
-  "name": "HabitFlow - Habit Tracker",
+
+  "name": "HabitFlow",
   "short_name": "HabitFlow",
   "description": "Track your daily habits and build better routines",
   "start_url": "/",
