@@ -78,7 +78,6 @@ import {
   Timestamp
 } from "firebase/firestore";
 
-// Initialize Firebase with environment configuration provided by the platform
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -89,10 +88,16 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-// Add validation
+// Debug: Log what we have
+console.log('Environment check:', {
+  hasApiKey: !!import.meta.env.VITE_FIREBASE_API_KEY,
+  hasProjectId: !!import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  allEnvVars: Object.keys(import.meta.env).filter(k => k.startsWith('VITE_'))
+});
+
 if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
   console.error('Firebase configuration is missing!');
-  console.error('Please check your .env.local file');
+  console.error('Available env vars:', Object.keys(import.meta.env));
   throw new Error('Firebase configuration is incomplete');
 }
 // Initialize Firebase
