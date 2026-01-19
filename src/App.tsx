@@ -816,7 +816,7 @@ const WeeklyProgress = ({ completedDates }: { completedDates: string[] }) => {
             style={{ animationDelay: `${idx * 0.05}s` }}
           >
             <div 
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold transition-all duration-300 ${
+              className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full text-[9px] sm:text-[10px] flex items-center justify-center text-[10px] font-bold transition-all duration-300 ${
                 isCompleted 
                   ? `bg-gradient-to-br ${isGreen ? 'from-green-500 to-emerald-500' : isLgbt ? 'from-red-500 via-yellow-500 to-blue-500' : 'from-pink-500 to-rose-500'} text-white shadow-md ${isDark ? (isGreen ? 'shadow-green-500/40' : isLgbt ? 'shadow-indigo-500/40' : 'shadow-pink-500/40') : (isGreen ? 'shadow-green-300' : isLgbt ? 'shadow-indigo-300' : 'shadow-pink-300')}` 
                   : day.isToday
@@ -1619,7 +1619,7 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
   };
 
   return (
-    <div className={`min-h-screen font-sans pb-20 transition-colors duration-500 relative overflow-hidden ${isDark ? (isLgbt ? 'bg-rainbow-dark text-slate-100' : 'bg-slate-950 text-slate-100') : isGreen ? 'bg-[#F0FDF4] text-slate-900' : isLgbt ? 'bg-rainbow-light text-slate-900' : 'bg-[#FDF2F8] text-slate-900'}`}>
+    <div className={`min-h-screen w-full overflow-x-hidden font-sans pb-20 px-4 sm:px-6 transition-colors duration-500 relative overflow-hidden ${isDark ? (isLgbt ? 'bg-rainbow-dark text-slate-100' : 'bg-slate-950 text-slate-100') : isGreen ? 'bg-[#F0FDF4] text-slate-900' : isLgbt ? 'bg-rainbow-light text-slate-900' : 'bg-[#FDF2F8] text-slate-900'}`}>
       <AnimationStyles />
       {!isOnline && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-yellow-500 text-white px-6 py-3 rounded-full font-bold text-sm shadow-2xl animate-bounce">
@@ -1656,7 +1656,7 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
 
       {/* Top Bar */}
       <div className={`backdrop-blur-md border-b sticky top-0 z-20 transition-colors duration-300 relative ${isDark ? (isGreen ? 'bg-green-900/80 border-green-800 shadow-green-900/40' : isLgbt ? 'bg-slate-900/80 border-slate-800' : 'bg-pink-900/80 border-pink-800 shadow-pink-900/40') : (isGreen ? 'bg-green-600/90 border-green-700' : isLgbt ? 'bg-white/80 border-slate-200' : 'bg-pink-600/90 border-pink-700')}`}>
-        <div className="max-w-5xl mx-auto px-6 h-20 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-md ${isDark ? (isGreen ? 'bg-green-500 shadow-green-500/50 text-white' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-500 shadow-pink-500/50 text-white') : (isGreen ? 'bg-white text-green-600 shadow-lg' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white shadow-lg' : 'bg-white text-pink-600 shadow-lg')}`}>
               <TrendingUp className="w-6 h-6" />
@@ -1729,7 +1729,7 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-10">
           <div className={`p-5 rounded-3xl shadow-sm border transition ${isDark ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : (isGreen ? 'bg-white border-green-100 hover:shadow-lg hover:shadow-green-100' : isLgbt ? 'bg-white border-indigo-100 hover:shadow-lg hover:shadow-indigo-100' : 'bg-white border-pink-100 hover:shadow-lg hover:shadow-pink-100')}`}>
             <div className={`w-10 h-10 rounded-2xl flex items-center justify-center mb-3 ${isDark ? (isGreen ? 'bg-green-900/40 text-green-300' : isLgbt ? 'bg-indigo-900/40 text-indigo-300' : 'bg-pink-900/40 text-pink-300') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')}`}>
                <Layout className="w-5 h-5" />
@@ -1891,7 +1891,7 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
               <div 
                 key={habit.id} 
                 style={{ animationDelay: `${idx * 0.05}s` }}
-                className={`group relative p-6 rounded-3xl border-2 transition-all duration-300 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-pop ${
+                className={`group relative p-4 sm:p-6 rounded-2xl sm:rounded-3xl border-2 transition-all duration-300 flex flex-col items-start justify-between gap-4 animate-pop ${
                   isCompletedToday 
                     ? `${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`
                     : `${isDark ? 'bg-slate-900 border-slate-900 hover:border-slate-700 hover:shadow-lg hover:shadow-slate-900' : (isGreen ? 'bg-white border-white hover:border-green-100 hover:shadow-lg hover:shadow-green-100' : isLgbt ? 'bg-white border-white hover:border-indigo-100 hover:shadow-lg hover:shadow-indigo-100' : 'bg-white border-white hover:border-pink-100 hover:shadow-lg hover:shadow-pink-100')} shadow-sm`

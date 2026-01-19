@@ -3,32 +3,38 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     
-    <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#4F46E5" />
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#ec4899" />
+    <meta name="description" content="Track your daily habits and build consistency with HabitFlow - completely free forever!" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
-
+    
+    <!-- iOS Specific -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="HabitFlow" />
+    
     <!-- SEO Meta Tags -->
-    <title>HabitFlow - Free Habit Tracker App</title>
-    <meta name="description" content="Track your daily habits, build consistency, and achieve your goals with HabitFlow. A simple, free habit tracker to help you stay motivated and build better routines." />
     <meta name="keywords" content="habit tracker, habit tracking app, daily habits, goal tracking, productivity, free habit tracker" />
     <meta name="author" content="MarkTech0228" />
     
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://habitflowwe.netlify.app/" />
+    <meta property="og:url" content="https://ihabitflow.netlify.app/" />
     <meta property="og:title" content="HabitFlow - Free Habit Tracker App" />
     <meta property="og:description" content="Track your daily habits and build better routines with HabitFlow - completely free forever!" />
     
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image" />
-    <meta property="twitter:url" content="https://habitflowwe.netlify.app/" />
+    <meta property="twitter:url" content="https://ihabitflow.netlify.app/" />
     <meta property="twitter:title" content="HabitFlow - Free Habit Tracker App" />
     <meta property="twitter:description" content="Track your daily habits and build better routines with HabitFlow - completely free forever!" />
+    
+    <title>HabitFlow - Free Habit Tracker App</title>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
