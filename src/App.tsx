@@ -806,17 +806,17 @@ const WeeklyProgress = ({ completedDates }: { completedDates: string[] }) => {
   const days = getCurrentWeekDays();
 
   return (
-    <div className="flex gap-2">
+    <div className="flex gap-1 sm:gap-2 overflow-x-auto scrollbar-hide pb-1">
       {days.map((day, idx) => {
         const isCompleted = completedDates.includes(day.date);
         return (
           <div 
             key={day.date} 
-            className="flex flex-col items-center gap-1.5"
+            className="flex flex-col items-center gap-1 flex-shrink-0"
             style={{ animationDelay: `${idx * 0.05}s` }}
           >
             <div 
-              className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full text-[9px] sm:text-[10px] flex items-center justify-center text-[10px] font-bold transition-all duration-300 ${
+              className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[9px] sm:text-[10px] font-bold transition-all duration-300 ${
                 isCompleted 
                   ? `bg-gradient-to-br ${isGreen ? 'from-green-500 to-emerald-500' : isLgbt ? 'from-red-500 via-yellow-500 to-blue-500' : 'from-pink-500 to-rose-500'} text-white shadow-md ${isDark ? (isGreen ? 'shadow-green-500/40' : isLgbt ? 'shadow-indigo-500/40' : 'shadow-pink-500/40') : (isGreen ? 'shadow-green-300' : isLgbt ? 'shadow-indigo-300' : 'shadow-pink-300')}` 
                   : day.isToday
@@ -826,7 +826,7 @@ const WeeklyProgress = ({ completedDates }: { completedDates: string[] }) => {
             >
               {day.label.charAt(0)}
             </div>
-            <span className={`text-[9px] font-bold uppercase tracking-wide ${day.isToday ? (isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')) : (isDark ? 'text-slate-600' : 'text-slate-400')}`}>
+            <span className={`text-[8px] sm:text-[9px] font-bold uppercase tracking-wide ${day.isToday ? (isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')) : (isDark ? 'text-slate-600' : 'text-slate-400')}`}>
               {day.label}
             </span>
           </div>
