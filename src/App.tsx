@@ -1407,7 +1407,147 @@ const TemplateBrowser = ({
     </div>
   );
 };
+// Reminder Settings Modal
+const ReminderModal = ({ 
+  habit, 
+  onClose, 
+  onSave 
+}: { 
+  habit: Habit;
+  onClose: () => void;
+  onSave: (enabled: boolean, time: string) => void;
+}) => {
+  const [enabled, setEnabled] = useState(habit.reminderEnabled || false);
+  const [time, setTime] = useState(habit.reminderTime || '09:00');
+  const { theme, accent } = useTheme();
+  const isDark = theme === 'dark';
+  const isGreen = accent === 'green';
+  const isLgbt = accent === 'lgbt';
 
+  const handleSave = () => {
+    onSave(enabled, time);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}></div>
+      
+      <div className={`relative w-full max-w-md rounded-3xl shadow-2xl p-6 animate-pop ${
+        isDark ? 'bg-slate-900 border-2 border-slate-800' : 'bg-white border-2 border-slate-100'
+      }`}>
+        
+        <button 
+          onClick={onClose}
+          className={`absolute top-4 right-4 p-2 rounded-xl transition ${
+            isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
+          }`}
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        <div className="text-center mb-6">
+          <div className={`inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-3 ${
+            isDark 
+              ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-indigo-500/20 text-indigo-400' : 'bg-pink-500/20 text-pink-400')
+              : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')
+          }`}>
+            <span className="text-2xl">🔔</span>
+          </div>
+          <h2 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            Daily Reminder
+          </h2>
+          <p className={`text-sm font-medium mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+            for "{habit.title}"
+          </p>
+        </div>
+
+        <div className="space-y-5">
+          {/* Enable/Disable Toggle */}
+          <div className={`p-4 rounded-2xl border-2 ${
+            isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'
+          }`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Enable Reminder
+                </p>
+                <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Get notified daily
+                </p>
+              </div>
+              <button
+                onClick={() => setEnabled(!enabled)}
+                className={`w-14 h-8 rounded-full transition-all duration-300 relative ${
+                  enabled 
+                    ? (isDark 
+                        ? (isGreen ? 'bg-green-500' : isLgbt ? 'bg-indigo-500' : 'bg-pink-500')
+                        : (isGreen ? 'bg-green-600' : isLgbt ? 'bg-indigo-600' : 'bg-pink-600')
+                      )
+                    : (isDark ? 'bg-slate-700' : 'bg-slate-300')
+                }`}
+              >
+                <div className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-all duration-300 ${
+                  enabled ? 'left-7' : 'left-1'
+                }`}></div>
+              </button>
+            </div>
+          </div>
+
+          {/* Time Picker */}
+          {enabled && (
+            <div>
+              <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Reminder Time
+              </label>
+              <input
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+                className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-bold text-xl text-center ${
+                  isDark 
+                    ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-500')
+                    : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500')
+                }`}
+              />
+            </div>
+          )}
+
+          {/* Permission Warning */}
+          {enabled && 'Notification' in window && Notification.permission !== 'granted' && (
+            <div className={`p-3 rounded-xl text-sm font-medium ${
+              isDark ? 'bg-yellow-900/30 text-yellow-300 border border-yellow-800' : 'bg-yellow-50 text-yellow-800 border border-yellow-200'
+            }`}>
+              ⚠️ Please allow notifications in your browser settings
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex gap-3 pt-2">
+            <button
+              onClick={handleSave}
+              className={`flex-1 text-white py-4 rounded-2xl font-bold text-lg transition shadow-lg hover:-translate-y-0.5 ${
+                isDark 
+                  ? (isGreen ? 'bg-green-500 hover:bg-green-400 shadow-green-500/40' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400 shadow-pink-500/40')
+                  : (isGreen ? 'bg-green-600 hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700')
+              }`}
+            >
+              Save Reminder
+            </button>
+            <button
+              onClick={onClose}
+              className={`px-6 py-4 rounded-2xl font-bold transition ${
+                isDark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'
+              }`}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 // Dashboard Component
 const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => void }) => {
   const [habits, setHabits] = useState<Habit[]>([]);
@@ -1419,6 +1559,7 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
   const [showCelebration, setShowCelebration] = useState(false);
   
   const [showStats, setShowStats] = useState(false);
+  const [reminderHabit, setReminderHabit] = useState<Habit | null>(null);
   
   // 👇 ADD FROM HERE
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -1606,6 +1747,38 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
          setToast({ id: Date.now().toString(), message: 'Failed to delete habit.', type: 'error' });
         });
   };
+  const saveReminder = async (habitId: string, enabled: boolean, time: string) => {
+  if (!user) return;
+
+  const updatedHabits = habits.map(h => 
+    h.id === habitId 
+      ? { ...h, reminderEnabled: enabled, reminderTime: time }
+      : h
+  );
+  setHabits(updatedHabits);
+
+  if (user.uid === 'demo-user') {
+    localStorage.setItem('demo_habits', JSON.stringify(updatedHabits));
+    return;
+  }
+
+  try {
+    const habitRef = doc(db, 'users', user.uid, 'habits', habitId);
+    await updateDoc(habitRef, {
+      reminderEnabled: enabled,
+      reminderTime: time
+    });
+    
+    setToast({ 
+      id: Date.now().toString(), 
+      message: enabled ? `Reminder set for ${time}` : 'Reminder disabled', 
+      type: 'success' 
+    });
+  } catch (error) {
+    console.error("Error updating reminder", error);
+    setToast({ id: Date.now().toString(), message: 'Failed to update reminder.', type: 'error' });
+  }
+};
 
   // Helper to get correct theme set
   const getColorTheme = (str: string) => {
@@ -1890,63 +2063,113 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
             return (
               <div 
                 key={habit.id} 
-                style={{ animationDelay: `${idx * 0.05}s` }}
-               className={`group relative p-4 sm:p-6 rounded-2xl sm:rounded-3xl border-2 transition-all duration-300 animate-pop ${
-                isCompletedToday 
-                ? `${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`
-                : `${isDark ? 'bg-slate-900 border-slate-900 hover:border-slate-700 hover:shadow-lg hover:shadow-slate-900' : (isGreen ? 'bg-white border-white hover:border-green-100 hover:shadow-lg hover:shadow-green-100' : isLgbt ? 'bg-white border-white hover:border-indigo-100 hover:shadow-lg hover:shadow-indigo-100' : 'bg-white border-white hover:border-pink-100 hover:shadow-lg hover:shadow-pink-100')} shadow-sm`
-          }`}
-              >
-                <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition duration-500 rounded-3xl bg-gradient-to-r ${themeBase.light.bg.replace('bg-', 'from-white via-white to-')}/30 pointer-events-none`}></div>
+  style={{ animationDelay: `${idx * 0.05}s` }}
+  className={`group relative p-4 sm:p-6 rounded-2xl sm:rounded-3xl border-2 transition-all duration-300 animate-pop ${
+    isCompletedToday 
+      ? `${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`
+      : `${isDark ? 'bg-slate-900 border-slate-900 hover:border-slate-700 hover:shadow-lg hover:shadow-slate-900' : (isGreen ? 'bg-white border-white hover:border-green-100 hover:shadow-lg hover:shadow-green-100' : isLgbt ? 'bg-white border-white hover:border-indigo-100 hover:shadow-lg hover:shadow-indigo-100' : 'bg-white border-white hover:border-pink-100 hover:shadow-lg hover:shadow-pink-100')} shadow-sm`
+  }`}
+>
+  <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition duration-500 rounded-3xl bg-gradient-to-r ${themeBase.light.bg.replace('bg-', 'from-white via-white to-')}/30 pointer-events-none`}></div>
 
-               {/* Top Row: Icon, Title, Actions */}
-               <div className="flex items-center justify-between gap-4 relative z-10">
-               <div className="flex items-center gap-4 flex-1">
-               <ConfettiCheck 
-               isChecked={!!isCompletedToday} 
-               onClick={() => toggleCheckIn(habit)} 
-               themeColor={theme.check}
-                icon={habit.icon}
-              />
-      
-              <div className="flex-1 min-w-0">
-              <h3 className={`font-bold text-lg sm:text-xl transition-colors truncate ${
-              isCompletedToday 
+  {/* MOBILE LAYOUT - Stack everything vertically */}
+  <div className="block sm:hidden relative z-10">
+    {/* Row 1: Check icon + Title + Actions */}
+    <div className="flex items-center justify-between gap-3 mb-3">
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        <ConfettiCheck 
+          isChecked={!!isCompletedToday} 
+          onClick={() => toggleCheckIn(habit)} 
+          themeColor={theme.check}
+          icon={habit.icon}
+        />
+        
+        <div className="flex-1 min-w-0">
+          <h3 className={`font-bold text-lg transition-colors truncate ${
+            isCompletedToday 
               ? `${isDark ? 'text-slate-600 decoration-slate-700' : (isGreen ? 'text-slate-400 decoration-green-200' : isLgbt ? 'text-slate-400 decoration-indigo-200' : 'text-slate-400 decoration-pink-200')} line-through decoration-2` 
-             : `${isDark ? 'text-slate-100' : 'text-slate-800'}`
+              : `${isDark ? 'text-slate-100' : 'text-slate-800'}`
           }`}>
             {habit.title}
-            </h3>
-            <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold mt-1 ${theme.bg} ${theme.text} ${theme.border} border`}>
+          </h3>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-bold mt-1 ${theme.bg} ${theme.text} ${theme.border} border`}>
             <Flame className={`w-3 h-3 mr-1 ${theme.icon}`} />
-            {habit.streak} day streak
-        </span>
+            {habit.streak} days
+          </span>
+        </div>
+      </div>
+
+      {/* Mobile Actions */}
+      <div className="flex items-center gap-1">
+        <button
+  onClick={() => setReminderHabit(habit)}
+  className={`p-2 rounded-xl transition ${
+    habit.reminderEnabled
+      ? (isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
+      : (isDark ? 'text-slate-600 hover:bg-slate-800' : 'text-slate-300 hover:bg-slate-100')
+  }`}
+>
+  <span className="text-base">{habit.reminderEnabled ? '🔔' : '🔕'}</span>
+</button>
+        <button 
+          onClick={() => deleteHabit(habit.id)}
+          className={`p-2 rounded-xl ${
+            isDark 
+              ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' 
+              : 'text-slate-300 hover:text-red-500 hover:bg-red-50'
+          }`}
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
       </div>
     </div>
 
-    {/* Desktop Actions - Hidden on Mobile */}
-    <div className="hidden sm:flex items-center gap-2">
+    {/* Row 2: Weekly Progress - Full Width Below */}
+    <div className="w-full">
+      <WeeklyProgress completedDates={habit.completedDates} />
+    </div>
+  </div>
+
+  {/* DESKTOP/TABLET LAYOUT - Original side-by-side */}
+  <div className="hidden sm:flex items-center justify-between gap-6 relative z-10">
+    <div className="flex items-center gap-6 flex-1">
+      <ConfettiCheck 
+        isChecked={!!isCompletedToday} 
+        onClick={() => toggleCheckIn(habit)} 
+        themeColor={theme.check}
+        icon={habit.icon}
+      />
+      
+      <div className="flex-1">
+        <h3 className={`font-bold text-xl transition-colors ${
+          isCompletedToday 
+            ? `${isDark ? 'text-slate-600 decoration-slate-700' : (isGreen ? 'text-slate-400 decoration-green-200' : isLgbt ? 'text-slate-400 decoration-indigo-200' : 'text-slate-400 decoration-pink-200')} line-through decoration-2` 
+            : `${isDark ? 'text-slate-100' : 'text-slate-800'}`
+        }`}>
+          {habit.title}
+        </h3>
+        <div className="flex items-center gap-3 mt-2">
+          <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${theme.bg} ${theme.text} ${theme.border} border`}>
+            <Flame className={`w-3 h-3 mr-1 ${theme.icon}`} />
+            {habit.streak} day streak
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div className="flex items-center gap-4">
+      <WeeklyProgress completedDates={habit.completedDates} />
       <button
-        onClick={() => {
-          const updatedHabits = habits.map(h => 
-            h.id === habit.id 
-              ? { ...h, reminderEnabled: !h.reminderEnabled, reminderTime: h.reminderTime || '09:00' }
-              : h
-          );
-          setHabits(updatedHabits);
-          if (user.uid === 'demo-user') {
-            localStorage.setItem('demo_habits', JSON.stringify(updatedHabits));
-          }
-        }}
-        className={`p-3 rounded-xl transition ${
-          habit.reminderEnabled
-            ? (isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
-            : (isDark ? 'text-slate-600 hover:bg-slate-800' : 'text-slate-300 hover:bg-slate-100')
-        }`}
-        title={habit.reminderEnabled ? "Reminder On" : "Reminder Off"}
-      >
-        <span className="text-lg">{habit.reminderEnabled ? '🔔' : '🔕'}</span>
-      </button>
+  onClick={() => setReminderHabit(habit)}
+  className={`p-3 rounded-xl transition ${
+    habit.reminderEnabled
+      ? (isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
+      : (isDark ? 'text-slate-600 hover:bg-slate-800' : 'text-slate-300 hover:bg-slate-100')
+  }`}
+  title={habit.reminderEnabled ? "Reminder On" : "Reminder Off"}
+>
+  <span className="text-lg">{habit.reminderEnabled ? '🔔' : '🔕'}</span>
+</button>
       <button 
         onClick={() => deleteHabit(habit.id)}
         className={`opacity-0 group-hover:opacity-100 transition-opacity p-3 rounded-xl ${
@@ -1957,47 +2180,6 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
         title="Delete Habit"
       >
         <Trash2 className="w-5 h-5" />
-      </button>
-    </div>
-  </div>
-
-  {/* Bottom Row: Weekly Progress (always visible) + Mobile Actions */}
-  <div className="flex items-center justify-between gap-4 mt-4 relative z-10">
-    <div className="flex-1">
-      <WeeklyProgress completedDates={habit.completedDates} />
-    </div>
-    
-    {/* Mobile Actions - Only visible on small screens */}
-    <div className="flex sm:hidden items-center gap-2">
-      <button
-        onClick={() => {
-          const updatedHabits = habits.map(h => 
-            h.id === habit.id 
-              ? { ...h, reminderEnabled: !h.reminderEnabled, reminderTime: h.reminderTime || '09:00' }
-              : h
-          );
-          setHabits(updatedHabits);
-          if (user.uid === 'demo-user') {
-            localStorage.setItem('demo_habits', JSON.stringify(updatedHabits));
-          }
-        }}
-        className={`p-2 rounded-xl transition ${
-          habit.reminderEnabled
-            ? (isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
-            : (isDark ? 'text-slate-600 hover:bg-slate-800' : 'text-slate-300 hover:bg-slate-100')
-        }`}
-      >
-        <span className="text-base">{habit.reminderEnabled ? '🔔' : '🔕'}</span>
-      </button>
-      <button 
-        onClick={() => deleteHabit(habit.id)}
-        className={`p-2 rounded-xl ${
-          isDark 
-            ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' 
-            : 'text-slate-300 hover:text-red-500 hover:bg-red-50'
-        }`}
-      >
-        <Trash2 className="w-4 h-4" />
       </button>
     </div>
   </div>
