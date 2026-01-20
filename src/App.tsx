@@ -95,19 +95,25 @@ console.log('Environment check:', {
   allEnvVars: Object.keys(import.meta.env).filter(k => k.startsWith('VITE_'))
 });
 
-if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
-  console.error('Firebase configuration is missing!');
-  console.error('Available env vars:', Object.keys(import.meta.env));
-  throw new Error('Firebase configuration is incomplete');
+// Initialize Firebase only if config is complete
+const isMissingConfig = !firebaseConfig.apiKey || !firebaseConfig.projectId;
+
+let app: any;
+let analytics: any;
+let auth: any;
+let db: any;
+
+if (!isMissingConfig) {
+  app = initializeApp(firebaseConfig);
+  analytics = getAnalytics(app);
+  auth = getAuth(app);
+  db = getFirestore(app);
+} else {
+  console.warn('⚠️ Firebase not configured - app will run in demo-only mode');
+  console.warn('Available env vars:', Object.keys(import.meta.env).filter(k => k.startsWith('VITE_')));
 }
-// Initialize Firebase
 
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
-const auth = getAuth(app);
-const db = getFirestore(app);
 const appId = firebaseConfig.appId;
-
 // --- Types & Constants ---
 interface Habit {
   id: string;
@@ -121,6 +127,14 @@ interface Habit {
   order?: number;
   reminderTime?: string;
   reminderEnabled?: boolean;
+}
+interface TodoItem {
+  id: string;
+  title: string;
+  completed: boolean;
+  createdAt: any;
+  priority?: 'low' | 'medium' | 'high';
+  dueDate?: string;
 }
 
 interface UserProfile {
@@ -415,8 +429,20 @@ const HABIT_TEMPLATES: HabitTemplate[] = [
 ];
 
 // --- Helper Functions ---
-const getTodayString = (): string => new Date().toISOString().split('T')[0];
-const getYesterdayString = (): string => new Date(Date.now() - 86400000).toISOString().split('T')[0];
+const getTodayString = (): string => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+const getYesterdayString = (): string => {
+  const d = new Date(Date.now() - 86400000);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 const calculateStreak = (completedDates: string[]): number => {
   if (!completedDates || completedDates.length === 0) return 0;
@@ -465,8 +491,8 @@ const getLast7Days = () => {
 // Generates the current standard week (Sun-Sat) for Weekly Progress
 const getCurrentWeekDays = () => {
   const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
-  const currentDayOfWeek = now.getUTCDay(); // 0=Sun, 6=Sat matches storage
+  const todayStr = getTodayString();
+  const currentDayOfWeek = now.getDay(); // Changed from getUTCDay()
   
   const startOfWeek = new Date(now);
   startOfWeek.setUTCDate(now.getUTCDate() - currentDayOfWeek);
@@ -477,7 +503,10 @@ const getCurrentWeekDays = () => {
   for (let i = 0; i < 7; i++) {
     const d = new Date(startOfWeek);
     d.setUTCDate(startOfWeek.getUTCDate() + i);
-    const dateStr = d.toISOString().split('T')[0];
+     const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
     
     days.push({
       date: dateStr,
@@ -783,8 +812,9 @@ const ConfettiCheck = ({ isChecked, onClick, themeColor, icon }: { isChecked: bo
         </>
       )}
       <button
-        onClick={handleClick}
-        className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all duration-300 transform hover:scale-105 active:scale-95 ${
+  onClick={handleClick}
+  className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center min-w-[44px] min-h-[44px]
+ transition-all duration-300 transform hover:scale-105 active:scale-95 ${
           isChecked 
             ? `${themeColor} text-white shadow-xl scale-105` 
             : `${theme === 'dark' 
@@ -1011,7 +1041,7 @@ const LandingPage = ({ onGetStarted }: { onGetStarted: () => void }) => {
 // Welcome Component (Replaces AuthPage)
 // Replace the WelcomePage component with this updated version
 
-const WelcomePage = ({ onSuccess, onDemoMode }: { onSuccess: () => void, onDemoMode: (name: string, password: string) => void }) => {
+const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
   const [mode, setMode] = useState<'signup' | 'login'>('login'); // Default to login
   const [name, setName] = useState<string>('');
   const [password, setPassword] = useState<string>('');
@@ -1554,12 +1584,24 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
   const [newHabitTitle, setNewHabitTitle] = useState('');
   const [newHabitIcon, setNewHabitIcon] = useState(HABIT_ICONS[0].name); // Added state for icon
   const [isAdding, setIsAdding] = useState(false);
-  const [showTemplates, setShowTemplates] = useState(false);  // ← ADD THIS
+  const [showTemplates, setShowTemplates] = useState(false); 
+  const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editIcon, setEditIcon] = useState(''); // ← ADD THIS
   const [loading, setLoading] = useState(true);
   const [showCelebration, setShowCelebration] = useState(false);
   
   const [showStats, setShowStats] = useState(false);
   const [reminderHabit, setReminderHabit] = useState<Habit | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState<'habits' | 'todos'>('habits');
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [newTodoTitle, setNewTodoTitle] = useState('');
+  const [newTodoPriority, setNewTodoPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [newTodoDueDate, setNewTodoDueDate] = useState('');
+  
+  const touchStartX = useRef(0);
+  const touchEndX = useRef(0);
   
   // 👇 ADD FROM HERE
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -1588,25 +1630,10 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
   const [toast, setToast] = useState<ToastData | null>(null);
 
   // Load Habits
+ // Load Habits
   useEffect(() => {
-    if (!user) return;
-
-    // Demo Mode Handler: Use LocalStorage
-    if (user.uid === 'demo-user') {
-      const storedHabits = localStorage.getItem('demo_habits');
-      if (storedHabits) {
-        setHabits(JSON.parse(storedHabits));
-      } else {
-        setHabits([]);
-      }
-      setLoading(false);
-      return;
-    }
-    
-    // Firebase Real-time Listener
-    // 🟢 SAFETY CHECK: If there is no user, stop immediately.
     if (!user || !user.uid) {
-      setHabits([]); // Optional: clear habits on logout
+      setHabits([]);
       setLoading(false);
       return;
     }
@@ -1630,9 +1657,8 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
     });
 
     return () => unsubscribe();
+     }, [user]);
 
-    return () => unsubscribe();
-  }, [user]);
    useEffect(() => {
     habits.forEach(habit => {
       if (habit.reminderEnabled) {
@@ -1640,9 +1666,35 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
       }
     });
   }, [habits]);
+  useEffect(() => {
+    if (!user || !user.uid) {
+      setTodos([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, 'users', user.uid, 'todos'),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const todosData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as TodoItem[];
+      setTodos(todosData);
+    }, (error) => {
+      console.error("Error fetching todos:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const today = getTodayString();
   const totalHabits = habits.length;
+  const filteredHabits = habits.filter(habit => 
+    habit.title.toLowerCase().includes(searchQuery.toLowerCase())
+  );
   const completedToday = habits.filter(h => h.completedDates?.includes(today)).length;
   const progress = totalHabits === 0 ? 0 : Math.round((completedToday / totalHabits) * 100);
 
@@ -1666,6 +1718,18 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
     e.preventDefault();
     if (!newHabitTitle.trim() || !user) return;
 
+    // Validation
+    if (newHabitTitle.length > 100) {
+      setToast({ id: Date.now().toString(), message: 'Title too long (max 100 characters)', type: 'error' });
+      return;
+    }
+
+    // Check for duplicates
+    if (habits.some(h => h.title.toLowerCase() === newHabitTitle.trim().toLowerCase())) {
+      setToast({ id: Date.now().toString(), message: 'You already have this habit!', type: 'error' });
+      return;
+    }
+
     const newHabit = {
       title: newHabitTitle,
       frequency: 'daily',
@@ -1680,14 +1744,6 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
     setNewHabitIcon(HABIT_ICONS[0].name); 
     setIsAdding(false);
     setToast({ id: Date.now().toString(), message: 'Habit created successfully!', type: 'success' });
-
-    if (user.uid === 'demo-user') {
-      const habitWithId = { ...newHabit, id: Date.now().toString(), createdAt: new Date().toISOString(), streak: 0 };
-      const updatedHabits = [habitWithId as unknown as Habit, ...habits];
-      setHabits(updatedHabits);
-      localStorage.setItem('demo_habits', JSON.stringify(updatedHabits));
-      return;
-    }
 
     try {
       await addDoc(collection(db, 'users', user.uid, 'habits'), newHabit);
@@ -1704,19 +1760,11 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
     if (newDates.includes(today)) {
       newDates = newDates.filter(d => d !== today);
     } else {
-      newDates.push(today);
-    }
-
-    if (user.uid === 'demo-user') {
-      const updatedHabits = habits.map(h => 
-        h.id === habit.id ? { ...h, completedDates: newDates, streak: calculateStreak(newDates) } : h
-      );
-      setHabits(updatedHabits);
-      localStorage.setItem('demo_habits', JSON.stringify(updatedHabits));
-      return;
+     newDates.push(today);
     }
 
     try {
+
      const habitRef = doc(db, 'users', user.uid, 'habits', habit.id);
      await updateDoc(habitRef, {
      completedDates: newDates
@@ -1729,25 +1777,50 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
 
   const deleteHabit = (habitId: string) => {
     if (!user) return;
-    // Removed window.confirm for seamless experience
     
-    // Immediate Feedback
-    setToast({ id: Date.now().toString(), message: 'Habit deleted.', type: 'info' });
+    const habitToDelete = habits.find(h => h.id === habitId);
+    if (!habitToDelete) return;
 
-    if (user.uid === 'demo-user') {
-      const updatedHabits = habits.filter(h => h.id !== habitId);
-      setHabits(updatedHabits);
-      localStorage.setItem('demo_habits', JSON.stringify(updatedHabits));
-      return;
-    }
+    // Optimistically remove from UI
+    const updatedHabits = habits.filter(h => h.id !== habitId);
+    setHabits(updatedHabits);
 
-     deleteDoc(doc(db, 'users', user.uid, 'habits', habitId))
-       .catch((error) => {
-         console.error("Error deleting habit", error);
-         setToast({ id: Date.now().toString(), message: 'Failed to delete habit.', type: 'error' });
+    let timeoutId: NodeJS.Timeout;
+
+    const undoDelete = () => {
+      clearTimeout(timeoutId);
+      setHabits(prevHabits => {
+        const restored = [...prevHabits, habitToDelete].sort((a, b) => 
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        return restored;
+      });
+      setToast(null);
+    };
+
+    // Show undo toast
+    setToast({ 
+      id: Date.now().toString(), 
+      message: `"${habitToDelete.title}" deleted`, 
+      type: 'info',
+      action: {
+        label: 'Undo',
+        onClick: undoDelete
+      }
+    });
+
+   // Delete after 5 seconds if not undone
+    timeoutId = setTimeout(() => {
+      deleteDoc(doc(db, 'users', user.uid, 'habits', habitId))
+          .catch((error) => {
+          console.error("Error deleting habit", error);
+          // Restore on error
+          setHabits(prevHabits => [...prevHabits, habitToDelete]);
+          setToast({ id: Date.now().toString(), message: 'Failed to delete habit.', type: 'error' });
         });
+    }, 5000);
   };
-  const saveReminder = async (habitId: string, enabled: boolean, time: string) => {
+    const saveReminder = async (habitId: string, enabled: boolean, time: string) => {
   if (!user) return;
 
   const updatedHabits = habits.map(h => 
@@ -1755,12 +1828,8 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
       ? { ...h, reminderEnabled: enabled, reminderTime: time }
       : h
   );
+  
   setHabits(updatedHabits);
-
-  if (user.uid === 'demo-user') {
-    localStorage.setItem('demo_habits', JSON.stringify(updatedHabits));
-    return;
-  }
 
   try {
     const habitRef = doc(db, 'users', user.uid, 'habits', habitId);
@@ -1779,6 +1848,125 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
     setToast({ id: Date.now().toString(), message: 'Failed to update reminder.', type: 'error' });
   }
 };
+
+const startEditingHabit = (habit: Habit) => {
+  setEditingHabit(habit);
+  setEditTitle(habit.title);
+  setEditIcon(habit.icon || HABIT_ICONS[0].name);
+};
+
+const cancelEditing = () => {
+  setEditingHabit(null);
+  setEditTitle('');
+  setEditIcon('');
+};
+
+const saveEditedHabit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!editTitle.trim() || !editingHabit || !user) return;
+
+  if (editTitle.length > 100) {
+    setToast({ id: Date.now().toString(), message: 'Title too long (max 100 chars)', type: 'error' });
+    return;
+  }
+
+  // Check for duplicate (excluding current habit)
+  if (habits.some(h => h.id !== editingHabit.id && h.title.toLowerCase() === editTitle.toLowerCase())) {
+    setToast({ id: Date.now().toString(), message: 'You already have a habit with this name!', type: 'error' });
+    return;
+  }
+
+  const updates = {
+    title: editTitle.trim(),
+    icon: editIcon
+  };
+
+  // Optimistic update
+  setHabits(prevHabits => 
+    prevHabits.map(h => h.id === editingHabit.id ? { ...h, ...updates } : h)
+  );
+  cancelEditing();
+  setToast({ id: Date.now().toString(), message: 'Habit updated!', type: 'success' });
+
+  try {
+    const habitRef = doc(db, 'users', user.uid, 'habits', editingHabit.id);
+    await updateDoc(habitRef, updates);
+  } catch (error) {
+    console.error("Error updating habit", error);
+    // Revert on error
+    setHabits(prevHabits => 
+      prevHabits.map(h => h.id === editingHabit.id ? editingHabit : h)
+    );
+    setToast({ id: Date.now().toString(), message: 'Failed to update habit.', type: 'error' });
+  }
+};
+  
+ 
+
+ const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    touchEndX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = () => {
+    const swipeDistance = touchStartX.current - touchEndX.current;
+    const minSwipeDistance = 50;
+
+    if (swipeDistance > minSwipeDistance) {
+      setCurrentPage('todos');
+    } else if (swipeDistance < -minSwipeDistance) {
+      setCurrentPage('habits');
+    }
+  };
+
+  const addTodo = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!newTodoTitle.trim() || !user) return;
+
+  const newTodo = {
+    title: newTodoTitle.trim(),
+    completed: false,
+    priority: newTodoPriority,
+    dueDate: newTodoDueDate || undefined,
+    createdAt: serverTimestamp()
+  };
+
+  setNewTodoTitle('');
+  setNewTodoDueDate('');
+  setToast({ id: Date.now().toString(), message: 'To-do added!', type: 'success' });
+
+    try {
+      await addDoc(collection(db, 'users', user.uid, 'todos'), newTodo);
+    } catch (error) {
+      console.error("Error adding todo", error);
+      setToast({ id: Date.now().toString(), message: 'Failed to add to-do.', type: 'error' });
+    }
+  };
+
+  const toggleTodo = async (todo: TodoItem) => {
+    if (!user) return;
+    try {
+      const todoRef = doc(db, 'users', user.uid, 'todos', todo.id);
+      await updateDoc(todoRef, {
+        completed: !todo.completed
+      });
+    } catch (error) {
+      console.error("Error updating todo", error);
+    }
+  };
+
+  const deleteTodo = async (todoId: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'todos', todoId));
+      setToast({ id: Date.now().toString(), message: 'To-do deleted', type: 'success' });
+    } catch (error) {
+      console.error("Error deleting todo", error);
+    }
+  };
 
   // Helper to get correct theme set
   const getColorTheme = (str: string) => {
@@ -1850,7 +2038,7 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
             <ThemeToggle />
             <div className="hidden sm:flex flex-col items-end mr-2">
               <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? (isGreen ? 'text-green-300' : isLgbt ? 'text-indigo-300' : 'text-pink-300') : (isGreen ? 'text-green-200' : isLgbt ? 'text-slate-500' : 'text-pink-200')}`}>Logged in as</span>
-              <span className={`text-sm font-bold ${isDark ? (isGreen ? 'text-green-100' : isLgbt ? 'text-white' : 'text-pink-100') : (isLgbt ? 'text-slate-900' : 'text-white')}`}>{user.displayName || 'Guest'}</span>
+              <span className={`text-sm font-bold ${isDark ? (isGreen ? 'text-green-100' : isLgbt ? 'text-white' : 'text-pink-100') : (isLgbt ? 'text-slate-900' : 'text-white')}`}>{user.displayName || user.email}</span>
             </div>
             <button 
               onClick={onLogout}
@@ -2039,153 +2227,504 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
           )}
         </div>
 
-        {/* Habits List */}
-        <div className="grid gap-5">
-          {loading && (
-             <SkeletonLoader />
-          )}
+        {/* Swipeable Container */}
+        <div className="relative overflow-hidden">
+          {/* Page Indicators */}
+          <div className="flex justify-center gap-2 mb-6">
+            <button
+              onClick={() => setCurrentPage('habits')}
+              className={`px-4 py-2 rounded-xl font-bold transition ${
+                currentPage === 'habits'
+                  ? (isDark 
+                      ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
+                      : (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white' : 'bg-pink-600 text-white')
+                    )
+                  : (isDark ? 'bg-slate-800 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
+              }`}
+            >
+              Habits
+            </button>
+            <button
+              onClick={() => setCurrentPage('todos')}
+              className={`px-4 py-2 rounded-xl font-bold transition ${
+                currentPage === 'todos'
+                  ? (isDark 
+                      ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
+                      : (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white' : 'bg-pink-600 text-white')
+                    )
+                  : (isDark ? 'bg-slate-800 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
+              }`}
+            >
+              To-Do List
+            </button>
+          </div>
 
-          {!loading && habits.length === 0 && !isAdding && (
-            <div className={`text-center py-16 rounded-3xl border border-dashed ${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-200' : isLgbt ? 'bg-white border-indigo-200' : 'bg-white border-pink-200')}`}>
-              <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 animate-float ${isDark ? 'bg-slate-800 text-slate-600' : (isGreen ? 'bg-green-50 text-green-300' : isLgbt ? 'bg-indigo-50 text-indigo-300' : 'bg-pink-50 text-pink-300')}`}>
-                <Calendar className="w-10 h-10" />
+          <div
+            className="relative"
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          >
+            {/* HABITS PAGE */}
+            <div className={`transition-all duration-300 ${currentPage === 'habits' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'}`}>
+              {/* Habits List */}
+              {habits.length > 0 && (
+                <div className="mb-6">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-4">
+                    <div className="text-center sm:text-left">
+                      <h2 className={`text-2xl md:text-3xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        Your Habits
+                      </h2>
+                      <p className={`text-sm font-medium mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {filteredHabits.length} {filteredHabits.length === 1 ? 'habit' : 'habits'}
+                        {searchQuery && ` matching "${searchQuery}"`}
+                      </p>
+                    </div>
+                    
+                    <div className="relative w-full sm:w-auto sm:min-w-[300px]">
+                      <input
+                        type="text"
+                        placeholder="Search habits..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className={`w-full px-4 py-3 pl-11 rounded-xl border-2 outline-none transition font-medium ${
+                          isDark 
+                            ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400 placeholder-slate-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400 placeholder-slate-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400 placeholder-slate-500') 
+                            : (isGreen ? 'bg-white border-green-200 text-slate-900 focus:border-green-500 placeholder-slate-400' : isLgbt ? 'bg-white border-indigo-200 text-slate-900 focus:border-indigo-500 placeholder-slate-400' : 'bg-white border-pink-200 text-slate-900 focus:border-pink-500 placeholder-slate-400')
+                        }`}
+                      />
+                      <Target className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`} />
+                      {searchQuery && (
+                        <button
+                          onClick={() => setSearchQuery('')}
+                          className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg transition ${
+                            isDark ? 'hover:bg-slate-700 text-slate-500' : 'hover:bg-slate-100 text-slate-400'
+                          }`}
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              <div className="grid gap-5">
+                {loading && <SkeletonLoader />}
+
+                {!loading && habits.length === 0 && !isAdding && (
+                  <div className={`text-center py-16 rounded-3xl border border-dashed ${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-200' : isLgbt ? 'bg-white border-indigo-200' : 'bg-white border-pink-200')}`}>
+                    <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 animate-float ${isDark ? 'bg-slate-800 text-slate-600' : (isGreen ? 'bg-green-50 text-green-300' : isLgbt ? 'bg-indigo-50 text-indigo-300' : 'bg-pink-50 text-pink-300')}`}>
+                      <Calendar className="w-10 h-10" />
+                    </div>
+                    <h3 className={`text-xl font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>It's quiet here...</h3>
+                    <p className={isDark ? 'text-slate-500' : 'text-slate-500'}>Add your first habit to start the engine!</p>
+                  </div>
+                )}
+
+                {!loading && habits.length > 0 && filteredHabits.length === 0 && (
+                  <div className={`text-center py-16 rounded-3xl border border-dashed ${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-200' : isLgbt ? 'bg-white border-indigo-200' : 'bg-white border-pink-200')}`}>
+                    <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 ${isDark ? 'bg-slate-800 text-slate-600' : (isGreen ? 'bg-green-50 text-green-300' : isLgbt ? 'bg-indigo-50 text-indigo-300' : 'bg-pink-50 text-pink-300')}`}>
+                      <Target className="w-10 h-10" />
+                    </div>
+                    <h3 className={`text-xl font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>No habits found</h3>
+                    <p className={isDark ? 'text-slate-500' : 'text-slate-500'}>Try a different search term</p>
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className={`mt-4 px-6 py-3 rounded-xl font-bold transition ${
+                        isDark 
+                          ? (isGreen ? 'bg-green-500 hover:bg-green-400 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 hover:bg-pink-400 text-white')
+                          : (isGreen ? 'bg-green-600 hover:bg-green-700 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white' : 'bg-pink-600 hover:bg-pink-700 text-white')
+                      }`}
+                    >
+                      Clear Search
+                    </button>
+                  </div>
+                )}
+
+                {filteredHabits
+                .sort((a, b) => {
+               const aCompleted = a.completedDates?.includes(today) ? 1 : 0;
+               const bCompleted = b.completedDates?.includes(today) ? 1 : 0;
+               return aCompleted - bCompleted; // Incomplete habits first
+                })
+               .map((habit, idx) => {
+                const isCompletedToday = habit.completedDates?.includes(today);
+                const themeBase = getColorTheme(habit.title); 
+                const theme = isDark ? themeBase.dark : themeBase.light;
+                  
+                  if (editingHabit?.id === habit.id) {
+                    return (
+                      <form 
+                        key={habit.id}
+                        onSubmit={saveEditedHabit}
+                        className={`p-6 rounded-3xl border-2 shadow-lg animate-pop ${
+                          isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-100'
+                        }`}
+                      >
+                        <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                          Edit Habit
+                        </h3>
+                        
+                        <div className="space-y-5">
+                          <input
+                            type="text"
+                            autoFocus
+                            placeholder="Habit title..."
+                            maxLength={100}
+                            className={`w-full px-5 py-4 rounded-2xl border-2 outline-none transition font-medium text-lg ${
+                              isDark 
+                                ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400') 
+                                : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500 focus:bg-white' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500 focus:bg-white' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500 focus:bg-white')
+                            }`}
+                            value={editTitle}
+                            onChange={(e: ChangeEvent<HTMLInputElement>) => setEditTitle(e.target.value)}
+                          />
+
+                          <div>
+                            <label className={`block text-sm font-bold mb-3 ml-1 uppercase tracking-wider text-[10px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                              Choose an icon
+                            </label>
+                            <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
+                              {HABIT_ICONS.map((iconData) => {
+                                const Icon = iconData.icon;
+                                const isSelected = editIcon === iconData.name;
+                                return (
+                                  <button
+                                    key={iconData.name}
+                                    type="button"
+                                    onClick={() => setEditIcon(iconData.name)}
+                                    className={`aspect-square rounded-xl flex items-center justify-center transition border-2 ${
+                                      isSelected 
+                                        ? `${isGreen ? 'border-green-500 bg-green-500/20 text-green-500' : isLgbt ? 'border-indigo-500 bg-indigo-500/20 text-indigo-500' : 'border-pink-500 bg-pink-500/20 text-pink-500'} scale-110 shadow-sm` 
+                                        : `${isDark ? 'border-slate-800 text-slate-500 hover:bg-slate-800 hover:text-slate-300' : 'border-slate-100 text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`
+                                    }`}
+                                  >
+                                    <Icon className="w-5 h-5" />
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="flex gap-3 pt-2">
+                            <button 
+                              type="submit" 
+                              className={`flex-1 text-white px-6 py-3.5 rounded-2xl font-bold transition shadow-lg hover:-translate-y-0.5 ${
+                                isDark 
+                                  ? (isGreen ? 'bg-green-500 hover:bg-green-400 shadow-green-500/40' : isLgbt ? 'bg-gradient-to-r from-red-500 via-green-500 to-blue-500 shadow-indigo-500/40' : 'bg-pink-500 hover:bg-pink-400 shadow-pink-500/40') 
+                                  : (isGreen ? 'bg-green-600 hover:bg-green-700 shadow-green-200' : isLgbt ? 'bg-gradient-to-r from-red-600 via-green-600 to-blue-600 hover:opacity-90 shadow-indigo-200' : 'bg-pink-600 hover:bg-pink-700 shadow-pink-200')
+                              }`}
+                            >
+                              Save Changes
+                            </button>
+                            <button 
+                              type="button" 
+                              onClick={cancelEditing}
+                              className={`px-6 py-3.5 font-bold rounded-2xl transition ${
+                                isDark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'
+                              }`}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </form>
+                    );
+                  }
+                  
+                  return (
+                    <div 
+                      key={habit.id} 
+                      style={{ animationDelay: `${idx * 0.05}s` }}
+                      className={`group relative p-4 sm:p-6 rounded-2xl sm:rounded-3xl border-2 transition-all duration-300 animate-pop ${
+                        isCompletedToday 
+                          ? `${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`
+                          : `${isDark ? 'bg-slate-900 border-slate-900 hover:border-slate-700 hover:shadow-lg hover:shadow-slate-900' : (isGreen ? 'bg-white border-white hover:border-green-100 hover:shadow-lg hover:shadow-green-100' : isLgbt ? 'bg-white border-white hover:border-indigo-100 hover:shadow-lg hover:shadow-indigo-100' : 'bg-white border-white hover:border-pink-100 hover:shadow-lg hover:shadow-pink-100')} shadow-sm`
+                      }`}
+                    >
+                      <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition duration-500 rounded-3xl bg-gradient-to-r ${themeBase.light.bg.replace('bg-', 'from-white via-white to-')}/30 pointer-events-none`}></div>
+
+                      {/* MOBILE LAYOUT */}
+                      <div className="block sm:hidden relative z-10">
+                        <div className="flex items-center justify-between gap-3 mb-3">
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <div className="flex-shrink-0">
+                              <ConfettiCheck 
+                                isChecked={!!isCompletedToday} 
+                                onClick={() => toggleCheckIn(habit)} 
+                                themeColor={theme.check}
+                                icon={habit.icon}
+                              />
+                            </div>
+                            
+                            <div className="flex-1 min-w-0">
+                              <h3 className={`font-bold text-base sm:text-lg transition-colors ${
+                                isCompletedToday 
+                                  ? `${isDark ? 'text-slate-600 decoration-slate-700' : (isGreen ? 'text-slate-400 decoration-green-200' : isLgbt ? 'text-slate-400 decoration-indigo-200' : 'text-slate-400 decoration-pink-200')} line-through decoration-2` 
+                                  : `${isDark ? 'text-slate-100' : 'text-slate-800'}`
+                              } line-clamp-2`}>
+                                {habit.title}
+                              </h3>
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-bold mt-1 ${theme.bg} ${theme.text} ${theme.border} border`}>
+                                <Flame className={`w-3 h-3 mr-1 ${theme.icon}`} />
+                                {habit.streak} days
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Mobile Actions */}
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <button
+                              onClick={() => startEditingHabit(habit)}
+                              className={`p-2.5 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center ${
+                                isDark ? 'text-slate-600 hover:bg-slate-800 hover:text-slate-400' : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
+                              }`}
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setReminderHabit(habit)}
+                              className={`p-2.5 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center ${
+                                habit.reminderEnabled
+                                  ? (isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
+                                  : (isDark ? 'text-slate-600 hover:bg-slate-800' : 'text-slate-300 hover:bg-slate-100')
+                              }`}
+                            >
+                              <span className="text-base">{habit.reminderEnabled ? '🔔' : '🔕'}</span>
+                            </button>
+                            <button 
+                              onClick={() => deleteHabit(habit.id)}
+                              className={`p-2.5 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center ${
+                                isDark 
+                                  ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' 
+                                  : 'text-slate-300 hover:text-red-500 hover:bg-red-50'
+                              }`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="w-full">
+                          <WeeklyProgress completedDates={habit.completedDates} />
+                        </div>
+                      </div>
+
+                      {/* DESKTOP LAYOUT */}
+                      <div className="hidden sm:flex items-center justify-between gap-6 relative z-10">
+                        <div className="flex items-center gap-6 flex-1">
+                          <ConfettiCheck 
+                            isChecked={!!isCompletedToday} 
+                            onClick={() => toggleCheckIn(habit)} 
+                            themeColor={theme.check}
+                            icon={habit.icon}
+                          />
+                          
+                          <div className="flex-1">
+                            <h3 className={`font-bold text-xl transition-colors ${
+                              isCompletedToday 
+                                ? `${isDark ? 'text-slate-600 decoration-slate-700' : (isGreen ? 'text-slate-400 decoration-green-200' : isLgbt ? 'text-slate-400 decoration-indigo-200' : 'text-slate-400 decoration-pink-200')} line-through decoration-2` 
+                                : `${isDark ? 'text-slate-100' : 'text-slate-800'}`
+                            }`}>
+                              {habit.title}
+                            </h3>
+                            <div className="flex items-center gap-3 mt-2">
+                              <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${theme.bg} ${theme.text} ${theme.border} border`}>
+                                <Flame className={`w-3 h-3 mr-1 ${theme.icon}`} />
+                                {habit.streak} day streak
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-4">
+                          <WeeklyProgress completedDates={habit.completedDates} />
+                          <button
+                            onClick={() => startEditingHabit(habit)}
+                            className={`opacity-0 group-hover:opacity-100 transition-opacity p-3 rounded-xl ${
+                              isDark ? 'text-slate-600 hover:bg-slate-800 hover:text-slate-400' : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
+                            }`}
+                            title="Edit Habit"
+                          >
+                            <Edit2 className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => setReminderHabit(habit)}
+                            className={`p-3 rounded-xl transition ${
+                              habit.reminderEnabled
+                                ? (isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
+                                : (isDark ? 'text-slate-600 hover:bg-slate-800' : 'text-slate-300 hover:bg-slate-100')
+                            }`}
+                            title={habit.reminderEnabled ? "Reminder On" : "Reminder Off"}
+                          >
+                            <span className="text-lg">{habit.reminderEnabled ? '🔔' : '🔕'}</span>
+                          </button>
+                          <button 
+                            onClick={() => deleteHabit(habit.id)}
+                            className={`opacity-0 group-hover:opacity-100 transition-opacity p-3 rounded-xl ${
+                              isDark 
+                                ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' 
+                                : 'text-slate-300 hover:text-red-500 hover:bg-red-50'
+                            }`}
+                            title="Delete Habit"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              <h3 className={`text-xl font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>It's quiet here...</h3>
-              <p className={isDark ? 'text-slate-500' : 'text-slate-500'}>Add your first habit to start the engine!</p>
             </div>
-          )}
 
-          {habits.map((habit, idx) => {
-            const isCompletedToday = habit.completedDates?.includes(today);
-            const themeBase = getColorTheme(habit.title); 
-            const theme = isDark ? themeBase.dark : themeBase.light;
-            
-            return (
-              <div 
-                key={habit.id} 
-  style={{ animationDelay: `${idx * 0.05}s` }}
-  className={`group relative p-4 sm:p-6 rounded-2xl sm:rounded-3xl border-2 transition-all duration-300 animate-pop ${
-    isCompletedToday 
-      ? `${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`
-      : `${isDark ? 'bg-slate-900 border-slate-900 hover:border-slate-700 hover:shadow-lg hover:shadow-slate-900' : (isGreen ? 'bg-white border-white hover:border-green-100 hover:shadow-lg hover:shadow-green-100' : isLgbt ? 'bg-white border-white hover:border-indigo-100 hover:shadow-lg hover:shadow-indigo-100' : 'bg-white border-white hover:border-pink-100 hover:shadow-lg hover:shadow-pink-100')} shadow-sm`
-  }`}
->
-  <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition duration-500 rounded-3xl bg-gradient-to-r ${themeBase.light.bg.replace('bg-', 'from-white via-white to-')}/30 pointer-events-none`}></div>
-
-  {/* MOBILE LAYOUT - Stack everything vertically */}
-  <div className="block sm:hidden relative z-10">
-    {/* Row 1: Check icon + Title + Actions */}
-    <div className="flex items-center justify-between gap-3 mb-3">
-      <div className="flex items-center gap-3 flex-1 min-w-0">
-        <ConfettiCheck 
-          isChecked={!!isCompletedToday} 
-          onClick={() => toggleCheckIn(habit)} 
-          themeColor={theme.check}
-          icon={habit.icon}
-        />
-        
-        <div className="flex-1 min-w-0">
-          <h3 className={`font-bold text-lg transition-colors truncate ${
-            isCompletedToday 
-              ? `${isDark ? 'text-slate-600 decoration-slate-700' : (isGreen ? 'text-slate-400 decoration-green-200' : isLgbt ? 'text-slate-400 decoration-indigo-200' : 'text-slate-400 decoration-pink-200')} line-through decoration-2` 
-              : `${isDark ? 'text-slate-100' : 'text-slate-800'}`
-          }`}>
-            {habit.title}
-          </h3>
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-bold mt-1 ${theme.bg} ${theme.text} ${theme.border} border`}>
-            <Flame className={`w-3 h-3 mr-1 ${theme.icon}`} />
-            {habit.streak} days
-          </span>
-        </div>
-      </div>
-
-      {/* Mobile Actions */}
-      <div className="flex items-center gap-1">
-        <button
-  onClick={() => setReminderHabit(habit)}
-  className={`p-2 rounded-xl transition ${
-    habit.reminderEnabled
-      ? (isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
-      : (isDark ? 'text-slate-600 hover:bg-slate-800' : 'text-slate-300 hover:bg-slate-100')
-  }`}
->
-  <span className="text-base">{habit.reminderEnabled ? '🔔' : '🔕'}</span>
-</button>
-        <button 
-          onClick={() => deleteHabit(habit.id)}
-          className={`p-2 rounded-xl ${
-            isDark 
-              ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' 
-              : 'text-slate-300 hover:text-red-500 hover:bg-red-50'
-          }`}
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-
-    {/* Row 2: Weekly Progress - Full Width Below */}
-    <div className="w-full">
-      <WeeklyProgress completedDates={habit.completedDates} />
-    </div>
-  </div>
-
-  {/* DESKTOP/TABLET LAYOUT - Original side-by-side */}
-  <div className="hidden sm:flex items-center justify-between gap-6 relative z-10">
-    <div className="flex items-center gap-6 flex-1">
-      <ConfettiCheck 
-        isChecked={!!isCompletedToday} 
-        onClick={() => toggleCheckIn(habit)} 
-        themeColor={theme.check}
-        icon={habit.icon}
-      />
-      
-      <div className="flex-1">
-        <h3 className={`font-bold text-xl transition-colors ${
-          isCompletedToday 
-            ? `${isDark ? 'text-slate-600 decoration-slate-700' : (isGreen ? 'text-slate-400 decoration-green-200' : isLgbt ? 'text-slate-400 decoration-indigo-200' : 'text-slate-400 decoration-pink-200')} line-through decoration-2` 
-            : `${isDark ? 'text-slate-100' : 'text-slate-800'}`
-        }`}>
-          {habit.title}
-        </h3>
-        <div className="flex items-center gap-3 mt-2">
-          <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${theme.bg} ${theme.text} ${theme.border} border`}>
-            <Flame className={`w-3 h-3 mr-1 ${theme.icon}`} />
-            {habit.streak} day streak
-          </span>
-        </div>
-      </div>
-    </div>
-
-    <div className="flex items-center gap-4">
-      <WeeklyProgress completedDates={habit.completedDates} />
-      <button
-  onClick={() => setReminderHabit(habit)}
-  className={`p-3 rounded-xl transition ${
-    habit.reminderEnabled
-      ? (isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
-      : (isDark ? 'text-slate-600 hover:bg-slate-800' : 'text-slate-300 hover:bg-slate-100')
-  }`}
-  title={habit.reminderEnabled ? "Reminder On" : "Reminder Off"}
->
-  <span className="text-lg">{habit.reminderEnabled ? '🔔' : '🔕'}</span>
-</button>
-      <button 
-        onClick={() => deleteHabit(habit.id)}
-        className={`opacity-0 group-hover:opacity-100 transition-opacity p-3 rounded-xl ${
+            {/* TO-DO LIST PAGE */}
+            <div className={`transition-all duration-300 ${currentPage === 'todos' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'}`}>
+              <div className="mb-6">
+                <h2 className={`text-2xl md:text-3xl font-black text-center sm:text-left mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  To-Do List
+                </h2>
+                
+                {/* Add Todo Form */}
+<form onSubmit={addTodo} className={`p-4 rounded-2xl border-2 mb-6 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
+  <div className="space-y-3">
+    <div className="flex gap-3">
+      <input
+        type="text"
+        placeholder="Add a new task..."
+        value={newTodoTitle}
+        onChange={(e) => setNewTodoTitle(e.target.value)}
+        className={`flex-1 px-4 py-3 rounded-xl border-2 outline-none transition font-medium ${
           isDark 
-            ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' 
-            : 'text-slate-300 hover:text-red-500 hover:bg-red-50'
+            ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400 placeholder-slate-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400 placeholder-slate-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400 placeholder-slate-500') 
+            : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500 placeholder-slate-400' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500 placeholder-slate-400' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500 placeholder-slate-400')
         }`}
-        title="Delete Habit"
+      />
+      <button
+        type="submit"
+        className={`px-6 py-3 rounded-xl font-bold transition shadow-lg ${
+          isDark 
+            ? (isGreen ? 'bg-green-500 hover:bg-green-400 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 hover:bg-pink-400 text-white')
+            : (isGreen ? 'bg-green-600 hover:bg-green-700 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white' : 'bg-pink-600 hover:bg-pink-700 text-white')
+        }`}
       >
-        <Trash2 className="w-5 h-5" />
+        <Plus className="w-5 h-5" />
       </button>
     </div>
-  </div>
-</div>
-            );
-          })}
+    <div className="flex gap-3">
+      <input
+        type="date"
+        value={newTodoDueDate}
+        onChange={(e) => setNewTodoDueDate(e.target.value)}
+        className={`flex-1 px-4 py-3 rounded-xl border-2 outline-none transition font-medium ${
+          isDark 
+            ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400') 
+            : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500')
+        }`}
+      />
+      <select
+        value={newTodoPriority}
+        onChange={(e) => setNewTodoPriority(e.target.value as 'low' | 'medium' | 'high')}
+        className={`px-4 py-3 rounded-xl border-2 outline-none transition font-bold ${
+           isDark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+           }`}
+           >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+               <option value="high">High</option>
+              </select>
+               </div>
+              </div>
+             </form>
+              </div>
+
+              {/* Todo Items */}
+              <div className="grid gap-3">
+                {todos.length === 0 ? (
+                  <div className={`text-center py-16 rounded-3xl border border-dashed ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+                    <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 ${isDark ? 'bg-slate-800 text-slate-600' : 'bg-slate-100 text-slate-400'}`}>
+                      <CheckCircle2 className="w-10 h-10" />
+                    </div>
+                    <h3 className={`text-xl font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>No tasks yet</h3>
+                    <p className={isDark ? 'text-slate-500' : 'text-slate-500'}>Add your first to-do to get started!</p>
+                  </div>
+                ) : (
+                  todos.map((todo, idx) => (
+                    <div
+                      key={todo.id}
+                      style={{ animationDelay: `${idx * 0.05}s` }}
+                      className={`p-4 rounded-2xl border-2 transition-all animate-pop ${
+                        todo.completed
+                          ? (isDark ? 'bg-slate-900 border-slate-800 opacity-60' : 'bg-slate-50 border-slate-200 opacity-60')
+                          : (isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100')
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => toggleTodo(todo)}
+                          className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition ${
+                            todo.completed
+                              ? (isDark 
+                                  ? (isGreen ? 'bg-green-500 border-green-500' : isLgbt ? 'bg-indigo-500 border-indigo-500' : 'bg-pink-500 border-pink-500')
+                                  : (isGreen ? 'bg-green-600 border-green-600' : isLgbt ? 'bg-indigo-600 border-indigo-600' : 'bg-pink-600 border-pink-600')
+                                )
+                              : (isDark ? 'border-slate-700 hover:border-slate-600' : 'border-slate-300 hover:border-slate-400')
+                          }`}
+                        >
+                          {todo.completed && <Check className="w-4 h-4 text-white" />}
+                        </button>
+                        
+                        <div className="flex-1">
+                       <p className={`font-medium ${todo.completed ? 'line-through' : ''} ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      {todo.title}
+                       </p>
+                      <div className="flex gap-2 mt-1 flex-wrap">
+                     {todo.priority && (
+                         <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${
+                         todo.priority === 'high' 
+                         ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                        : todo.priority === 'medium'
+                        ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                        : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                         }`}>
+                           Urgency level: {todo.priority.charAt(0).toUpperCase() + todo.priority.slice(1)}
+                         </span>
+                          )}
+                         {todo.dueDate && (
+                          <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${
+                            new Date(todo.dueDate) < new Date() && !todo.completed
+                           ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                           : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                          }`}>
+                      📅 DEADLINE: {new Date(todo.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                       </span>
+                           )}
+                          </div>
+                          </div>
+                        
+                        <button
+                          onClick={() => deleteTodo(todo.id)}
+                          className={`p-2 rounded-lg transition ${
+                            isDark ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' : 'text-slate-400 hover:text-red-500 hover:bg-red-50'
+                          }`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Swipe Hint */}
+          <div className={`text-center mt-6 ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
+            <p className="text-sm font-medium">
+              👈 Swipe to switch between Habits and To-Do List 👉
+            </p>
+          </div>
         </div>
 
         {/* Template Browser Modal */}
@@ -2195,11 +2734,25 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
             onClose={() => setShowTemplates(false)}
           />
         )}
+         {/* Reminder Modal */}
+        {reminderHabit && (
+          <ReminderModal 
+            habit={reminderHabit} 
+            onClose={() => setReminderHabit(null)}
+            onSave={(enabled, time) => {
+              saveReminder(reminderHabit.id, enabled, time);
+              setReminderHabit(null);
+            }}
+          />
+        )}
         
       </main>
     </div>
   );
 };
+
+       
+
 const PWAInstallPrompt = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstall, setShowInstall] = useState(false);
@@ -2287,7 +2840,6 @@ const PWAInstallPrompt = () => {
   );
 };
 
-// 5. Main App Container
 const App = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -2307,69 +2859,14 @@ const App = () => {
     });
   };
 
-  // ... rest of the App component ...
-  const handleDemoLogin = (name: string, password: string) => { // Updated signature
-  const mockUser = {
-  uid: 'demo-user',
-  displayName: name,
-  email: 'guest@example.com', // <-- ADD THIS LINE
-  emailVerified: true,
-  isAnonymous: true,
-  metadata: {},
-  providerData: [],
-  refreshToken: '',
-  tenantId: null,
-  providerId: 'firebase', // <-- ADD THIS LINE
-  delete: async () => {},
-  getIdToken: async () => '',
-  getIdTokenResult: async () => ({} as any),
-  reload: async () => {},
-  toJSON: () => ({}),
-  phoneNumber: null,
-  photoURL: null,
-} as FirebaseUser;
-
-    setUser(mockUser);
-    setView('dashboard');
-    localStorage.setItem('demo_user_name', name);
-    localStorage.setItem('demo_user_password', password); // Store password
-    localStorage.setItem('habitflow_guest_mode', 'true');
-  };
-
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
         setView('dashboard');
       } else {
-        const isGuest = localStorage.getItem('habitflow_guest_mode');
-        if (isGuest === 'true') {
-           const name = localStorage.getItem('demo_user_name') || 'Guest';
-           const mockUser = {
-  uid: 'demo-user',
-  displayName: name,
-  email: 'guest@example.com', // <-- ADD THIS LINE
-  emailVerified: true,
-  isAnonymous: true,
-  metadata: {},
-  providerData: [],
-  refreshToken: '',
-  tenantId: null,
-  providerId: 'firebase', // <-- ADD THIS LINE
-  delete: async () => {},
-  getIdToken: async () => '',
-  getIdTokenResult: async () => ({} as any),
-  reload: async () => {},
-  toJSON: () => ({}),
-  phoneNumber: null,
-  photoURL: null,
-} as FirebaseUser;
-           setUser(mockUser);
-           setView('dashboard');
-        } else {
-           setUser(null);
-           if (view === 'dashboard') setView('landing');
-        }
+        setUser(null);
+        if (view === 'dashboard') setView('landing');
       }
       setAuthLoading(false);
     });
@@ -2387,13 +2884,15 @@ const App = () => {
     initAuth();
 
     return () => unsubscribe();
-  }, []);
+  }, [view]);
 
   const handleLogout = async () => {
-    localStorage.removeItem('habitflow_guest_mode');
-    await signOut(auth);
-    setView('landing'); // 🟢 Switch screen first
-    setTimeout(() => setUser(null), 0); // Clear user after unmount
+    try {
+      await signOut(auth);
+      setView('landing');
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
   if (authLoading) {
@@ -2412,20 +2911,19 @@ const App = () => {
       return <Dashboard user={user} onLogout={handleLogout} />;
     }
     if (view === 'welcome') {
-      return <WelcomePage onSuccess={() => setView('dashboard')} onDemoMode={handleDemoLogin} />;
+      return <WelcomePage onSuccess={() => setView('dashboard')} />;
     }
     return <LandingPage onGetStarted={() => setView('welcome')} />;
   };
 
   return (
-  <ThemeContext.Provider value={{ theme, toggleTheme, accent, toggleAccent }}>
-    <div className={theme}>
-      <PWAInstallPrompt />
-      {renderView()}
-    </div>
-  </ThemeContext.Provider>
- );
+    <ThemeContext.Provider value={{ theme, toggleTheme, accent, toggleAccent }}>
+      <div className={theme}>
+        <PWAInstallPrompt />
+        {renderView()}
+      </div>
+    </ThemeContext.Provider>
+  );
 };
 
 export default App;
-

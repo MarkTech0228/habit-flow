@@ -1,4 +1,4 @@
-const CACHE_NAME = 'habitflow-v1';
+const CACHE_NAME = 'habitflow-v4';  // ← Increment version
 const URLS_TO_CACHE = [
   '/',
   '/index.html',
