@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef, createContext, useContext, FormEvent, ChangeEvent } from 'react';
-import { 
+import {
   CheckCircle2, 
   Plus, 
   Trash2, 
-  TrendingUp, 
+  TrendingUp,
+  TrendingDown, 
   LogOut, 
   Layout, 
   Calendar,
@@ -37,7 +38,12 @@ import {
   Lock, 
   Eye,
   EyeOff,
-  Rainbow // Added Rainbow icon if available in lucide-react, otherwise we fallback
+  Rainbow,
+  DollarSign,  // <-- ADD THIS
+  Wallet,
+  TrendingDown as TrendingDownIcon,
+  ShoppingBag,
+  Receipt
 } from 'lucide-react';
 
 // Define LucideIcon type
@@ -75,8 +81,21 @@ import {
   query, 
   orderBy, 
   serverTimestamp,
-  Timestamp
+  Timestamp,
+  enableIndexedDbPersistence  // ← ADD THIS
 } from "firebase/firestore";
+import { 
+  ResponsiveContainer, 
+  LineChart, 
+  BarChart, 
+  CartesianGrid, 
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  Line, 
+  Bar,
+  Cell 
+} from "recharts";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -108,6 +127,19 @@ if (!isMissingConfig) {
   analytics = getAnalytics(app);
   auth = getAuth(app);
   db = getFirestore(app);
+  
+  // Enable offline persistence
+  import('firebase/firestore').then(({ enableIndexedDbPersistence }) => {
+    enableIndexedDbPersistence(db).catch((err) => {
+      if (err.code === 'failed-precondition') {
+        console.warn('⚠️ Multiple tabs open - offline persistence only works in one tab');
+      } else if (err.code === 'unimplemented') {
+        console.warn('⚠️ Browser doesn\'t support offline persistence');
+      } else {
+        console.error('⚠️ Error enabling offline persistence:', err);
+      }
+    });
+  });
 } else {
   console.warn('⚠️ Firebase not configured - app will run in demo-only mode');
   console.warn('Available env vars:', Object.keys(import.meta.env).filter(k => k.startsWith('VITE_')));
@@ -136,6 +168,21 @@ interface TodoItem {
   priority?: 'low' | 'medium' | 'high';
   dueDate?: string;
 }
+interface Expense {
+  id: string;
+  date: string;
+  amount: number;
+  category: string;
+  description: string;
+  createdAt: any;
+}
+
+interface MoneySettings {
+  dailyAllowance: number;
+  currency: string;
+  currencySymbol: string;
+}
+
 
 interface UserProfile {
   age?: number;
@@ -427,7 +474,34 @@ const HABIT_TEMPLATES: HabitTemplate[] = [
     description: 'Organize your environment'
   },
 ];
-
+// EXPENSE CATEGORIES
+const EXPENSE_CATEGORIES = [
+  { id: 'food', label: 'Food & Drinks', icon: Coffee, color: 'orange' },
+  { id: 'transport', label: 'Transportation', icon: Briefcase, color: 'blue' },
+  { id: 'entertainment', label: 'Entertainment', icon: Music, color: 'purple' },
+  { id: 'shopping', label: 'Shopping', icon: ShoppingBag, color: 'pink' },
+  { id: 'bills', label: 'Bills & Utilities', icon: Home, color: 'red' },
+  { id: 'health', label: 'Health & Fitness', icon: Heart, color: 'green' },
+  { id: 'other', label: 'Other', icon: Target, color: 'slate' }
+];
+// ADD THIS - CURRENCY OPTIONS
+const CURRENCIES = [
+  { code: 'USD', symbol: '$', name: 'US Dollar' },
+  { code: 'EUR', symbol: '€', name: 'Euro' },
+  { code: 'GBP', symbol: '£', name: 'British Pound' },
+  { code: 'JPY', symbol: '¥', name: 'Japanese Yen' },
+  { code: 'CNY', symbol: '¥', name: 'Chinese Yuan' },
+  { code: 'PHP', symbol: '₱', name: 'Philippine Peso' },
+  { code: 'INR', symbol: '₹', name: 'Indian Rupee' },
+  { code: 'KRW', symbol: '₩', name: 'South Korean Won' },
+  { code: 'AUD', symbol: 'A$', name: 'Australian Dollar' },
+  { code: 'CAD', symbol: 'C$', name: 'Canadian Dollar' },
+  { code: 'SGD', symbol: 'S$', name: 'Singapore Dollar' },
+  { code: 'MYR', symbol: 'RM', name: 'Malaysian Ringgit' },
+  { code: 'THB', symbol: '฿', name: 'Thai Baht' },
+  { code: 'VND', symbol: '₫', name: 'Vietnamese Dong' },
+  { code: 'IDR', symbol: 'Rp', name: 'Indonesian Rupiah' },
+];
 // --- Helper Functions ---
 const getTodayString = (): string => {
   const d = new Date();
@@ -447,35 +521,52 @@ const getYesterdayString = (): string => {
 const calculateStreak = (completedDates: string[]): number => {
   if (!completedDates || completedDates.length === 0) return 0;
   
-  const sortedDates = [...completedDates].sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-  const today = getTodayString();
-  const yesterday = getYesterdayString();
+  // Convert all dates to midnight local time to avoid timezone issues
+  const sortedDates = [...completedDates]
+    .map(dateStr => {
+      const [year, month, day] = dateStr.split('-');
+      return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    })
+    .sort((a, b) => b.getTime() - a.getTime());
   
-  if (sortedDates[0] !== today && sortedDates[0] !== yesterday) return 0;
+  // Get today and yesterday at midnight local time
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  
+  const mostRecentDate = sortedDates[0];
+  mostRecentDate.setHours(0, 0, 0, 0);
+  
+  // Streak must start today or yesterday
+  if (mostRecentDate.getTime() !== today.getTime() && 
+      mostRecentDate.getTime() !== yesterday.getTime()) {
+    return 0;
+  }
 
-  let streak = 0;
-  let currentDate = new Date(sortedDates[0]); 
-
-  for (let i = 0; i < sortedDates.length; i++) {
-    const dateStr = sortedDates[i];
-    const dateObj = new Date(dateStr);
-    const diffTime = Math.abs(currentDate.getTime() - dateObj.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-
-    if (i === 0) {
+  let streak = 1;
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  
+  for (let i = 1; i < sortedDates.length; i++) {
+    const currentDate = new Date(sortedDates[i]);
+    currentDate.setHours(0, 0, 0, 0);
+    
+    const previousDate = new Date(sortedDates[i - 1]);
+    previousDate.setHours(0, 0, 0, 0);
+    
+    const diffMs = previousDate.getTime() - currentDate.getTime();
+    const diffDays = Math.round(diffMs / oneDayMs);
+    
+    if (diffDays === 1) {
       streak++;
     } else {
-      if (diffDays === 1) {
-        streak++;
-        currentDate = dateObj;
-      } else {
-        break;
-      }
+      break;
     }
   }
+  
   return streak;
 };
-
 const getLast7Days = () => {
   const days = [];
   for (let i = 6; i >= 0; i--) {
@@ -518,39 +609,39 @@ const getCurrentWeekDays = () => {
 };
 
 
-const scheduleNotification = (habit: Habit) => {
-  if (!habit.reminderEnabled || !habit.reminderTime) return;
-  if ('Notification' in window && Notification.permission === 'granted') {
-    const [hours, minutes] = habit.reminderTime.split(':');
-    const now = new Date();
-    const scheduledTime = new Date();
-    scheduledTime.setHours(parseInt(hours), parseInt(minutes), 0);
-    
-    if (scheduledTime <= now) {
-      scheduledTime.setDate(scheduledTime.getDate() + 1);
-    }
-    
-    const timeUntil = scheduledTime.getTime() - now.getTime();
-    
-    setTimeout(() => {
-      const today = getTodayString();
-      const isCompleted = habit.completedDates?.includes(today);
-      
-      if (!isCompleted) {
-        new Notification(`⏰ Time for: ${habit.title}`, {
-          body: habit.streak > 0 
-            ? `You're on a ${habit.streak}-day streak! Don't break it today!` 
-            : "Let's build this habit together!",
-          icon: '/icon-192.png',
-          badge: '/icon-192.png',
-          tag: habit.id,
-          requireInteraction: false
-        });
-      }
-      
-      setTimeout(() => scheduleNotification(habit), 24 * 60 * 60 * 1000);
-    }, timeUntil);
+const scheduleNotification = (habit: Habit): ReturnType<typeof setTimeout> | null => {
+  if (!habit.reminderEnabled || !habit.reminderTime) return null;
+  if (!('Notification' in window) || Notification.permission !== 'granted') return null;
+  
+  const [hours, minutes] = habit.reminderTime.split(':');
+  const now = new Date();
+  const scheduledTime = new Date();
+  scheduledTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+  
+  if (scheduledTime <= now) {
+    scheduledTime.setDate(scheduledTime.getDate() + 1);
   }
+  
+  const timeUntil = scheduledTime.getTime() - now.getTime();
+  
+  const timeoutId = setTimeout(() => {
+    const today = getTodayString();
+    const isCompleted = habit.completedDates?.includes(today);
+    
+    if (!isCompleted) {
+      new Notification(`⏰ Time for: ${habit.title}`, {
+        body: habit.streak > 0 
+          ? `You're on a ${habit.streak}-day streak! Don't break it today!` 
+          : "Let's build this habit together!",
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
+        tag: habit.id,
+        requireInteraction: false
+      });
+    }
+  }, timeUntil);
+  
+  return timeoutId;
 };
 // --- Animations Style Block ---
 const AnimationStyles = () => (
@@ -647,25 +738,36 @@ const AnimationStyles = () => (
       from { opacity: 0; }
       to { opacity: 1; }
     }
+  .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border-width: 0;
+    }
   `}</style>
 );
 
 // --- Components ---
 
 const ThemeToggle: React.FC = () => {
-  const { theme, toggleTheme, accent } = useTheme();
-  const isGreen = accent === 'green';
-  const isLgbt = accent === 'lgbt';
+  const { theme, toggleTheme } = useTheme();
+  const isDark = theme === 'dark';
   
   return (
-    <button 
+    <button
       onClick={toggleTheme}
-      className={`p-2.5 rounded-xl transition-all duration-300 transform hover:scale-110 active:scale-95 ${
-        theme === 'dark' 
-          ? `${isGreen ? 'bg-green-800 text-green-100 hover:bg-green-700 border-green-700' : isLgbt ? 'bg-slate-800 text-white hover:bg-slate-700 border-slate-600' : 'bg-pink-800 text-pink-100 hover:bg-pink-700 border-pink-700'} border shadow-md` 
-          : `${isGreen ? 'bg-white text-green-700 hover:bg-green-50 border-green-100' : isLgbt ? 'bg-white text-indigo-700 hover:bg-indigo-50 border-indigo-100' : 'bg-white text-pink-700 hover:bg-pink-50 border-pink-100'} shadow-md border`
+      className={`flex items-center gap-2 px-3 py-2 rounded-xl font-bold text-sm transition-all duration-300 ${
+        isDark
+          ? 'bg-slate-800 text-slate-200 border border-slate-700 hover:bg-slate-700'
+          : 'bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200'
       }`}
-      aria-label="Toggle Theme"
+      aria-label={`Current theme: ${theme}. Click to switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+      title={`Switch to ${theme === 'light' ? 'Dark' : 'Light'} Mode`}
     >
       {theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
     </button>
@@ -813,6 +915,8 @@ const ConfettiCheck = ({ isChecked, onClick, themeColor, icon }: { isChecked: bo
       )}
       <button
   onClick={handleClick}
+  aria-label={isChecked ? "Mark habit as incomplete" : "Mark habit as complete"}
+  aria-pressed={isChecked}
   className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center min-w-[44px] min-h-[44px]
  transition-all duration-300 transform hover:scale-105 active:scale-95 ${
           isChecked 
@@ -885,86 +989,814 @@ const SkeletonLoader = () => {
   );
 };
 
-// --- New Component: HabitStats (Insights Modal) ---
-const HabitStats = ({ habits, onClose }: { habits: Habit[], onClose: () => void }) => {
+// --- Enhanced HabitStats Component with Advanced Analytics ---
+const HabitStats = ({ 
+  habits, 
+  expenses, 
+  dailyAllowance, 
+  currencySymbol,
+  onClose 
+}: { 
+  habits: Habit[];
+  expenses: Expense[];
+  dailyAllowance: number;
+  currencySymbol: string;
+  onClose: () => void;
+}) => {
   const { theme, accent } = useTheme();
   const isDark = theme === 'dark';
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
+  const [activeTab, setActiveTab] = useState<'overview' | 'trends' | 'habits' | 'money'>('overview');
+  const [moneyView, setMoneyView] = useState<'overview' | 'weekly' | 'monthly' | 'yearly'>('overview');
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  
   const days = getLast7Days();
+  const today = getTodayString();
 
-  // Calculate Data
+  // Enhanced Analytics Calculations
   const totalHabits = habits.length;
+  const activeHabits = habits.filter(h => h.streak > 0).length;
   const bestStreak = Math.max(...habits.map(h => h.streak), 0);
   const totalCompletions = habits.reduce((acc, h) => acc + h.completedDates.length, 0);
+  const completedToday = habits.filter(h => h.completedDates?.includes(today)).length;
+  const completionRate = totalHabits > 0 ? Math.round((completedToday / totalHabits) * 100) : 0;
+  
+  // Calculate average completion rate over last 7 days
+  const last7DaysRate = days.map(day => {
+    const completed = habits.filter(h => h.completedDates.includes(day.date)).length;
+    return totalHabits > 0 ? (completed / totalHabits) * 100 : 0;
+  });
+  const avgCompletionRate = Math.round(last7DaysRate.reduce((a, b) => a + b, 0) / 7);
   
   // Weekly Activity Data
   const weeklyData = days.map(day => {
     const count = habits.filter(h => h.completedDates.includes(day.date)).length;
     return { ...day, count };
   });
+  const maxDaily = Math.max(...weeklyData.map(d => d.count), 1);
   
-  const maxDaily = Math.max(...weeklyData.map(d => d.count), 1); // Avoid div by zero
+  // Top performing habits
+  const topHabits = [...habits]
+    .sort((a, b) => b.streak - a.streak)
+    .slice(0, 3);
+  
+  // Habits needing attention (lowest streaks or zero)
+  const needsAttention = [...habits]
+    .filter(h => h.streak === 0)
+    .slice(0, 3);
+  
+  // Consistency score (percentage of days with at least 1 habit completed)
+  const daysWithActivity = days.filter(day => 
+    habits.some(h => h.completedDates.includes(day.date))
+  ).length;
+  const consistencyScore = Math.round((daysWithActivity / 7) * 100);
+
+  // Monthly projection
+  const avgDailyCompletions = weeklyData.reduce((sum, d) => sum + d.count, 0) / 7;
+  const monthlyProjection = Math.round(avgDailyCompletions * 30);
+  // Money Analytics Functions
+const getMonthlyData = (month: number, year: number) => {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthExpenses = expenses.filter(e => {
+    const expenseDate = new Date(e.date);
+    return expenseDate.getMonth() === month && expenseDate.getFullYear() === year;
+  });
+  
+  const dailyData = Array.from({ length: daysInMonth }, (_, i) => {
+    const day = i + 1;
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const dayExpenses = monthExpenses.filter(e => e.date === dateStr);
+    return {
+      day,
+      spent: dayExpenses.reduce((sum, e) => sum + e.amount, 0),
+      count: dayExpenses.length
+    };
+  });
+  
+  const totalSpent = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const monthlyBudget = dailyAllowance * daysInMonth;
+  const saved = monthlyBudget - totalSpent;
+  
+  const categoryTotals = EXPENSE_CATEGORIES.map(cat => ({
+    ...cat,
+    total: monthExpenses.filter(e => e.category === cat.id).reduce((sum, e) => sum + e.amount, 0)
+  })).filter(cat => cat.total > 0);
+  
+  return { dailyData, totalSpent, monthlyBudget, saved, categoryTotals };
+};
+
+const getYearlyData = (year: number) => {
+  const yearExpenses = expenses.filter(e => {
+    const expenseDate = new Date(e.date);
+    return expenseDate.getFullYear() === year;
+  });
+  
+  const monthlyData = Array.from({ length: 12 }, (_, i) => {
+    const monthExpenses = yearExpenses.filter(e => {
+      const expenseDate = new Date(e.date);
+      return expenseDate.getMonth() === i;
+    });
+    const daysInMonth = new Date(year, i + 1, 0).getDate();
+    return {
+      month: new Date(year, i, 1).toLocaleDateString('en-US', { month: 'short' }),
+      spent: monthExpenses.reduce((sum, e) => sum + e.amount, 0),
+      budget: dailyAllowance * daysInMonth,
+      saved: (dailyAllowance * daysInMonth) - monthExpenses.reduce((sum, e) => sum + e.amount, 0)
+    };
+  });
+  
+  const totalSpent = yearExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const yearlyBudget = dailyAllowance * 365;
+  const saved = yearlyBudget - totalSpent;
+  
+  return { monthlyData, totalSpent, yearlyBudget, saved };
+};
+
+// Weekly money data
+const last7Days = getLast7Days();
+const weeklySpending = last7Days.map(day => {
+  const dayExpenses = expenses.filter(e => e.date === day.date);
+  return {
+    ...day,
+    spent: dayExpenses.reduce((sum, e) => sum + e.amount, 0)
+  };
+});
+const weeklyTotal = weeklySpending.reduce((sum, day) => sum + day.spent, 0);
+const weeklyBudget = dailyAllowance * 7;
+const weeklySaved = weeklyBudget - weeklyTotal;
+
+const monthlyAnalytics = getMonthlyData(selectedMonth, selectedYear);
+const yearlyAnalytics = getYearlyData(selectedYear);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}></div>
-      <div className={`relative w-full max-w-lg rounded-3xl shadow-2xl p-6 md:p-8 animate-pop ${isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white text-slate-900'}`}>
-        <button onClick={onClose} className="absolute top-4 right-4 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+      
+      <div className={`relative w-full max-w-3xl my-8 rounded-3xl shadow-2xl animate-pop ${isDark ? 'bg-slate-900 border-2 border-slate-800 text-white' : 'bg-white border-2 border-slate-100 text-slate-900'}`}>
+        <button onClick={onClose} className={`absolute top-4 right-4 p-2 rounded-xl transition z-10 ${isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'}`}>
           <X className="w-5 h-5" />
         </button>
 
-        <div className="text-center mb-8">
-          <div className={`inline-flex items-center justify-center w-12 h-12 rounded-2xl mb-4 ${isDark ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-slate-800 text-indigo-400' : 'bg-pink-500/20 text-pink-400') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')}`}>
-            <BarChart3 className="w-6 h-6" />
+        {/* Header */}
+        <div className="p-6 md:p-8 border-b border-slate-200 dark:border-slate-800">
+          <div className="text-center">
+            <div className={`inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-4 ${isDark ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-slate-800 text-indigo-400' : 'bg-pink-500/20 text-pink-400') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')}`}>
+              <BarChart3 className="w-7 h-7" />
+            </div>
+            <h2 className="text-3xl font-black mb-2">Advanced Insights</h2>
+            <p className={`text-sm font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+              Deep dive into your habit patterns
+            </p>
           </div>
-          <h2 className="text-2xl font-black">Habit Insights</h2>
-          <p className={`text-sm font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Your progress at a glance.</p>
+
+          {/* Tabs */}
+          <div className={`flex gap-2 mt-6 p-1.5 rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+            {[
+            { id: 'overview', label: 'Overview', icon: PieChart },
+            { id: 'trends', label: 'Trends', icon: TrendingUp },
+            { id: 'habits', label: 'By Habit', icon: Target },
+            { id: 'money', label: 'Money', icon: DollarSign }
+            ].map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-bold text-sm transition ${
+                    activeTab === tab.id
+                      ? (isDark 
+                          ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
+                          : (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white' : 'bg-pink-600 text-white')
+                        )
+                      : `${isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'}`
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span className="hidden sm:inline">{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Key Metrics */}
-        <div className="grid grid-cols-3 gap-3 mb-8">
-          <div className={`p-4 rounded-2xl border text-center ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
-            <div className={`text-2xl font-black mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>{totalHabits}</div>
-            <div className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Active</div>
-          </div>
-          <div className={`p-4 rounded-2xl border text-center ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
-            <div className={`text-2xl font-black mb-1 ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')}`}>{bestStreak}</div>
-            <div className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Best Streak</div>
-          </div>
-          <div className={`p-4 rounded-2xl border text-center ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-100'}`}>
-            <div className={`text-2xl font-black mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>{totalCompletions}</div>
-            <div className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Total Done</div>
-          </div>
-        </div>
-
-        {/* Weekly Chart */}
-        <div>
-          <h3 className={`font-bold mb-4 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Last 7 Days Activity</h3>
-          <div className="h-40 flex items-end justify-between gap-2">
-            {weeklyData.map((d, i) => (
-              <div key={d.date} className="flex-1 flex flex-col items-center gap-2 group">
-                <div className="w-full relative flex-1 flex items-end">
-                  <div 
-                    className={`w-full rounded-t-lg transition-all duration-500 ${isDark ? (isGreen ? 'bg-green-600 group-hover:bg-green-500' : isLgbt ? 'bg-gradient-to-t from-blue-500 via-green-500 to-red-500 group-hover:opacity-80' : 'bg-pink-600 group-hover:bg-pink-500') : (isGreen ? 'bg-green-500 group-hover:bg-green-600' : isLgbt ? 'bg-gradient-to-t from-blue-500 via-green-500 to-red-500 group-hover:opacity-90' : 'bg-pink-500 group-hover:bg-pink-600')}`}
-                    style={{ height: `${(d.count / maxDaily) * 100}%`, minHeight: d.count > 0 ? '4px' : '0' }}
-                  ></div>
-                  {/* Tooltip-ish number */}
-                  {d.count > 0 && (
-                    <div className={`absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity ${isDark ? (isGreen ? 'text-green-300' : isLgbt ? 'text-indigo-300' : 'text-pink-300') : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')}`}>
-                      {d.count}
-                    </div>
-                  )}
+        {/* Content */}
+        <div className="p-6 md:p-8 max-h-[60vh] overflow-y-auto">
+          {/* OVERVIEW TAB */}
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              {/* Key Metrics Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Total Habits</div>
+                  <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{totalHabits}</div>
+                  <div className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{activeHabits} active</div>
                 </div>
-                <div className={`text-[10px] font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{d.label.slice(0, 1)}</div>
+                
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Best Streak</div>
+                  <div className={`text-2xl font-black ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')}`}>{bestStreak}</div>
+                  <div className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>days</div>
+                </div>
+                
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Today</div>
+                  <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{completionRate}%</div>
+                  <div className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{completedToday}/{totalHabits} done</div>
+                </div>
+                
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>7-Day Avg</div>
+                  <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{avgCompletionRate}%</div>
+                  <div className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>completion</div>
+                </div>
               </div>
-            ))}
+
+              {/* Consistency Score */}
+              <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>Consistency Score</h3>
+                    <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Days active in the last week</p>
+                  </div>
+                  <div className={`text-4xl font-black ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')}`}>
+                    {consistencyScore}%
+                  </div>
+                </div>
+                <div className={`h-3 w-full rounded-full overflow-hidden ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                  <div 
+                    className={`h-full rounded-full transition-all duration-1000 ${isDark ? (isGreen ? 'bg-gradient-to-r from-green-500 to-emerald-400' : isLgbt ? 'bg-gradient-to-r from-red-500 via-green-500 to-blue-500' : 'bg-gradient-to-r from-pink-500 to-rose-400') : (isGreen ? 'bg-gradient-to-r from-green-600 to-emerald-600' : isLgbt ? 'bg-gradient-to-r from-red-500 via-green-500 to-blue-600' : 'bg-gradient-to-r from-pink-600 to-rose-600')}`}
+                    style={{ width: `${consistencyScore}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              {/* Monthly Projection */}
+              <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="flex items-center gap-3">
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isDark ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-indigo-500/20 text-indigo-400' : 'bg-pink-500/20 text-pink-400') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')}`}>
+                    <Calendar className="w-6 h-6" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>30-Day Projection</h3>
+                    <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Based on your current pace</p>
+                  </div>
+                  <div className={`text-3xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    {monthlyProjection}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+           
+          {/* TRENDS TAB */}
+          {activeTab === 'trends' && (
+            <div className="space-y-6">
+              <div>
+                <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>7-Day Activity</h3>
+                <div className="h-48 flex items-end justify-between gap-2">
+                  {weeklyData.map((d, i) => (
+                    <div key={d.date} className="flex-1 flex flex-col items-center gap-2 group">
+                      <div className="w-full relative flex-1 flex items-end">
+                        <div 
+                          className={`w-full rounded-t-lg transition-all duration-500 ${isDark ? (isGreen ? 'bg-green-600 group-hover:bg-green-500' : isLgbt ? 'bg-gradient-to-t from-blue-500 via-green-500 to-red-500 group-hover:opacity-80' : 'bg-pink-600 group-hover:bg-pink-500') : (isGreen ? 'bg-green-500 group-hover:bg-green-600' : isLgbt ? 'bg-gradient-to-t from-blue-500 via-green-500 to-red-500 group-hover:opacity-90' : 'bg-pink-500 group-hover:bg-pink-600')}`}
+                          style={{ height: `${(d.count / maxDaily) * 100}%`, minHeight: d.count > 0 ? '8px' : '0' }}
+                        ></div>
+                        {d.count > 0 && (
+                          <div className={`absolute -top-7 left-1/2 -translate-x-1/2 text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded ${isDark ? 'bg-slate-800' : 'bg-white shadow-lg'}`}>
+                            {d.count}
+                          </div>
+                        )}
+                      </div>
+                      <div className={`text-xs font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{d.label.slice(0, 3)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Completion Rate Trend */}
+              <div>
+                <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Daily Completion Rate</h3>
+                <div className="h-32 flex items-end justify-between gap-1">
+                  {last7DaysRate.map((rate, i) => (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-2">
+                      <div className={`w-full h-24 flex items-end ${isDark ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg overflow-hidden`}>
+                        <div 
+                          className={`w-full transition-all duration-500 ${isDark ? (isGreen ? 'bg-green-500' : isLgbt ? 'bg-indigo-500' : 'bg-pink-500') : (isGreen ? 'bg-green-600' : isLgbt ? 'bg-indigo-600' : 'bg-pink-600')}`}
+                          style={{ height: `${rate}%` }}
+                        ></div>
+                      </div>
+                      <div className={`text-[10px] font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {Math.round(rate)}%
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Total Completions */}
+              <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>All-Time Completions</h3>
+                    <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Total habits completed since you started</p>
+                  </div>
+                  <div className={`text-4xl font-black ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')}`}>
+                    {totalCompletions}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* HABITS TAB */}
+          {activeTab === 'habits' && (
+            <div className="space-y-6">
+              {/* Top Performers */}
+              {topHabits.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Trophy className={`w-5 h-5 ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-yellow-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-yellow-500' : 'text-pink-600')}`} />
+                    <h3 className={`font-bold text-lg ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Top Performers</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {topHabits.map((habit, idx) => (
+                      <div key={habit.id} className={`p-4 rounded-2xl border flex items-center justify-between ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black ${
+                            idx === 0 ? 'bg-yellow-500 text-white' :
+                            idx === 1 ? 'bg-slate-400 text-white' :
+                            'bg-orange-600 text-white'
+                          }`}>
+                            {idx + 1}
+                          </div>
+                          <div>
+                            <p className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{habit.title}</p>
+                            <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                              {habit.completedDates.length} total completions
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Flame className={`w-5 h-5 ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-orange-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-orange-500' : 'text-pink-600')}`} />
+                          <span className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{habit.streak}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Needs Attention */}
+              {needsAttention.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <TrendingDown className={`w-5 h-5 ${isDark ? 'text-orange-400' : 'text-orange-600'}`} />
+                    <h3 className={`font-bold text-lg ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Needs Attention</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {needsAttention.map((habit) => (
+                      <div key={habit.id} className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{habit.title}</p>
+                            <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                              Streak broken • {habit.completedDates.length} total completions
+                            </p>
+                          </div>
+                          <div className={`px-3 py-1 rounded-lg text-xs font-bold ${isDark ? 'bg-orange-900/30 text-orange-300' : 'bg-orange-100 text-orange-700'}`}>
+                        0 days
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* All Habits Summary */}
+          <div>
+            <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>All Habits</h3>
+            <div className="space-y-2">
+              {habits.map((habit) => {
+                const completionRate = habit.completedDates.length > 0 
+                  ? Math.round((habit.streak / habit.completedDates.length) * 100)
+                  : 0;
+                
+                return (
+                  <div key={habit.id} className={`p-3 rounded-xl border ${isDark ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className={`font-bold text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>{habit.title}</p>
+                      <div className="flex items-center gap-2">
+                        <Flame className={`w-4 h-4 ${habit.streak > 0 ? (isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-orange-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-orange-500' : 'text-pink-600')) : 'text-slate-400'}`} />
+                        <span className={`text-sm font-bold ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{habit.streak}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs">
+                      <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>
+                        {habit.completedDates.length} completions
+                      </span>
+                      <div className={`flex-1 h-1.5 rounded-full overflow-hidden ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                        <div 
+                          className={`h-full ${isDark ? (isGreen ? 'bg-green-500' : isLgbt ? 'bg-indigo-500' : 'bg-pink-500') : (isGreen ? 'bg-green-600' : isLgbt ? 'bg-indigo-600' : 'bg-pink-600')}`}
+                          style={{ width: `${Math.min(habit.streak * 10, 100)}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
+        </div>
+      )}
+      {/* MONEY TAB */}
+{activeTab === 'money' && (
+  <div className="space-y-6">
+    {/* View Selector */}
+    <div className={`flex gap-2 p-1.5 rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+      <button
+        onClick={() => setMoneyView('overview')}
+        className={`flex-1 px-4 py-2 rounded-xl text-sm font-bold transition ${
+          moneyView === 'overview'
+            ? (isDark 
+                ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
+                : (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white' : 'bg-pink-600 text-white')
+              )
+            : `${isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'}`
+        }`}
+      >
+        Overview
+      </button>
+      <button
+        onClick={() => setMoneyView('monthly')}
+        className={`flex-1 px-4 py-2 rounded-xl text-sm font-bold transition ${
+          moneyView === 'monthly'
+            ? (isDark 
+                ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
+                : (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white' : 'bg-pink-600 text-white')
+              )
+            : `${isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'}`
+        }`}
+      >
+        Monthly
+      </button>
+      <button
+        onClick={() => setMoneyView('yearly')}
+        className={`flex-1 px-4 py-2 rounded-xl text-sm font-bold transition ${
+          moneyView === 'yearly'
+            ? (isDark 
+                ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
+                : (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white' : 'bg-pink-600 text-white')
+              )
+            : `${isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'}`
+        }`}
+      >
+        Yearly
+      </button>
+    </div>
+
+    {/* Overview View - Weekly Line Chart */}
+    {moneyView === 'overview' && (
+      <div className="space-y-4">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-3 gap-4">
+          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-blue-50 border-blue-200'}`}>
+            <div className={`text-sm font-medium mb-1 ${isDark ? 'text-slate-400' : 'text-blue-600'}`}>Total Spent</div>
+            <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-blue-900'}`}>
+              {currencySymbol}{weeklyTotal.toFixed(2)}
+            </div>
+          </div>
+          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-green-50 border-green-200'}`}>
+            <div className={`text-sm font-medium mb-1 ${isDark ? 'text-slate-400' : 'text-green-600'}`}>Total Budget</div>
+            <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-green-900'}`}>
+              {currencySymbol}{weeklyBudget.toFixed(2)}
+            </div>
+          </div>
+          <div className={`p-4 rounded-2xl border ${weeklySaved >= 0 ? (isDark ? 'bg-slate-800 border-slate-700' : 'bg-emerald-50 border-emerald-200') : (isDark ? 'bg-slate-800 border-slate-700' : 'bg-red-50 border-red-200')}`}>
+            <div className={`text-sm font-medium mb-1 ${weeklySaved >= 0 ? (isDark ? 'text-slate-400' : 'text-emerald-600') : (isDark ? 'text-slate-400' : 'text-red-600')}`}>
+              {weeklySaved >= 0 ? 'Savings' : 'Over Budget'}
+            </div>
+            <div className={`text-2xl font-black ${weeklySaved >= 0 ? (isDark ? 'text-green-400' : 'text-emerald-900') : (isDark ? 'text-red-400' : 'text-red-900')}`}>
+              {currencySymbol}{Math.abs(weeklySaved).toFixed(2)}
+            </div>
+          </div>
+        </div>
+
+        {/* Weekly Line Chart */}
+        <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+          <h4 className={`text-sm font-bold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>Weekly Spending Trend</h4>
+          <ResponsiveContainer width="100%" height={250}>
+            <LineChart data={weeklySpending}>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
+              <XAxis 
+                dataKey="label" 
+                tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12 }}
+                axisLine={{ stroke: isDark ? '#475569' : '#cbd5e1' }}
+              />
+              <YAxis 
+                tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12 }}
+                axisLine={{ stroke: isDark ? '#475569' : '#cbd5e1' }}
+              />
+              <Tooltip 
+                contentStyle={{
+                  backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                  border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                  borderRadius: '8px',
+                  color: isDark ? '#ffffff' : '#000000'
+                }}
+                formatter={(value: any) => [`${currencySymbol}${value.toFixed(2)}`, 'Spent']}
+              />
+              <Line 
+                type="monotone" 
+                dataKey="spent" 
+                stroke={isDark ? (isGreen ? '#10b981' : isLgbt ? '#6366f1' : '#ec4899') : (isGreen ? '#059669' : isLgbt ? '#4f46e5' : '#db2777')}
+                strokeWidth={3}
+                dot={{ fill: isDark ? (isGreen ? '#10b981' : isLgbt ? '#6366f1' : '#ec4899') : (isGreen ? '#059669' : isLgbt ? '#4f46e5' : '#db2777'), r: 5 }}
+                activeDot={{ r: 7 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       </div>
+    )}
+
+    {/* Monthly View - Daily Bar Chart */}
+    {moneyView === 'monthly' && (
+      <div className="space-y-6">
+        {/* Month Navigation */}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => {
+              if (selectedMonth === 0) {
+                setSelectedMonth(11);
+                setSelectedYear(selectedYear - 1);
+              } else {
+                setSelectedMonth(selectedMonth - 1);
+              }
+            }}
+            className={`p-2 rounded-xl transition ${isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}
+          >
+            ←
+          </button>
+          <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            {new Date(selectedYear, selectedMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+          </h3>
+          <button
+            onClick={() => {
+              if (selectedMonth === 11) {
+                setSelectedMonth(0);
+                setSelectedYear(selectedYear + 1);
+              } else {
+                setSelectedMonth(selectedMonth + 1);
+              }
+            }}
+            className={`p-2 rounded-xl transition ${isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}
+          >
+            →
+          </button>
+        </div>
+
+        {/* Monthly Stats Cards */}
+        <div className="grid grid-cols-3 gap-4">
+          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-blue-50 border-blue-200'}`}>
+            <div className={`text-sm font-medium mb-1 ${isDark ? 'text-slate-400' : 'text-blue-600'}`}>Spent</div>
+            <div className={`text-xl font-black ${isDark ? 'text-white' : 'text-blue-900'}`}>
+              {currencySymbol}{monthlyAnalytics.totalSpent.toFixed(2)}
+            </div>
+          </div>
+          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-green-50 border-green-200'}`}>
+            <div className={`text-sm font-medium mb-1 ${isDark ? 'text-slate-400' : 'text-green-600'}`}>Budget</div>
+            <div className={`text-xl font-black ${isDark ? 'text-white' : 'text-green-900'}`}>
+              {currencySymbol}{monthlyAnalytics.monthlyBudget.toFixed(2)}
+            </div>
+          </div>
+          <div className={`p-4 rounded-2xl border ${monthlyAnalytics.saved >= 0 ? (isDark ? 'bg-slate-800 border-slate-700' : 'bg-emerald-50 border-emerald-200') : (isDark ? 'bg-slate-800 border-slate-700' : 'bg-red-50 border-red-200')}`}>
+            <div className={`text-sm font-medium mb-1 ${monthlyAnalytics.saved >= 0 ? (isDark ? 'text-slate-400' : 'text-emerald-600') : (isDark ? 'text-slate-400' : 'text-red-600')}`}>
+              {monthlyAnalytics.saved >= 0 ? 'Saved' : 'Over'}
+            </div>
+            <div className={`text-xl font-black ${monthlyAnalytics.saved >= 0 ? (isDark ? 'text-green-400' : 'text-emerald-900') : (isDark ? 'text-red-400' : 'text-red-900')}`}>
+              {currencySymbol}{Math.abs(monthlyAnalytics.saved).toFixed(2)}
+            </div>
+          </div>
+        </div>
+
+        {/* Daily Spending Bar Chart */}
+        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+          <h4 className={`text-sm font-bold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>Daily Spending</h4>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={monthlyAnalytics.dailyData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
+              <XAxis 
+                dataKey="day" 
+                tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 11 }}
+                axisLine={{ stroke: isDark ? '#475569' : '#cbd5e1' }}
+                interval={4}
+                label={{ value: 'Day of Month', position: 'insideBottom', offset: -5, fill: isDark ? '#94a3b8' : '#64748b' }}
+              />
+              <YAxis 
+                tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 11 }}
+                axisLine={{ stroke: isDark ? '#475569' : '#cbd5e1' }}
+                label={{ value: `Amount (${currencySymbol})`, angle: -90, position: 'insideLeft', fill: isDark ? '#94a3b8' : '#64748b' }}
+              />
+              <Tooltip 
+                contentStyle={{
+                  backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                  border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                  borderRadius: '8px',
+                  color: isDark ? '#ffffff' : '#000000'
+                }}
+                formatter={(value: any) => [`${currencySymbol}${value.toFixed(2)}`, 'Spent']}
+                labelFormatter={(label) => `Day ${label}`}
+              />
+              <Bar 
+                dataKey="spent" 
+                fill={isDark ? (isGreen ? '#10b981' : isLgbt ? '#6366f1' : '#ec4899') : (isGreen ? '#059669' : isLgbt ? '#4f46e5' : '#db2777')}
+                radius={[8, 8, 0, 0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Category Breakdown */}
+        {monthlyAnalytics.categoryTotals.length > 0 && (
+          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+            <h4 className={`text-sm font-bold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>Category Breakdown</h4>
+            <div className="space-y-3">
+              {monthlyAnalytics.categoryTotals
+                .sort((a, b) => b.total - a.total)
+                .map((cat) => {
+                  const percentage = (cat.total / monthlyAnalytics.totalSpent) * 100;
+                  const Icon = cat.icon;
+                  
+                  return (
+                    <div key={cat.id}>
+                      <div className="flex justify-between text-sm mb-1">
+                        <div className="flex items-center gap-2">
+                          <Icon className="w-4 h-4" />
+                          <span className={`font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>{cat.label}</span>
+                        </div>
+                        <span className={`font-bold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                          {currencySymbol}{cat.total.toFixed(2)} ({percentage.toFixed(1)}%)
+                        </span>
+                      </div>
+                      <div className={`w-full h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                        <div
+                          className={`h-full rounded-full ${
+                            isDark 
+                              ? (isGreen ? 'bg-green-500' : isLgbt ? 'bg-indigo-500' : 'bg-pink-500')
+                              : (isGreen ? 'bg-green-600' : isLgbt ? 'bg-indigo-600' : 'bg-pink-600')
+                          }`}
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+
+    {/* Yearly View - Monthly Bar Chart with Line Overlay */}
+    {moneyView === 'yearly' && (
+      <div className="space-y-6">
+        {/* Year Navigation */}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => setSelectedYear(selectedYear - 1)}
+            className={`p-2 rounded-xl transition ${isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}
+          >
+            ←
+          </button>
+          <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{selectedYear}</h3>
+          <button
+            onClick={() => setSelectedYear(selectedYear + 1)}
+            className={`p-2 rounded-xl transition ${isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}
+          >
+            →
+          </button>
+        </div>
+
+        {/* Yearly Stats Cards */}
+        <div className="grid grid-cols-3 gap-4">
+          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-blue-50 border-blue-200'}`}>
+            <div className={`text-sm font-medium mb-1 ${isDark ? 'text-slate-400' : 'text-blue-600'}`}>Total Spent</div>
+            <div className={`text-xl font-black ${isDark ? 'text-white' : 'text-blue-900'}`}>
+              {currencySymbol}{yearlyAnalytics.totalSpent.toFixed(2)}
+            </div>
+          </div>
+          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-green-50 border-green-200'}`}>
+            <div className={`text-sm font-medium mb-1 ${isDark ? 'text-slate-400' : 'text-green-600'}`}>Total Budget</div>
+            <div className={`text-xl font-black ${isDark ? 'text-white' : 'text-green-900'}`}>
+              {currencySymbol}{yearlyAnalytics.yearlyBudget.toFixed(2)}
+            </div>
+          </div>
+          <div className={`p-4 rounded-2xl border ${yearlyAnalytics.saved >= 0 ? (isDark ? 'bg-slate-800 border-slate-700' : 'bg-emerald-50 border-emerald-200') : (isDark ? 'bg-slate-800 border-slate-700' : 'bg-red-50 border-red-200')}`}>
+            <div className={`text-sm font-medium mb-1 ${yearlyAnalytics.saved >= 0 ? (isDark ? 'text-slate-400' : 'text-emerald-600') : (isDark ? 'text-slate-400' : 'text-red-600')}`}>
+              {yearlyAnalytics.saved >= 0 ? 'Total Saved' : 'Over Budget'}
+            </div>
+            <div className={`text-xl font-black ${yearlyAnalytics.saved >= 0 ? (isDark ? 'text-green-400' : 'text-emerald-900') : (isDark ? 'text-red-400' : 'text-red-900')}`}>
+              {currencySymbol}{Math.abs(yearlyAnalytics.saved).toFixed(2)}
+            </div>
+          </div>
+        </div>
+
+        {/* Monthly Spending Bar + Line Chart */}
+        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+          <h4 className={`text-sm font-bold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>Monthly Spending vs Budget</h4>
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={yearlyAnalytics.monthlyData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
+              <XAxis 
+                dataKey="month" 
+                tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12 }}
+                axisLine={{ stroke: isDark ? '#475569' : '#cbd5e1' }}
+              />
+              <YAxis 
+                tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12 }}
+                axisLine={{ stroke: isDark ? '#475569' : '#cbd5e1' }}
+                label={{ value: `Amount (${currencySymbol})`, angle: -90, position: 'insideLeft', fill: isDark ? '#94a3b8' : '#64748b' }}
+              />
+              <Tooltip 
+                contentStyle={{
+                  backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                  border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                  borderRadius: '8px',
+                  color: isDark ? '#ffffff' : '#000000'
+                }}
+                formatter={(value: any) => `${currencySymbol}${value.toFixed(2)}`}
+              />
+              <Bar 
+                dataKey="spent" 
+                fill={isDark ? (isGreen ? '#10b981' : isLgbt ? '#6366f1' : '#ec4899') : (isGreen ? '#059669' : isLgbt ? '#4f46e5' : '#db2777')}
+                name="Spent"
+                radius={[8, 8, 0, 0]}
+              />
+              <Line 
+                type="monotone" 
+                dataKey="budget" 
+                stroke={isDark ? '#64748b' : '#94a3b8'}
+                strokeWidth={2}
+                strokeDasharray="5 5"
+                dot={{ fill: isDark ? '#64748b' : '#94a3b8', r: 4 }}
+                name="Budget"
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Monthly Savings Bar Chart */}
+        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+          <h4 className={`text-sm font-bold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>Monthly Savings/Deficit</h4>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={yearlyAnalytics.monthlyData}>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#e2e8f0'} />
+              <XAxis 
+                dataKey="month" 
+                tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12 }}
+                axisLine={{ stroke: isDark ? '#475569' : '#cbd5e1' }}
+              />
+              <YAxis 
+                tick={{ fill: isDark ? '#94a3b8' : '#64748b', fontSize: 12 }}
+                axisLine={{ stroke: isDark ? '#475569' : '#cbd5e1' }}
+                label={{ value: `Amount (${currencySymbol})`, angle: -90, position: 'insideLeft', fill: isDark ? '#94a3b8' : '#64748b' }}
+              />
+              <Tooltip 
+                contentStyle={{
+                  backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                  border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                  borderRadius: '8px',
+                  color: isDark ? '#ffffff' : '#000000'
+                }}
+                formatter={(value: any) => [`${currencySymbol}${value.toFixed(2)}`, value >= 0 ? 'Saved' : 'Over Budget']}
+              />
+              <Bar dataKey="saved" name="Savings" radius={[8, 8, 0, 0]}>
+                {yearlyAnalytics.monthlyData.map((entry, index) => (
+                  <Cell 
+                    key={`cell-${index}`} 
+                    fill={entry.saved >= 0 
+                      ? (isDark ? '#10b981' : '#059669') 
+                      : '#ef4444'
+                    } 
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    )}
+  </div>
+)}
     </div>
-  );
+  </div>
+</div>
+);
 };
+
 
 // Landing Page
 const LandingPage = ({ onGetStarted }: { onGetStarted: () => void }) => {
@@ -1279,6 +2111,7 @@ const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
     </div>
   );
 };
+
 // Template Browser Component
 const TemplateBrowser = ({ 
   onSelectTemplate, 
@@ -1336,12 +2169,11 @@ const TemplateBrowser = ({
               </div>
             </div>
             <button 
-              onClick={onClose}
-              className={`p-2 rounded-xl transition ${
-                isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
-              }`}
-            >
-              <X className="w-6 h-6" />
+               onClick={onClose}
+              aria-label="Close modal"
+              className={`absolute top-4 right-4 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition`}
+              >
+             <X className="w-5 h-5" />
             </button>
           </div>
 
@@ -1594,12 +2426,24 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
   const [showStats, setShowStats] = useState(false);
   const [reminderHabit, setReminderHabit] = useState<Habit | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState<'habits' | 'todos'>('habits');
+  const [currentPage, setCurrentPage] = useState<'habits' | 'todos' | 'money'>('habits');
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [newTodoTitle, setNewTodoTitle] = useState('');
   const [newTodoPriority, setNewTodoPriority] = useState<'low' | 'medium' | 'high'>('medium');
   const [newTodoDueDate, setNewTodoDueDate] = useState('');
-  
+  // Money Tracking State
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [dailyAllowance, setDailyAllowance] = useState<number>(0);
+  const [currency, setCurrency] = useState<string>('USD');  // ADD THIS
+  const [currencySymbol, setCurrencySymbol] = useState<string>('$');  // ADD THIS
+  const [showAllowanceModal, setShowAllowanceModal] = useState(false);
+  const [newExpenseAmount, setNewExpenseAmount] = useState('');
+  const [newExpenseCategory, setNewExpenseCategory] = useState('food');
+  const [newExpenseDescription, setNewExpenseDescription] = useState('');
+  const [newExpenseDate, setNewExpenseDate] = useState(getTodayString());
+  const [moneyView, setMoneyView] = useState<'overview' | 'monthly' | 'yearly'>('overview');
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const touchStartX = useRef(0);
   const touchEndX = useRef(0);
   
@@ -1660,12 +2504,24 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
      }, [user]);
 
    useEffect(() => {
-    habits.forEach(habit => {
-      if (habit.reminderEnabled) {
-        scheduleNotification(habit);
+  const timeoutIds: ReturnType<typeof setTimeout>[] = [];
+  
+  habits.forEach(habit => {
+    if (habit.reminderEnabled) {
+      const timeoutId = scheduleNotification(habit);
+      if (timeoutId !== null) {
+        timeoutIds.push(timeoutId);
       }
+    }
+  });
+  
+  // Cleanup function - clears all timeouts when component unmounts or habits change
+  return () => {
+    timeoutIds.forEach(id => {
+      if (id) clearTimeout(id);
     });
-  }, [habits]);
+  };
+}, [habits]);
   useEffect(() => {
     if (!user || !user.uid) {
       setTodos([]);
@@ -1685,6 +2541,51 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
       setTodos(todosData);
     }, (error) => {
       console.error("Error fetching todos:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+  // Load Money Settings
+  useEffect(() => {
+  if (!user || !user.uid) return;
+
+  const settingsRef = doc(db, 'users', user.uid, 'money', 'settings');
+  const unsubscribe = onSnapshot(settingsRef, (docSnap) => {
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      setDailyAllowance(data.dailyAllowance || 0);
+      setCurrency(data.currency || 'USD');
+      setCurrencySymbol(data.currencySymbol || '$');
+    } else {
+      setShowAllowanceModal(true);
+    }
+  }, (error) => {
+    console.error("Error fetching money settings:", error);
+  });
+
+  return () => unsubscribe();
+}, [user]);
+
+  // Load Expenses
+  useEffect(() => {
+    if (!user || !user.uid) {
+      setExpenses([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, 'users', user.uid, 'expenses'),
+      orderBy('date', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const expensesData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Expense[];
+      setExpenses(expensesData);
+    }, (error) => {
+      console.error("Error fetching expenses:", error);
     });
 
     return () => unsubscribe();
@@ -1785,7 +2686,7 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
     const updatedHabits = habits.filter(h => h.id !== habitId);
     setHabits(updatedHabits);
 
-    let timeoutId: NodeJS.Timeout;
+   let timeoutId: ReturnType<typeof setTimeout>;
 
     const undoDelete = () => {
       clearTimeout(timeoutId);
@@ -1967,7 +2868,155 @@ const saveEditedHabit = async (e: React.FormEvent) => {
       console.error("Error deleting todo", error);
     }
   };
+  // Money Tracking Functions
+  const saveDailyAllowance = async (amount: number, currencyCode: string) => {
+  if (!user) return;
 
+  console.log('💰 Saving allowance:', { amount, currencyCode }); // ← ADD THIS
+  try {
+    const selectedCurrency = CURRENCIES.find(c => c.code === currencyCode);
+    const symbol = selectedCurrency?.symbol || '$';
+    console.log('💱 Found currency:', selectedCurrency); // ← ADD THIS
+    console.log('💲 Symbol to save:', symbol); // ← ADD THIS
+
+    await setDoc(doc(db, 'users', user.uid, 'money', 'settings'), {
+      dailyAllowance: amount,
+      currency: currencyCode,
+      currencySymbol: symbol,
+      updatedAt: serverTimestamp()
+    });
+    setDailyAllowance(amount);
+    setCurrency(currencyCode);
+    setCurrencySymbol(symbol);
+    setShowAllowanceModal(false);
+    setToast({ id: Date.now().toString(), message: 'Daily allowance saved!', type: 'success' });
+  } catch (error) {
+    console.error("Error saving allowance", error);
+    setToast({ id: Date.now().toString(), message: 'Failed to save allowance.', type: 'error' });
+  }
+};
+
+  const addExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newExpenseAmount.trim() || !user) return;
+
+    const amount = parseFloat(newExpenseAmount);
+    if (isNaN(amount) || amount <= 0) {
+      setToast({ id: Date.now().toString(), message: 'Please enter a valid amount', type: 'error' });
+      return;
+    }
+
+    const newExpense = {
+      date: newExpenseDate,
+      amount: amount,
+      category: newExpenseCategory,
+      description: newExpenseDescription.trim() || 'Expense',
+      createdAt: serverTimestamp()
+    };
+
+    setNewExpenseAmount('');
+    setNewExpenseDescription('');
+    setNewExpenseDate(getTodayString());
+    setToast({ id: Date.now().toString(), message: 'Expense added!', type: 'success' });
+
+    try {
+      await addDoc(collection(db, 'users', user.uid, 'expenses'), newExpense);
+    } catch (error) {
+      console.error("Error adding expense", error);
+      setToast({ id: Date.now().toString(), message: 'Failed to add expense.', type: 'error' });
+    }
+  };
+
+  const deleteExpense = async (expenseId: string) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'expenses', expenseId));
+      setToast({ id: Date.now().toString(), message: 'Expense deleted', type: 'success' });
+    } catch (error) {
+      console.error("Error deleting expense", error);
+    }
+  };
+
+  // Calculate today's spending
+  const todayExpenses = expenses.filter(e => e.date === today);
+  const todaySpent = todayExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const todayRemaining = dailyAllowance - todaySpent;
+  const todaySavingsRate = dailyAllowance > 0 ? Math.round((todayRemaining / dailyAllowance) * 100) : 0;
+
+  // Calculate weekly spending
+  const last7Days = getLast7Days();
+  const weeklySpending = last7Days.map(day => {
+    const dayExpenses = expenses.filter(e => e.date === day.date);
+    return {
+      ...day,
+      spent: dayExpenses.reduce((sum, e) => sum + e.amount, 0)
+    };
+  });
+  const weeklyTotal = weeklySpending.reduce((sum, day) => sum + day.spent, 0);
+  const weeklyBudget = dailyAllowance * 7;
+  const weeklySaved = weeklyBudget - weeklyTotal;
+  // Monthly Analytics
+const getMonthlyData = (month: number, year: number) => {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthExpenses = expenses.filter(e => {
+    const expenseDate = new Date(e.date);
+    return expenseDate.getMonth() === month && expenseDate.getFullYear() === year;
+  });
+  
+  const dailyData = Array.from({ length: daysInMonth }, (_, i) => {
+    const day = i + 1;
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const dayExpenses = monthExpenses.filter(e => e.date === dateStr);
+    return {
+      day,
+      spent: dayExpenses.reduce((sum, e) => sum + e.amount, 0),
+      count: dayExpenses.length
+    };
+  });
+  
+  const totalSpent = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const monthlyBudget = dailyAllowance * daysInMonth;
+  const saved = monthlyBudget - totalSpent;
+  
+  // Category breakdown
+  const categoryTotals = EXPENSE_CATEGORIES.map(cat => ({
+    ...cat,
+    total: monthExpenses.filter(e => e.category === cat.id).reduce((sum, e) => sum + e.amount, 0)
+  })).filter(cat => cat.total > 0);
+  
+  return { dailyData, totalSpent, monthlyBudget, saved, categoryTotals };
+};
+
+// Yearly Analytics
+const getYearlyData = (year: number) => {
+  const yearExpenses = expenses.filter(e => {
+    const expenseDate = new Date(e.date);
+    return expenseDate.getFullYear() === year;
+  });
+  
+  const monthlyData = Array.from({ length: 12 }, (_, i) => {
+    const monthExpenses = yearExpenses.filter(e => {
+      const expenseDate = new Date(e.date);
+      return expenseDate.getMonth() === i;
+    });
+    const daysInMonth = new Date(year, i + 1, 0).getDate();
+    return {
+      month: new Date(year, i, 1).toLocaleDateString('en-US', { month: 'short' }),
+      spent: monthExpenses.reduce((sum, e) => sum + e.amount, 0),
+      budget: dailyAllowance * daysInMonth,
+      saved: (dailyAllowance * daysInMonth) - monthExpenses.reduce((sum, e) => sum + e.amount, 0)
+    };
+  });
+  
+  const totalSpent = yearExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const yearlyBudget = dailyAllowance * 365;
+  const saved = yearlyBudget - totalSpent;
+  
+  return { monthlyData, totalSpent, yearlyBudget, saved };
+};
+
+const monthlyAnalytics = getMonthlyData(selectedMonth, selectedYear);
+const yearlyAnalytics = getYearlyData(selectedYear);
   // Helper to get correct theme set
   const getColorTheme = (str: string) => {
     const themes = isGreen ? HABIT_THEMES_GREEN : isLgbt ? HABIT_THEMES_RAINBOW : HABIT_THEMES_PINK;
@@ -2007,7 +3056,7 @@ const saveEditedHabit = async (e: React.FormEvent) => {
       </div>
 
       {showCelebration && <FullScreenConfetti />}
-      {showStats && <HabitStats habits={habits} onClose={() => setShowStats(false)} />}
+      {showStats && <HabitStats habits={habits} expenses={expenses} dailyAllowance={dailyAllowance} currencySymbol={currencySymbol} onClose={() => setShowStats(false)} />}
 
       {toast && (
         <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
@@ -2229,11 +3278,10 @@ const saveEditedHabit = async (e: React.FormEvent) => {
 
         {/* Swipeable Container */}
         <div className="relative overflow-hidden">
-          {/* Page Indicators */}
-          <div className="flex justify-center gap-2 mb-6">
+          <div className="flex justify-center gap-2 mb-6 overflow-x-auto pb-2">
             <button
               onClick={() => setCurrentPage('habits')}
-              className={`px-4 py-2 rounded-xl font-bold transition ${
+              className={`px-4 py-2 rounded-xl font-bold transition whitespace-nowrap ${
                 currentPage === 'habits'
                   ? (isDark 
                       ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
@@ -2246,7 +3294,7 @@ const saveEditedHabit = async (e: React.FormEvent) => {
             </button>
             <button
               onClick={() => setCurrentPage('todos')}
-              className={`px-4 py-2 rounded-xl font-bold transition ${
+              className={`px-4 py-2 rounded-xl font-bold transition whitespace-nowrap ${
                 currentPage === 'todos'
                   ? (isDark 
                       ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
@@ -2256,6 +3304,19 @@ const saveEditedHabit = async (e: React.FormEvent) => {
               }`}
             >
               To-Do List
+            </button>
+            <button
+              onClick={() => setCurrentPage('money')}
+              className={`px-4 py-2 rounded-xl font-bold transition whitespace-nowrap ${
+                currentPage === 'money'
+                  ? (isDark 
+                      ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
+                      : (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white' : 'bg-pink-600 text-white')
+                    )
+                  : (isDark ? 'bg-slate-800 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
+              }`}
+            >
+              💰 Money
             </button>
           </div>
 
@@ -2280,13 +3341,14 @@ const saveEditedHabit = async (e: React.FormEvent) => {
                         {searchQuery && ` matching "${searchQuery}"`}
                       </p>
                     </div>
-                    
                     <div className="relative w-full sm:w-auto sm:min-w-[300px]">
-                      <input
-                        type="text"
-                        placeholder="Search habits..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
+                    <label htmlFor="habit-search" className="sr-only">Search habits</label>
+                    <input
+                     id="habit-search"
+                          type="text"
+                          placeholder="Search habits..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
                         className={`w-full px-4 py-3 pl-11 rounded-xl border-2 outline-none transition font-medium ${
                           isDark 
                             ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400 placeholder-slate-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400 placeholder-slate-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400 placeholder-slate-500') 
@@ -2494,15 +3556,16 @@ const saveEditedHabit = async (e: React.FormEvent) => {
                               <span className="text-base">{habit.reminderEnabled ? '🔔' : '🔕'}</span>
                             </button>
                             <button 
-                              onClick={() => deleteHabit(habit.id)}
-                              className={`p-2.5 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center ${
-                                isDark 
-                                  ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' 
-                                  : 'text-slate-300 hover:text-red-500 hover:bg-red-50'
-                              }`}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                             onClick={() => deleteHabit(habit.id)}
+                              aria-label={`Delete habit: ${habit.title}`}
+                             className={`p-2.5 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center ${
+                             isDark 
+                              ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' 
+                             : 'text-slate-300 hover:text-red-500 hover:bg-red-50'
+                            }`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                           </button>
                           </div>
                         </div>
 
@@ -2718,40 +3781,748 @@ const saveEditedHabit = async (e: React.FormEvent) => {
               </div>
             </div>
           </div>
+          {/* MONEY TRACKING PAGE */}
+            <div className={`transition-all duration-300 ${currentPage === 'money' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'}`}>
+              <div className="mb-6">
+                <div className="mb-6">
+  <h2 className={`text-2xl md:text-3xl font-black text-center sm:text-left mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+    💰 Money Tracker
+  </h2>
+  
+  {/* Analytics Tabs */}
+  <div className={`flex gap-2 p-1.5 rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+    {[
+      { id: 'overview', label: 'Overview', icon: PieChart },
+      { id: 'monthly', label: 'Monthly', icon: Calendar },
+      { id: 'yearly', label: 'Yearly', icon: BarChart3 }
+    ].map((tab) => {
+      const Icon = tab.icon;
+      return (
+        <button
+          key={tab.id}
+          onClick={() => setMoneyView(tab.id as any)}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-bold text-sm transition ${
+            moneyView === tab.id
+              ? (isDark 
+                  ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
+                  : (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white' : 'bg-pink-600 text-white')
+                )
+              : `${isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'}`
+          }`}
+        >
+          <Icon className="w-4 h-4" />
+          <span className="hidden sm:inline">{tab.label}</span>
+        </button>
+      );
+    })}
+  </div>
+</div>
 
-          {/* Swipe Hint */}
-          <div className={`text-center mt-6 ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
-            <p className="text-sm font-medium">
-              👈 Swipe to switch between Habits and To-Do List 👉
-            </p>
-          </div>
-        </div>
+                {/* Today's Budget Card */}
+                <div className={`mb-6 p-6 rounded-3xl border-2 shadow-lg ${
+                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'
+                }`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className={`text-sm font-bold uppercase tracking-wider mb-1 ${
+                        isDark ? 'text-slate-500' : 'text-slate-400'
+                      }`}>
+                        Today's Budget
+                      </h3>
+                      <div className="flex items-baseline gap-2">
+                        <span className={`text-4xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {currencySymbol}{todaySpent.toFixed(2)}
+                        </span>
+                        <span className={`text-xl font-medium ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                        / {currencySymbol}{dailyAllowance.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowAllowanceModal(true)}
+                      className={`p-3 rounded-xl transition ${
+                        isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-400' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                      }`}
+                      title="Edit Daily Allowance"
+                    >
+                      <Edit2 className="w-5 h-5" />
+                    </button>
+                  </div>
 
-        {/* Template Browser Modal */}
-        {showTemplates && (
-          <TemplateBrowser 
-            onSelectTemplate={selectTemplate}
-            onClose={() => setShowTemplates(false)}
-          />
-        )}
-         {/* Reminder Modal */}
-        {reminderHabit && (
-          <ReminderModal 
-            habit={reminderHabit} 
-            onClose={() => setReminderHabit(null)}
-            onSave={(enabled, time) => {
-              saveReminder(reminderHabit.id, enabled, time);
-              setReminderHabit(null);
-            }}
-          />
-        )}
-        
-      </main>
+                  {/* Progress Bar */}
+                  <div className={`h-4 w-full rounded-full overflow-hidden mb-3 ${
+                    isDark ? 'bg-slate-800' : 'bg-slate-100'
+                  }`}>
+                    <div
+                      className={`h-full rounded-full transition-all duration-1000 ${
+                        todaySpent > dailyAllowance
+                          ? 'bg-red-500'
+                          : todaySavingsRate > 50
+                          ? (isDark 
+                              ? (isGreen ? 'bg-gradient-to-r from-green-500 to-emerald-400' : isLgbt ? 'bg-gradient-to-r from-blue-500 to-purple-500' : 'bg-gradient-to-r from-pink-500 to-rose-400')
+                              : (isGreen ? 'bg-gradient-to-r from-green-600 to-emerald-600' : isLgbt ? 'bg-gradient-to-r from-blue-600 to-purple-600' : 'bg-gradient-to-r from-pink-600 to-rose-600')
+                            )
+                          : 'bg-yellow-500'
+                      }`}
+                      style={{ width: `${Math.min((todaySpent / dailyAllowance) * 100, 100)}%` }}
+                    ></div>
+                  </div>
+
+                  {/* Status Message */}
+                  <div className="flex items-center justify-between">
+                    <span className={`text-sm font-bold ${
+                      todaySpent > dailyAllowance
+                        ? 'text-red-500'
+                        : todayRemaining > dailyAllowance * 0.5
+                        ? (isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-blue-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-blue-600' : 'text-pink-600'))
+                        : 'text-yellow-600'
+                    }`}>
+                      {todaySpent > dailyAllowance
+                      ? `⚠️ Over budget by ${currencySymbol}${(todaySpent - dailyAllowance).toFixed(2)}`
+                      : todayRemaining > 0
+                      ? `💚 ${currencySymbol}${todayRemaining.toFixed(2)} remaining`
+                      : '🎉 Right on budget!'}
+                    </span>
+                    <span className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      {todaySavingsRate}%
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quick Add Expense */}
+                <form onSubmit={addExpense} className={`p-5 rounded-2xl border-2 mb-6 ${
+                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'
+                }`}>
+                  <h3 className={`font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    <Plus className="w-5 h-5" />
+                    Quick Add Expense
+                  </h3>
+                  
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="Amount"
+                        value={newExpenseAmount}
+                        onChange={(e) => setNewExpenseAmount(e.target.value)}
+                        className={`px-4 py-3 rounded-xl border-2 outline-none transition font-bold text-lg ${
+                          isDark 
+                            ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400 placeholder-slate-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400 placeholder-slate-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400 placeholder-slate-500')
+                            : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500 placeholder-slate-400' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500 placeholder-slate-400' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500 placeholder-slate-400')
+                        }`}
+                      />
+                      <select
+                        value={newExpenseCategory}
+                        onChange={(e) => setNewExpenseCategory(e.target.value)}
+                        className={`px-4 py-3 rounded-xl border-2 outline-none transition font-bold ${
+                          isDark 
+                            ? 'bg-slate-800 border-slate-700 text-white'
+                            : 'bg-slate-50 border-slate-200 text-slate-900'
+                        }`}
+                      >
+                        {EXPENSE_CATEGORIES.map(cat => (
+                          <option key={cat.id} value={cat.id}>{cat.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <input
+                      type="text"
+                      placeholder="Description (optional)"
+                      value={newExpenseDescription}
+                      onChange={(e) => setNewExpenseDescription(e.target.value)}
+                      className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition font-medium ${
+                        isDark 
+                          ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400 placeholder-slate-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400 placeholder-slate-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400 placeholder-slate-500')
+                          : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500 placeholder-slate-400' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500 placeholder-slate-400' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500 placeholder-slate-400')
+                      }`}
+                    />
+
+                    <div className="flex gap-3">
+                      <input
+                        type="date"
+                        value={newExpenseDate}
+                        onChange={(e) => setNewExpenseDate(e.target.value)}
+                        className={`flex-1 px-4 py-3 rounded-xl border-2 outline-none transition font-medium ${
+                          isDark 
+                            ? 'bg-slate-800 border-slate-700 text-white'
+                            : 'bg-slate-50 border-slate-200 text-slate-900'
+                        }`}
+                      />
+                      <button
+                        type="submit"
+                        className={`px-8 py-3 rounded-xl font-bold transition shadow-lg ${
+                          isDark 
+                            ? (isGreen ? 'bg-green-500 hover:bg-green-400 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400 text-white')
+                            : (isGreen ? 'bg-green-600 hover:bg-green-700 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700 text-white')
+                        }`}
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                </form>
+
+                {/* Weekly Overview */}
+                <div className={`p-5 rounded-2xl border-2 mb-6 ${
+                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'
+                }`}>
+                  <h3 className={`font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    <BarChart3 className="w-5 h-5" />
+                    This Week's Spending
+                  </h3>
+                  
+                  <div className="h-40 flex items-end justify-between gap-2 mb-4">
+                    {weeklySpending.map((day, i) => {
+                      const maxSpent = Math.max(...weeklySpending.map(d => d.spent), 1);
+                      const height = (day.spent / maxSpent) * 100;
+                      const isOverBudget = day.spent > dailyAllowance;
+                      
+                      return (
+                        <div key={day.date} className="flex-1 flex flex-col items-center gap-2 group">
+                          <div className="w-full relative flex-1 flex items-end">
+                            <div
+                              className={`w-full rounded-t-lg transition-all duration-500 ${
+                                isOverBudget
+                                  ? 'bg-red-500 group-hover:bg-red-400'
+                                  : (isDark 
+                                      ? (isGreen ? 'bg-green-600 group-hover:bg-green-500' : isLgbt ? 'bg-gradient-to-t from-blue-500 to-purple-500 group-hover:opacity-80' : 'bg-pink-600 group-hover:bg-pink-500')
+                                      : (isGreen ? 'bg-green-500 group-hover:bg-green-600' : isLgbt ? 'bg-gradient-to-t from-blue-500 to-purple-500 group-hover:opacity-90' : 'bg-pink-500 group-hover:bg-pink-600')
+                                    )
+                              }`}
+                              style={{ height: `${height}%`, minHeight: day.spent > 0 ? '8px' : '0' }}
+                            ></div>
+                            {day.spent > 0 && (
+                              <div className={`absolute -top-8 left-1/2 -translate-x-1/2 text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded whitespace-nowrap ${
+                              isDark ? 'bg-slate-800' : 'bg-white shadow-lg'
+                              }`}>
+                              {currencySymbol}{day.spent.toFixed(0)}
+                            </div>
+                            )}
+                          </div>
+                          <div className={`text-[10px] font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {day.label.slice(0, 3)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className={`flex items-center justify-between pt-4 border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+                    <div>
+                      <p className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                        Weekly Total
+                      </p>
+                      <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                       {currencySymbol}{weeklyTotal.toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {weeklySaved >= 0 ? 'Saved' : 'Over'}
+                      </p>
+                      <p className={`text-2xl font-black ${
+                        weeklySaved >= 0
+                          ? (isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-blue-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-blue-600' : 'text-pink-600'))
+                          : 'text-red-500'
+                      }`}>
+                       {currencySymbol}{Math.abs(weeklySaved).toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Recent Expenses */}
+                <div>
+                  <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    Recent Expenses
+                  </h3>
+                  
+                  {expenses.length === 0 ? (
+                    <div className={`text-center py-12 rounded-2xl border-2 border-dashed ${
+                      isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                    }`}>
+                      <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3 ${
+                        isDark ? 'bg-slate-800 text-slate-600' : 'bg-slate-100 text-slate-400'
+                      }`}>
+                        <Receipt className="w-8 h-8" />
+                      </div>
+                      <p className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>No expenses yet</p>
+                      <p className={`text-sm ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>Start tracking your spending above!</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {expenses.slice(0, 10).map((expense, idx) => {
+                        const category = EXPENSE_CATEGORIES.find(c => c.id === expense.category);
+                        const CategoryIcon = category?.icon || Target;
+                        
+                        return (
+                          <div
+                            key={expense.id}
+                            style={{ animationDelay: `${idx * 0.05}s` }}
+                            className={`p-4 rounded-2xl border-2 transition-all animate-pop flex items-center justify-between ${
+                              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 flex-1">
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                                isDark ? 'bg-slate-800' : 'bg-slate-100'
+                              }`}>
+                                <CategoryIcon className={`w-5 h-5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`} />
+                              </div>
+                              <div className="flex-1">
+                                <p className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                  {expense.description}
+                                </p>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                                    isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+                                  }`}>
+                                    {category?.label}
+                                  </span>
+                                  <span className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                                    {new Date(expense.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                           
+                            
+                            <div className="flex items-center gap-3">
+                              <span className={`text-xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                {currencySymbol}{expense.amount.toFixed(2)}
+                              </span>
+                              <button
+                                onClick={() => deleteExpense(expense.id)}
+                                className={`p-2 rounded-lg transition ${
+                                  isDark ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' : 'text-slate-400 hover:text-red-500 hover:bg-red-50'
+                                }`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                          
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+              </div>
+              {moneyView === 'monthly' && (
+  <div className="space-y-6">
+    {/* Month Selector */}
+    <div className="flex gap-3 items-center justify-center">
+      <button
+        onClick={() => {
+          if (selectedMonth === 0) {
+            setSelectedMonth(11);
+            setSelectedYear(selectedYear - 1);
+          } else {
+            setSelectedMonth(selectedMonth - 1);
+          }
+        }}
+        className={`p-3 rounded-xl font-bold transition ${
+          isDark ? 'bg-slate-800 hover:bg-slate-700 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
+        }`}
+      >
+        ←
+      </button>
+      <div className={`px-6 py-3 rounded-xl font-black text-xl ${
+        isDark ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-900'
+      }`}>
+        {new Date(selectedYear, selectedMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+      </div>
+      <button
+        onClick={() => {
+          if (selectedMonth === 11) {
+            setSelectedMonth(0);
+            setSelectedYear(selectedYear + 1);
+          } else {
+            setSelectedMonth(selectedMonth + 1);
+          }
+        }}
+        className={`p-3 rounded-xl font-bold transition ${
+          isDark ? 'bg-slate-800 hover:bg-slate-700 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
+        }`}
+      >
+        →
+      </button>
     </div>
-  );
-};
 
-       
+    {/* Monthly Summary Cards */}
+    <div className="grid grid-cols-3 gap-3">
+      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+        <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Total Spent</div>
+        <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          {currencySymbol}{monthlyAnalytics.totalSpent.toFixed(2)}
+        </div>
+      </div>
+      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+        <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Budget</div>
+        <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          {currencySymbol}{monthlyAnalytics.monthlyBudget.toFixed(2)}
+        </div>
+      </div>
+      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+        <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+          {monthlyAnalytics.saved >= 0 ? 'Saved' : 'Over'}
+        </div>
+        <div className={`text-2xl font-black ${
+          monthlyAnalytics.saved >= 0
+            ? (isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-blue-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-blue-600' : 'text-pink-600'))
+            : 'text-red-500'
+        }`}>
+          {currencySymbol}{Math.abs(monthlyAnalytics.saved).toFixed(2)}
+        </div>
+      </div>
+    </div>
+
+    {/* Daily Spending Chart */}
+    <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
+      <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>Daily Spending</h3>
+      <div className="h-64 flex items-end justify-between gap-1">
+        {monthlyAnalytics.dailyData.map((day, i) => {
+          const maxSpent = Math.max(...monthlyAnalytics.dailyData.map(d => d.spent), 1);
+          const height = (day.spent / maxSpent) * 100;
+          const isOverBudget = day.spent > dailyAllowance;
+          
+          return (
+            <div key={i} className="flex-1 flex flex-col items-center gap-2 group min-w-0">
+              <div className="w-full relative flex-1 flex items-end">
+                <div
+                  className={`w-full rounded-t-lg transition-all duration-500 ${
+                    isOverBudget
+                      ? 'bg-red-500 group-hover:bg-red-400'
+                      : day.spent > 0
+                      ? (isDark 
+                          ? (isGreen ? 'bg-green-600 group-hover:bg-green-500' : isLgbt ? 'bg-gradient-to-t from-blue-500 to-purple-500 group-hover:opacity-80' : 'bg-pink-600 group-hover:bg-pink-500')
+                          : (isGreen ? 'bg-green-500 group-hover:bg-green-600' : isLgbt ? 'bg-gradient-to-t from-blue-500 to-purple-500 group-hover:opacity-90' : 'bg-pink-500 group-hover:bg-pink-600')
+                        )
+                      : (isDark ? 'bg-slate-700' : 'bg-slate-200')
+                  }`}
+                  style={{ height: `${height}%`, minHeight: day.spent > 0 ? '4px' : '2px' }}
+                ></div>
+                {day.spent > 0 && (
+                  <div className={`absolute -top-8 left-1/2 -translate-x-1/2 text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded whitespace-nowrap ${
+                    isDark ? 'bg-slate-800' : 'bg-white shadow-lg'
+                  }`}>
+                    {currencySymbol}{day.spent.toFixed(0)}
+                  </div>
+                )}
+              </div>
+              {i % 5 === 0 && (
+                <div className={`text-[8px] font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                  {day.day}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+
+    {/* Category Breakdown */}
+    {monthlyAnalytics.categoryTotals.length > 0 && (
+      <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
+        <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>Spending by Category</h3>
+        <div className="space-y-3">
+          {monthlyAnalytics.categoryTotals
+            .sort((a, b) => b.total - a.total)
+            .map((cat) => {
+              const Icon = cat.icon;
+              const percentage = (cat.total / monthlyAnalytics.totalSpent) * 100;
+              
+              return (
+                <div key={cat.id} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Icon className={`w-4 h-4 ${isDark ? 'text-slate-400' : 'text-slate-600'}`} />
+                      <span className={`font-bold text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {cat.label}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-sm font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {percentage.toFixed(1)}%
+                      </span>
+                      <span className={`text-lg font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {currencySymbol}{cat.total.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className={`h-2 w-full rounded-full overflow-hidden ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                    <div
+                      className={`h-full rounded-full ${
+                        isDark 
+                          ? (isGreen ? 'bg-green-500' : isLgbt ? 'bg-indigo-500' : 'bg-pink-500')
+                          : (isGreen ? 'bg-green-600' : isLgbt ? 'bg-indigo-600' : 'bg-pink-600')
+                      }`}
+                      style={{ width: `${percentage}%` }}
+                    ></div>
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+      </div>
+    )}
+  </div>
+)}
+
+{moneyView === 'yearly' && (
+  <div className="space-y-6">
+    {/* Year Selector */}
+    <div className="flex gap-3 items-center justify-center">
+      <button
+        onClick={() => setSelectedYear(selectedYear - 1)}
+        className={`p-3 rounded-xl font-bold transition ${
+          isDark ? 'bg-slate-800 hover:bg-slate-700 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
+        }`}
+      >
+        ←
+      </button>
+      <div className={`px-6 py-3 rounded-xl font-black text-xl ${
+        isDark ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-900'
+      }`}>
+        {selectedYear}
+      </div>
+      <button
+        onClick={() => setSelectedYear(selectedYear + 1)}
+        className={`p-3 rounded-xl font-bold transition ${
+          isDark ? 'bg-slate-800 hover:bg-slate-700 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
+        }`}
+      >
+        →
+      </button>
+    </div>
+
+    {/* Yearly Summary Cards */}
+    <div className="grid grid-cols-3 gap-3">
+      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+        <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Total Spent</div>
+        <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          {currencySymbol}{yearlyAnalytics.totalSpent.toFixed(2)}
+        </div>
+      </div>
+      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+        <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Budget</div>
+        <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          {currencySymbol}{yearlyAnalytics.yearlyBudget.toFixed(2)}
+        </div>
+      </div>
+      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+        <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+          {yearlyAnalytics.saved >= 0 ? 'Saved' : 'Over'}
+        </div>
+        <div className={`text-2xl font-black ${
+          yearlyAnalytics.saved >= 0
+            ? (isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-blue-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-blue-600' : 'text-pink-600'))
+            : 'text-red-500'
+        }`}>
+          {currencySymbol}{Math.abs(yearlyAnalytics.saved).toFixed(2)}
+        </div>
+      </div>
+    </div>
+
+    {/* Monthly Trend Chart */}
+    <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
+      <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>Monthly Spending Trend</h3>
+      <div className="h-64 flex items-end justify-between gap-2">
+        {yearlyAnalytics.monthlyData.map((month, i) => {
+          const maxSpent = Math.max(...yearlyAnalytics.monthlyData.map(m => m.spent), 1);
+          const height = (month.spent / maxSpent) * 100;
+          const isOverBudget = month.spent > month.budget;
+          
+          return (
+            <div key={i} className="flex-1 flex flex-col items-center gap-2 group">
+              <div className="w-full relative flex-1 flex items-end">
+                <div
+                  className={`w-full rounded-t-lg transition-all duration-500 ${
+                    isOverBudget
+                      ? 'bg-red-500 group-hover:bg-red-400'
+                      : month.spent > 0
+                      ? (isDark 
+                          ? (isGreen ? 'bg-green-600 group-hover:bg-green-500' : isLgbt ? 'bg-gradient-to-t from-blue-500 to-purple-500 group-hover:opacity-80' : 'bg-pink-600 group-hover:bg-pink-500')
+                          : (isGreen ? 'bg-green-500 group-hover:bg-green-600' : isLgbt ? 'bg-gradient-to-t from-blue-500 to-purple-500 group-hover:opacity-90' : 'bg-pink-500 group-hover:bg-pink-600')
+                        )
+                      : (isDark ? 'bg-slate-700' : 'bg-slate-200')
+                  }`}
+                  style={{ height: `${height}%`, minHeight: month.spent > 0 ? '8px' : '4px' }}
+                ></div>
+                {month.spent > 0 && (
+                  <div className={`absolute -top-8 left-1/2 -translate-x-1/2 text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded whitespace-nowrap ${
+                    isDark ? 'bg-slate-800' : 'bg-white shadow-lg'
+                  }`}>
+                    {currencySymbol}{month.spent.toFixed(0)}
+                  </div>
+                )}
+              </div>
+              <div className={`text-[10px] font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                {month.month}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+
+    {/* Savings Trend */}
+    <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
+      <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>Monthly Savings</h3>
+      <div className="h-48 flex items-center justify-between gap-2">
+        {yearlyAnalytics.monthlyData.map((month, i) => {
+          const maxAbsSaved = Math.max(...yearlyAnalytics.monthlyData.map(m => Math.abs(m.saved)), 1);
+          const height = (Math.abs(month.saved) / maxAbsSaved) * 100;
+          const isSavings = month.saved >= 0;
+          
+          return (
+            <div key={i} className="flex-1 flex flex-col items-center group">
+              <div className="w-full h-24 flex items-center relative">
+                <div
+                  className={`w-full rounded-lg transition-all duration-500 ${
+                    isSavings
+                      ? (isDark 
+                          ? (isGreen ? 'bg-green-600 group-hover:bg-green-500' : isLgbt ? 'bg-blue-600 group-hover:bg-blue-500' : 'bg-pink-600 group-hover:bg-pink-500')
+                          : (isGreen ? 'bg-green-500 group-hover:bg-green-600' : isLgbt ? 'bg-blue-500 group-hover:bg-blue-600' : 'bg-pink-500 group-hover:bg-pink-600')
+                        )
+                      : 'bg-red-500 group-hover:bg-red-400'
+                  }`}
+                  style={{ height: `${height}%`, minHeight: '4px' }}
+                ></div>
+                <div className={`absolute left-1/2 -translate-x-1/2 ${isSavings ? '-top-8' : '-bottom-8'} text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded whitespace-nowrap ${
+                  isDark ? 'bg-slate-800' : 'bg-white shadow-lg'
+                }`}>
+                  {currencySymbol}{Math.abs(month.saved).toFixed(0)}
+                </div>
+              </div>
+              <div className={`text-[10px] font-bold mt-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                {month.month}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  </div>
+)}
+              {showAllowanceModal && (
+  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
+    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowAllowanceModal(false)}></div>
+    
+    <div className={`relative w-full max-w-md rounded-3xl shadow-2xl p-6 animate-pop ${
+      isDark ? 'bg-slate-900 border-2 border-slate-800' : 'bg-white border-2 border-slate-100'
+    }`}>
+      
+      <button 
+        onClick={() => setShowAllowanceModal(false)}
+        className={`absolute top-4 right-4 p-2 rounded-xl transition ${
+          isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
+        }`}
+      >
+        <X className="w-5 h-5" />
+      </button>
+
+      <div className="text-center mb-6">
+        <div className={`inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-3 ${
+          isDark 
+            ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-indigo-500/20 text-indigo-400' : 'bg-pink-500/20 text-pink-400')
+            : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')
+        }`}>
+          <DollarSign className="w-7 h-7" />
+        </div>
+        <h2 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          Set Daily Allowance
+        </h2>
+        <p className={`text-sm font-medium mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+          How much can you spend per day?
+        </p>
+      </div>
+
+      <form onSubmit={(e) => {
+  e.preventDefault();
+  const formElements = (e.target as HTMLFormElement).elements;
+  const allowanceInput = formElements.namedItem('allowance') as HTMLInputElement;
+  const currencySelect = formElements.namedItem('currency') as HTMLSelectElement;
+  console.log('📝 Form values:', {
+    allowance: allowanceInput.value,
+    currency: currencySelect?.value
+  }); // ← ADD THIS
+  const amount = parseFloat(allowanceInput.value);
+  const selectedCurrency = currencySelect?.value || currency;
+   console.log('✅ Submitting:', { amount, selectedCurrency }); // ← ADD THIS
+  if (!isNaN(amount) && amount > 0) {
+    saveDailyAllowance(amount, selectedCurrency);
+  }
+}} className="space-y-5">
+  
+  {/* Daily Budget Input */}
+  <div>
+    <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+      Daily Budget
+    </label>
+    <input
+      type="number"
+      name="allowance"
+      step="0.01"
+      min="0"
+      defaultValue={dailyAllowance || ''}
+      placeholder="e.g., 50.00"
+      className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-bold text-2xl text-center ${
+        isDark 
+          ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400')
+          : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500')
+      }`}
+      required
+    />
+  </div>
+
+  {/* 👇 NEW: Currency Selector - ADD THIS ENTIRE BLOCK */}
+  <div>
+    <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+      Currency
+    </label>
+    <select
+      name="currency"
+      defaultValue={currency}
+      className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-bold text-lg ${
+        isDark 
+          ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400')
+          : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500')
+      }`}
+    >
+      {CURRENCIES.map(curr => (
+        <option key={curr.code} value={curr.code}>
+          {curr.symbol} - {curr.name}
+        </option>
+      ))}
+    </select>
+  </div>
+  {/* 👆 END OF NEW CURRENCY SELECTOR */}
+
+  <button
+    type="submit"
+    className={`w-full text-white py-4 rounded-2xl font-bold text-lg transition shadow-lg hover:-translate-y-0.5 ${
+      isDark 
+        ? (isGreen ? 'bg-green-500 hover:bg-green-400 shadow-green-500/40' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400 shadow-pink-500/40')
+        : (isGreen ? 'bg-green-600 hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700')
+    }`}
+  >
+    Save Budget
+  </button>
+</form>
+    </div>
+  </div>
+)}
+   
+            </div>
+      </main>
+     </div> 
+      );
+      };
+
 
 const PWAInstallPrompt = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
