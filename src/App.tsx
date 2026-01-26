@@ -484,6 +484,204 @@ const EXPENSE_CATEGORIES = [
   { id: 'health', label: 'Health & Fitness', icon: Heart, color: 'green' },
   { id: 'other', label: 'Other', icon: Target, color: 'slate' }
 ];
+// ========================================
+// 🔥 NEW: MEMOIZED HABIT CARD COMPONENT
+// ========================================
+
+interface HabitCardProps {
+  habit: Habit;
+  today: string;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+  onToggleCheckIn: (habit: Habit) => void;
+  onStartEditing: (habit: Habit) => void;
+  onSetReminder: (habit: Habit) => void;
+  onDelete: (habitId: string) => void;
+  getColorTheme: (str: string) => HabitThemeData;
+}
+
+const HabitCard = React.memo<HabitCardProps>(({ 
+  habit, 
+  today, 
+  isDark, 
+  isGreen, 
+  isLgbt, 
+  onToggleCheckIn, 
+  onStartEditing, 
+  onSetReminder, 
+  onDelete,
+  getColorTheme 
+}) => {
+  const isCompletedToday = habit.completedDates?.includes(today);
+  const themeBase = getColorTheme(habit.title);
+  const theme = isDark ? themeBase.dark : themeBase.light;
+  
+  return (
+    <div 
+      className={`group relative p-4 sm:p-6 rounded-2xl sm:rounded-3xl border-2 transition-all duration-300 ${
+        isCompletedToday 
+          ? `${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`
+          : `${isDark ? 'bg-slate-900 border-slate-900 hover:border-slate-700 hover:shadow-lg hover:shadow-slate-900' : (isGreen ? 'bg-white border-white hover:border-green-100 hover:shadow-lg hover:shadow-green-100' : isLgbt ? 'bg-white border-white hover:border-indigo-100 hover:shadow-lg hover:shadow-indigo-100' : 'bg-white border-white hover:border-pink-100 hover:shadow-lg hover:shadow-pink-100')} shadow-sm`
+      }`}
+    >
+      <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition duration-500 rounded-3xl bg-gradient-to-r ${themeBase.light.bg.replace('bg-', 'from-white via-white to-')}/30 pointer-events-none`}></div>
+
+      {/* MOBILE LAYOUT */}
+      <div className="block sm:hidden relative z-10">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="flex-shrink-0">
+              <ConfettiCheck 
+                isChecked={!!isCompletedToday} 
+                onClick={() => onToggleCheckIn(habit)} 
+                themeColor={theme.check}
+                icon={habit.icon}
+              />
+            </div>
+            
+            <div className="flex-1 min-w-0">
+              <h3 className={`font-bold text-base sm:text-lg transition-colors ${
+                isCompletedToday 
+                  ? `${isDark ? 'text-slate-600 decoration-slate-700' : (isGreen ? 'text-slate-400 decoration-green-200' : isLgbt ? 'text-slate-400 decoration-indigo-200' : 'text-slate-400 decoration-pink-200')} line-through decoration-2` 
+                  : `${isDark ? 'text-slate-100' : 'text-slate-800'}`
+              } line-clamp-2`}>
+                {habit.title}
+              </h3>
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-bold mt-1 ${theme.bg} ${theme.text} ${theme.border} border`}>
+                <Flame className={`w-3 h-3 mr-1 ${theme.icon}`} />
+                {habit.streak} days
+              </span>
+            </div>
+          </div>
+
+          {/* Mobile Actions */}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={() => onStartEditing(habit)}
+              className={`p-2.5 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center ${
+                isDark ? 'text-slate-600 hover:bg-slate-800 hover:text-slate-400' : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
+              }`}
+              aria-label={`Edit habit: ${habit.title}`}
+            >
+              <Edit2 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => onSetReminder(habit)}
+              className={`p-2.5 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center ${
+                habit.reminderEnabled
+                  ? (isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
+                  : (isDark ? 'text-slate-600 hover:bg-slate-800' : 'text-slate-300 hover:bg-slate-100')
+              }`}
+              aria-label={`${habit.reminderEnabled ? 'Disable' : 'Enable'} reminder for: ${habit.title}`}
+            >
+              <span className="text-base">{habit.reminderEnabled ? '🔔' : '🔕'}</span>
+            </button>
+            <button 
+              onClick={() => onDelete(habit.id)}
+              aria-label={`Delete habit: ${habit.title}`}
+              className={`p-2.5 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center ${
+                isDark 
+                  ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' 
+                  : 'text-slate-300 hover:text-red-500 hover:bg-red-50'
+              }`}
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="w-full">
+          <WeeklyProgress completedDates={habit.completedDates} />
+        </div>
+      </div>
+
+      {/* DESKTOP LAYOUT */}
+      <div className="hidden sm:flex items-center justify-between gap-6 relative z-10">
+        <div className="flex items-center gap-6 flex-1">
+          <ConfettiCheck 
+            isChecked={!!isCompletedToday} 
+            onClick={() => onToggleCheckIn(habit)} 
+            themeColor={theme.check}
+            icon={habit.icon}
+          />
+          
+          <div className="flex-1">
+            <h3 className={`font-bold text-xl transition-colors ${
+              isCompletedToday 
+                ? `${isDark ? 'text-slate-600 decoration-slate-700' : (isGreen ? 'text-slate-400 decoration-green-200' : isLgbt ? 'text-slate-400 decoration-indigo-200' : 'text-slate-400 decoration-pink-200')} line-through decoration-2` 
+                : `${isDark ? 'text-slate-100' : 'text-slate-800'}`
+            }`}>
+              {habit.title}
+            </h3>
+            <div className="flex items-center gap-3 mt-2">
+              <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${theme.bg} ${theme.text} ${theme.border} border`}>
+                <Flame className={`w-3 h-3 mr-1 ${theme.icon}`} />
+                {habit.streak} day streak
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <WeeklyProgress completedDates={habit.completedDates} />
+          <button
+            onClick={() => onStartEditing(habit)}
+            className={`opacity-0 group-hover:opacity-100 transition-opacity p-3 rounded-xl ${
+              isDark ? 'text-slate-600 hover:bg-slate-800 hover:text-slate-400' : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
+            }`}
+            title="Edit Habit"
+            aria-label={`Edit habit: ${habit.title}`}
+          >
+            <Edit2 className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => onSetReminder(habit)}
+            className={`p-3 rounded-xl transition ${
+              habit.reminderEnabled
+                ? (isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
+                : (isDark ? 'text-slate-600 hover:bg-slate-800' : 'text-slate-300 hover:bg-slate-100')
+            }`}
+            title={habit.reminderEnabled ? "Reminder On" : "Reminder Off"}
+            aria-label={`${habit.reminderEnabled ? 'Disable' : 'Enable'} reminder for: ${habit.title}`}
+          >
+            <span className="text-lg">{habit.reminderEnabled ? '🔔' : '🔕'}</span>
+          </button>
+          <button 
+            onClick={() => onDelete(habit.id)}
+            className={`opacity-0 group-hover:opacity-100 transition-opacity p-3 rounded-xl ${
+              isDark 
+                ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' 
+                : 'text-slate-300 hover:text-red-500 hover:bg-red-50'
+            }`}
+            title="Delete Habit"
+            aria-label={`Delete habit: ${habit.title}`}
+          >
+            <Trash2 className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}, (prevProps, nextProps) => {
+  // 🔥 CRITICAL: Only re-render if THIS habit changed
+  const prevCompleted = prevProps.habit.completedDates?.includes(prevProps.today);
+  const nextCompleted = nextProps.habit.completedDates?.includes(nextProps.today);
+  
+  return (
+    prevProps.habit.id === nextProps.habit.id &&
+    prevProps.habit.title === nextProps.habit.title &&
+    prevProps.habit.streak === nextProps.habit.streak &&
+    prevProps.habit.icon === nextProps.habit.icon &&
+    prevCompleted === nextCompleted &&
+    prevProps.habit.reminderEnabled === nextProps.habit.reminderEnabled &&
+    prevProps.isDark === nextProps.isDark &&
+    prevProps.isGreen === nextProps.isGreen &&
+    prevProps.isLgbt === nextProps.isLgbt
+  );
+});
+
+HabitCard.displayName = 'HabitCard';
 // ADD THIS - CURRENCY OPTIONS
 const CURRENCIES = [
   { code: 'USD', symbol: '$', name: 'US Dollar' },
@@ -2213,10 +2411,10 @@ const TemplateBrowser = ({
                 <button
                   key={idx}
                   onClick={() => {
-                    onSelectTemplate(template);
-                    onClose();
-                  }}
-                  className={`group text-left p-5 rounded-2xl border-2 transition-all duration-300 ${
+                   onSelectTemplate(template);
+                    // onClose() is now called inside selectTemplate function
+                     }}
+                     className={`group text-left p-5 rounded-2xl border-2 transition-all duration-300 ${
                     isDark 
                       ? 'bg-slate-800 border-slate-700 hover:border-slate-600 hover:shadow-lg hover:shadow-slate-900'
                       : (isGreen 
@@ -2545,19 +2743,37 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
 
     return () => unsubscribe();
   }, [user]);
-  // Load Money Settings
-  useEffect(() => {
+  // Load Money Settings - FIXED VERSION
+useEffect(() => {
   if (!user || !user.uid) return;
 
   const settingsRef = doc(db, 'users', user.uid, 'money', 'settings');
-  const unsubscribe = onSnapshot(settingsRef, (docSnap) => {
+  
+  // First, load immediately to prevent flash
+  getDoc(settingsRef).then((docSnap) => {
     if (docSnap.exists()) {
       const data = docSnap.data();
+      console.log('💰 Initial currency load:', data); // Debug log
       setDailyAllowance(data.dailyAllowance || 0);
       setCurrency(data.currency || 'USD');
       setCurrencySymbol(data.currencySymbol || '$');
     } else {
+      // Only show modal if no settings exist
       setShowAllowanceModal(true);
+    }
+  }).catch((error) => {
+    console.error("Error loading money settings:", error);
+    setShowAllowanceModal(true);
+  });
+
+  // Then, listen for real-time updates
+  const unsubscribe = onSnapshot(settingsRef, (docSnap) => {
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      console.log('💱 Currency updated:', data); // Debug log
+      setDailyAllowance(data.dailyAllowance || 0);
+      setCurrency(data.currency || 'USD');
+      setCurrencySymbol(data.currencySymbol || '$');
     }
   }, (error) => {
     console.error("Error fetching money settings:", error);
@@ -2609,10 +2825,12 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
   }, [progress, totalHabits]);
 
   const selectTemplate = (template: HabitTemplate) => {
-    setNewHabitTitle(template.title);
-    setNewHabitIcon(template.icon);
-    setIsAdding(true);
-  };
+  setNewHabitTitle(template.title);
+  setNewHabitIcon(template.icon);
+  // Also set the color theme based on template
+  setIsAdding(true);
+  setShowTemplates(false); // Close the template browser
+};
 
 
   const addHabit = async (e: React.FormEvent) => {
@@ -3056,13 +3274,19 @@ const yearlyAnalytics = getYearlyData(selectedYear);
       </div>
 
       {showCelebration && <FullScreenConfetti />}
-      {showStats && <HabitStats habits={habits} expenses={expenses} dailyAllowance={dailyAllowance} currencySymbol={currencySymbol} onClose={() => setShowStats(false)} />}
+       {showStats && <HabitStats habits={habits} expenses={expenses} dailyAllowance={dailyAllowance} currencySymbol={currencySymbol} onClose={() => setShowStats(false)} />}
+       {showTemplates && (
+       <TemplateBrowser 
+        onSelectTemplate={selectTemplate} 
+         onClose={() => setShowTemplates(false)} 
+      />
+)}
 
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
-          <Toast toast={toast} onDismiss={() => setToast(null)} />
-        </div>
-      )}
+{toast && (
+  <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
+    <Toast toast={toast} onDismiss={() => setToast(null)} />
+  </div>
+)}
 
       {/* Top Bar */}
       <div className={`backdrop-blur-md border-b sticky top-0 z-20 transition-colors duration-300 relative ${isDark ? (isGreen ? 'bg-green-900/80 border-green-800 shadow-green-900/40' : isLgbt ? 'bg-slate-900/80 border-slate-800' : 'bg-pink-900/80 border-pink-800 shadow-pink-900/40') : (isGreen ? 'bg-green-600/90 border-green-700' : isLgbt ? 'bg-white/80 border-slate-200' : 'bg-pink-600/90 border-pink-700')}`}>
@@ -4443,19 +4667,37 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
       <form onSubmit={(e) => {
   e.preventDefault();
+  
   const formElements = (e.target as HTMLFormElement).elements;
   const allowanceInput = formElements.namedItem('allowance') as HTMLInputElement;
   const currencySelect = formElements.namedItem('currency') as HTMLSelectElement;
-  console.log('📝 Form values:', {
-    allowance: allowanceInput.value,
-    currency: currencySelect?.value
-  }); // ← ADD THIS
+  
   const amount = parseFloat(allowanceInput.value);
   const selectedCurrency = currencySelect?.value || currency;
-   console.log('✅ Submitting:', { amount, selectedCurrency }); // ← ADD THIS
-  if (!isNaN(amount) && amount > 0) {
-    saveDailyAllowance(amount, selectedCurrency);
+  
+  console.log('📝 Form submitted:', { amount, selectedCurrency });
+  
+  // Validation
+  if (isNaN(amount) || amount <= 0) {
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Please enter a valid amount', 
+      type: 'error' 
+    });
+    return;
   }
+  
+  if (!selectedCurrency) {
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Please select a currency', 
+      type: 'error' 
+    });
+    return;
+  }
+  
+  // Save with validated data
+  saveDailyAllowance(amount, selectedCurrency);
 }} className="space-y-5">
   
   {/* Daily Budget Input */}
@@ -4484,21 +4726,30 @@ const yearlyAnalytics = getYearlyData(selectedYear);
     <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
       Currency
     </label>
-    <select
-      name="currency"
-      defaultValue={currency}
-      className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-bold text-lg ${
-        isDark 
-          ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400')
-          : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500')
-      }`}
-    >
-      {CURRENCIES.map(curr => (
-        <option key={curr.code} value={curr.code}>
-          {curr.symbol} - {curr.name}
-        </option>
-      ))}
-    </select>
+   <select
+  name="currency"
+  value={currency}  // 🔥 CHANGED: Use value instead of defaultValue
+  onChange={(e) => {
+    const selectedCode = e.target.value;
+    const selectedCurr = CURRENCIES.find(c => c.code === selectedCode);
+    if (selectedCurr) {
+      console.log('💱 Currency preview:', selectedCurr);
+      setCurrency(selectedCode);
+      setCurrencySymbol(selectedCurr.symbol);
+    }
+  }}
+  className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-bold text-lg ${
+    isDark 
+      ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400')
+      : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500')
+  }`}
+>
+  {CURRENCIES.map(curr => (
+    <option key={curr.code} value={curr.code}>
+      {curr.symbol} - {curr.name}
+    </option>
+  ))}
+</select>
   </div>
   {/* 👆 END OF NEW CURRENCY SELECTOR */}
 
