@@ -8,6 +8,9 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      devOptions: {
+    enabled: false  // Add this line - disables service worker in dev mode
+  },
       includeAssets: ['icon-192.png', 'icon-512.png', 'shield_icon.svg'],
       manifest: {
         name: 'HabitFlow - Build Better Habits',

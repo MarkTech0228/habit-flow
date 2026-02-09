@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, createContext, useContext, FormEvent, ChangeEvent } from 'react';
+import { useAppStore } from './store/useAppStore';
 import {
   CheckCircle2, 
   Plus, 
@@ -9,7 +10,7 @@ import {
   Layout, 
   Calendar,
   ChevronRight,
-  Shield,
+  Shield, 
   Zap,
   BarChart3,
   Sparkles,
@@ -31,7 +32,7 @@ import {
   Briefcase,
   Music,
   Target,
-  PieChart,
+  
   Palette,
   UserCircle2,
   ArrowRight,
@@ -43,11 +44,20 @@ import {
   Wallet,
   TrendingDown as TrendingDownIcon,
   ShoppingBag,
-  Receipt
+  Receipt,
+ Camera,
+  Download,
+  Upload
 } from 'lucide-react';
+
+
+
 
 // Define LucideIcon type
 type LucideIcon = React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+
+
+
 
 // Firebase Imports
 import { initializeApp } from "firebase/app";
@@ -63,10 +73,17 @@ import {
   signOut,
   updateProfile,
   EmailAuthProvider,
-  linkWithCredential
+  linkWithCredential,
+  sendPasswordResetEmail
 } from "firebase/auth";
 
+
+
+
 type FirebaseUser = User;
+
+
+
 
 import { 
   getFirestore, 
@@ -85,17 +102,34 @@ import {
   enableIndexedDbPersistence  // ← ADD THIS
 } from "firebase/firestore";
 import { 
+  getStorage, 
+  ref, 
+  uploadBytes, 
+  getDownloadURL,
+  deleteObject 
+} from "firebase/storage";
+
+
+
+
+import { 
   ResponsiveContainer, 
   LineChart, 
-  BarChart, 
+  BarChart,
+  PieChart,  // 🔥 ADD THIS - CRITICAL!
+  Pie,
   CartesianGrid, 
   XAxis, 
   YAxis, 
   Tooltip, 
   Line, 
   Bar,
-  Cell 
+  Cell,
+  Legend
 } from "recharts";
+
+
+
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -107,6 +141,9 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
+
+
+
 // Debug: Log what we have
 console.log('Environment check:', {
   hasApiKey: !!import.meta.env.VITE_FIREBASE_API_KEY,
@@ -114,19 +151,30 @@ console.log('Environment check:', {
   allEnvVars: Object.keys(import.meta.env).filter(k => k.startsWith('VITE_'))
 });
 
+
+
+
 // Initialize Firebase only if config is complete
 const isMissingConfig = !firebaseConfig.apiKey || !firebaseConfig.projectId;
+
+
+
 
 let app: any;
 let analytics: any;
 let auth: any;
 let db: any;
+let storage : any;
+
+
+
 
 if (!isMissingConfig) {
   app = initializeApp(firebaseConfig);
   analytics = getAnalytics(app);
   auth = getAuth(app);
   db = getFirestore(app);
+  storage = getStorage(app); // 📸 PHASE 3: Storage for receipts
   
   // Enable offline persistence
   import('firebase/firestore').then(({ enableIndexedDbPersistence }) => {
@@ -145,6 +193,9 @@ if (!isMissingConfig) {
   console.warn('Available env vars:', Object.keys(import.meta.env).filter(k => k.startsWith('VITE_')));
 }
 
+
+
+
 const appId = firebaseConfig.appId;
 // --- Types & Constants ---
 interface Habit {
@@ -159,6 +210,7 @@ interface Habit {
   order?: number;
   reminderTime?: string;
   reminderEnabled?: boolean;
+  longestStreak?: number;
 }
 interface TodoItem {
   id: string;
@@ -175,8 +227,54 @@ interface Expense {
   category: string;
   description: string;
   createdAt: any;
+  receiptImage?: string;
+  imageUrl?: string;  // Add this line
+}
+interface Income {
+  id: string;
+  date: string;
+  amount: number;
+  source: string;
+  description: string;
+  createdAt: any;
+}
+interface RecurringExpense {
+  id: string;
+  name: string;
+  amount: number;
+  category: string;
+  frequency: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  startDate: string;
+  endDate?: string; // Optional - for subscriptions that expire
+  nextPaymentDate: string;
+  reminderEnabled: boolean;
+  reminderDaysBefore: number; // Days before payment to remind
+  isActive: boolean;
+  notes?: string;
+  createdAt: any;
+}
+interface Debt {
+  id: string;
+  name: string;
+  balance: number;
+  interestRate: number;
+  minimumPayment: number;
+  type: 'credit_card' | 'student_loan' | 'mortgage' | 'personal_loan' | 'other';
+  dueDay: number;
+  createdAt: any;
 }
 
+
+
+
+interface RecurringExpenseSummary {
+  daily: number;
+  weekly: number;
+  monthly: number;
+  yearly: number;
+  total: number; // Total monthly cost
+  count: number; // Number of active recurring expenses
+}
 interface MoneySettings {
   dailyAllowance: number;
   currency: string;
@@ -184,10 +282,91 @@ interface MoneySettings {
 }
 
 
+
+
+
+
+
+
+interface CategoryBudget {
+  category: string; // Category ID (e.g., 'food', 'transport')
+  categoryLabel: string; // Display name
+  categoryIcon: React.ComponentType<any>; // Icon component
+  categoryColor: string; // Color code
+  monthlyLimit: number; // Budget limit
+  spent: number; // Amount spent
+  percentage: number; // Percentage of budget used
+}
+
+
+
+
+interface SavingsGoal {
+  id: string;
+  name: string;
+  targetAmount: number;
+  currentAmount: number;
+  deadline: string;
+  createdAt: any;
+}
+
+
+
+
+interface SpendingInsight {
+  thisWeek: number;
+  lastWeek: number;
+  thisMonth: number;
+  lastMonth: number;
+  topCategory: string;
+  topCategoryAmount: number;
+}
+interface FinancialHealthScore {
+  score: number; // 0-100
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  factors: {
+    savingsRate: { score: number; value: number; };
+    budgetAdherence: { score: number; value: number; };
+    spendingControl: { score: number; value: number; };
+    consistency: { score: number; value: number; };
+  };
+  recommendations: string[];
+  trend: 'improving' | 'stable' | 'declining';
+}
+interface Achievement {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  category: 'habits' | 'money' | 'streak' | 'milestone';
+  requirement: number;
+  progress: number;
+  unlocked: boolean;
+  unlockedAt?: Date;
+  reward?: string;
+}
+interface SpendingPrediction {
+  nextWeekEstimate: number;
+  nextMonthEstimate: number;
+  confidence: 'high' | 'medium' | 'low';
+  trend: 'increasing' | 'stable' | 'decreasing';
+  averageDailySpending: number;
+  projectedMonthEnd: number;
+  willExceedBudget: boolean;
+  daysUntilBudgetExceeded: number | null;
+  recommendations: string[];
+}
+
+
+
+
 interface UserProfile {
   age?: number;
   onboardingComplete?: boolean;
 }
+
+
+
 
 interface ToastData {
   id: string;
@@ -199,10 +378,16 @@ interface ToastData {
   };
 }
 
+
+
+
 interface HabitIcon {
   name: string;
   icon: LucideIcon;
 }
+
+
+
 
 interface ThemeColors {
   bg: string;
@@ -214,15 +399,24 @@ interface ThemeColors {
   gradient: string;
 }
 
+
+
+
 interface HabitThemeData {
   name: string;
   light: ThemeColors;
   dark: ThemeColors;
 }
 
+
+
+
 // --- Theme Context ---
 type Theme = 'light' | 'dark';
 type Accent = 'pink' | 'green' | 'lgbt'; // Added lgbt
+
+
+
 
 interface ThemeContextType {
   theme: Theme;
@@ -231,6 +425,9 @@ interface ThemeContextType {
   toggleAccent: () => void;
 }
 
+
+
+
 const ThemeContext = createContext<ThemeContextType>({ 
   theme: 'light', 
   toggleTheme: () => {}, 
@@ -238,7 +435,13 @@ const ThemeContext = createContext<ThemeContextType>({
   toggleAccent: () => {} 
 });
 
+
+
+
 const useTheme = () => useContext(ThemeContext);
+
+
+
 
 // Icon Options
 const HABIT_ICONS: HabitIcon[] = [
@@ -253,6 +456,9 @@ const HABIT_ICONS: HabitIcon[] = [
   { name: 'Music', icon: Music },
   { name: 'Target', icon: Target },
 ];
+
+
+
 
 // Theme Definitions for Habits
 const HABIT_THEMES_PINK: HabitThemeData[] = [
@@ -283,6 +489,9 @@ const HABIT_THEMES_PINK: HabitThemeData[] = [
   },
 ];
 
+
+
+
 const HABIT_THEMES_GREEN: HabitThemeData[] = [
   { 
     name: 'Green', 
@@ -310,6 +519,9 @@ const HABIT_THEMES_GREEN: HabitThemeData[] = [
     dark: { bg: 'bg-sky-900/20', border: 'border-sky-500/30', text: 'text-sky-100', icon: 'text-sky-300', hover: 'hover:bg-sky-900/40', check: 'bg-sky-400', gradient: 'from-sky-400 to-blue-400' }
   },
 ];
+
+
+
 
 // RAINBOW THEME DEFINITIONS
 const HABIT_THEMES_RAINBOW: HabitThemeData[] = [
@@ -352,6 +564,9 @@ interface HabitTemplate {
   category: 'student' | 'adult' | 'health' | 'productivity';
   description: string;
 }
+
+
+
 
 const HABIT_TEMPLATES: HabitTemplate[] = [
   // STUDENT TEMPLATES
@@ -474,6 +689,50 @@ const HABIT_TEMPLATES: HabitTemplate[] = [
     description: 'Organize your environment'
   },
 ];
+
+
+
+
+// SUPPRESS CONSOLE WARNINGS
+
+
+
+
+
+
+
+
+const originalWarn = console.warn;
+const originalError = console.error;
+
+
+
+
+console.warn = (...args: any[]) => {
+  // Suppress Recharts dimension warnings
+  if (typeof args[0] === 'string' && args[0].includes('width(-1) and height(-1)')) return;
+  // Suppress deprecated meta tag warning
+  if (typeof args[0] === 'string' && args[0].includes('apple-mobile-web-app-capable')) return;
+  originalWarn(...args);
+};
+
+
+
+
+console.error = (...args: any[]) => {
+  // Suppress offline mode errors (these are expected)
+  if (args[0]?.message?.includes('client is offline')) return;
+  if (args[0]?.message?.includes('Failed to get document because the client is offline')) return;
+  originalError(...args);
+};
+
+
+
+
+
+
+
+
 // EXPENSE CATEGORIES
 const EXPENSE_CATEGORIES = [
   { id: 'food', label: 'Food & Drinks', icon: Coffee, color: 'orange' },
@@ -482,11 +741,28 @@ const EXPENSE_CATEGORIES = [
   { id: 'shopping', label: 'Shopping', icon: ShoppingBag, color: 'pink' },
   { id: 'bills', label: 'Bills & Utilities', icon: Home, color: 'red' },
   { id: 'health', label: 'Health & Fitness', icon: Heart, color: 'green' },
+  { id: 'debt_payment', label: 'Debt Payment', icon: 'CreditCard', color: 'indigo' },
   { id: 'other', label: 'Other', icon: Target, color: 'slate' }
 ];
+// 🆕 PHASE 1: Default budget limits (customizable by user)
+const DEFAULT_CATEGORY_BUDGETS: Record<string, number> = {
+  'Food & Dining': 500,
+  'Transportation': 200,
+  'Shopping': 300,
+  'Entertainment': 150,
+  'Bills & Utilities': 400,
+  'Healthcare': 200,
+  'Education': 300,
+  'Personal Care': 100,
+  'Gifts & Donations': 100,
+  'Other': 200
+};
 // ========================================
 // 🔥 NEW: MEMOIZED HABIT CARD COMPONENT
 // ========================================
+
+
+
 
 interface HabitCardProps {
   habit: Habit;
@@ -500,6 +776,9 @@ interface HabitCardProps {
   onDelete: (habitId: string) => void;
   getColorTheme: (str: string) => HabitThemeData;
 }
+
+
+
 
 const HabitCard = React.memo<HabitCardProps>(({ 
   habit, 
@@ -526,6 +805,9 @@ const HabitCard = React.memo<HabitCardProps>(({
       }`}
     >
       <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition duration-500 rounded-3xl bg-gradient-to-r ${themeBase.light.bg.replace('bg-', 'from-white via-white to-')}/30 pointer-events-none`}></div>
+
+
+
 
       {/* MOBILE LAYOUT */}
       <div className="block sm:hidden relative z-10">
@@ -554,6 +836,9 @@ const HabitCard = React.memo<HabitCardProps>(({
               </span>
             </div>
           </div>
+
+
+
 
           {/* Mobile Actions */}
           <div className="flex items-center gap-1 flex-shrink-0">
@@ -591,10 +876,16 @@ const HabitCard = React.memo<HabitCardProps>(({
           </div>
         </div>
 
+
+
+
         <div className="w-full">
           <WeeklyProgress completedDates={habit.completedDates} />
         </div>
       </div>
+
+
+
 
       {/* DESKTOP LAYOUT */}
       <div className="hidden sm:flex items-center justify-between gap-6 relative z-10">
@@ -622,6 +913,9 @@ const HabitCard = React.memo<HabitCardProps>(({
             </div>
           </div>
         </div>
+
+
+
 
         <div className="flex items-center gap-4">
           <WeeklyProgress completedDates={habit.completedDates} />
@@ -675,11 +969,17 @@ const HabitCard = React.memo<HabitCardProps>(({
     prevProps.habit.icon === nextProps.habit.icon &&
     prevCompleted === nextCompleted &&
     prevProps.habit.reminderEnabled === nextProps.habit.reminderEnabled &&
+    prevProps.habit.colorTheme === nextProps.habit.colorTheme &&
+    prevProps.habit.reminderTime === nextProps.habit.reminderTime &&
+    prevProps.today === nextProps.today &&
     prevProps.isDark === nextProps.isDark &&
     prevProps.isGreen === nextProps.isGreen &&
     prevProps.isLgbt === nextProps.isLgbt
   );
 });
+
+
+
 
 HabitCard.displayName = 'HabitCard';
 // ADD THIS - CURRENCY OPTIONS
@@ -700,7 +1000,107 @@ const CURRENCIES = [
   { code: 'VND', symbol: '₫', name: 'Vietnamese Dong' },
   { code: 'IDR', symbol: 'Rp', name: 'Indonesian Rupiah' },
 ];
-// --- Helper Functions ---
+
+
+
+
+// --- Helper Functions ---// 🏆 ACHIEVEMENT DEFINITIONS
+const ACHIEVEMENT_DEFINITIONS = [
+  // Habit Achievements
+  {
+    id: 'first-habit',
+    title: 'Getting Started',
+    description: 'Create your first habit',
+    icon: '🎯',
+    category: 'habits' as const,
+    requirement: 1,
+    reward: 'Welcome to HabitFlow!'
+  },
+  {
+    id: 'habit-master',
+    title: 'Habit Master',
+    description: 'Create 10 habits',
+    icon: '🎓',
+    category: 'habits' as const,
+    requirement: 10,
+    reward: 'You\'re building a better life!'
+  },
+  // Streak Achievements
+  {
+    id: 'week-warrior',
+    title: '7 Day Warrior',
+    description: 'Maintain a 7-day streak',
+    icon: '🔥',
+    category: 'streak' as const,
+    requirement: 7,
+    reward: 'One week strong!'
+  },
+  {
+    id: 'month-master',
+    title: 'Monthly Master',
+    description: 'Maintain a 30-day streak',
+    icon: '⭐',
+    category: 'streak' as const,
+    requirement: 30,
+    reward: 'Consistency is key!'
+  },
+  {
+    id: 'century-club',
+    title: 'Century Club',
+    description: 'Reach a 100-day streak',
+    icon: '💯',
+    category: 'streak' as const,
+    requirement: 100,
+    reward: 'You\'re unstoppable!'
+  },
+  // Money Achievements
+  {
+    id: 'first-budget',
+    title: 'Budget Beginner',
+    description: 'Set your first daily budget',
+    icon: '💰',
+    category: 'money' as const,
+    requirement: 1,
+    reward: 'Taking control of your finances!'
+  },
+  {
+    id: 'money-saver',
+    title: 'Money Saver',
+    description: 'Save 20% of your budget for a week',
+    icon: '🏦',
+    category: 'money' as const,
+    requirement: 7,
+    reward: 'Smart spending pays off!'
+  },
+  {
+    id: 'budget-boss',
+    title: 'Budget Boss',
+    description: 'Stay under budget for 30 days',
+    icon: '👑',
+    category: 'money' as const,
+    requirement: 30,
+    reward: 'You\'re in complete control!'
+  },
+  // Milestone Achievements
+  {
+    id: 'hundred-completions',
+    title: 'Centurion',
+    description: 'Complete 100 total habits',
+    icon: '🎖️',
+    category: 'milestone' as const,
+    requirement: 100,
+    reward: 'You\'re a completion machine!'
+  },
+  {
+    id: 'perfect-week',
+    title: 'Perfect Week',
+    description: 'Complete all habits for 7 days straight',
+    icon: '✨',
+    category: 'milestone' as const,
+    requirement: 7,
+    reward: 'Absolute dedication!'
+  }
+];
 const getTodayString = (): string => {
   const d = new Date();
   const year = d.getFullYear();
@@ -715,6 +1115,9 @@ const getYesterdayString = (): string => {
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
+
+
+
 
 const calculateStreak = (completedDates: string[]): number => {
   if (!completedDates || completedDates.length === 0) return 0;
@@ -742,6 +1145,9 @@ const calculateStreak = (completedDates: string[]): number => {
       mostRecentDate.getTime() !== yesterday.getTime()) {
     return 0;
   }
+
+
+
 
   let streak = 1;
   const oneDayMs = 24 * 60 * 60 * 1000;
@@ -777,6 +1183,9 @@ const getLast7Days = () => {
   return days;
 };
 
+
+
+
 // Generates the current standard week (Sun-Sat) for Weekly Progress
 const getCurrentWeekDays = () => {
   const now = new Date();
@@ -786,8 +1195,14 @@ const getCurrentWeekDays = () => {
   const startOfWeek = new Date(now);
   startOfWeek.setUTCDate(now.getUTCDate() - currentDayOfWeek);
 
+
+
+
   const days = [];
   const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+
+
 
   for (let i = 0; i < 7; i++) {
     const d = new Date(startOfWeek);
@@ -805,6 +1220,12 @@ const getCurrentWeekDays = () => {
   }
   return days;
 };
+
+
+
+
+
+
 
 
 const scheduleNotification = (habit: Habit): ReturnType<typeof setTimeout> | null => {
@@ -858,6 +1279,21 @@ const AnimationStyles = () => (
       from { transform: translateY(10px); opacity: 0; }
       to { transform: translateY(0); opacity: 1; }
     }
+      @keyframes scan {
+            0% {
+              transform: translateY(-100%);
+            }
+            100% {
+              transform: translateY(100%);
+            }
+          }
+
+
+
+
+          .animate-scan {
+            animation: scan 3s linear infinite;
+          }
     @keyframes slideIn {
       from { transform: translateX(-20px); opacity: 0; }
       to { transform: translateX(0); opacity: 1; }
@@ -903,11 +1339,17 @@ const AnimationStyles = () => (
       background-size: 200% 100%;
     }
 
+
+
+
     .progress-bar-fill {
       background-size: 200% 100%;
       background-image: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
       animation: shimmer 2s infinite;
     }
+
+
+
 
     .bg-rainbow-light {
       background: linear-gradient(135deg, #ffe4e6 0%, #fef3c7 20%, #dcfce7 40%, #e0f2fe 60%, #e8daff 80%, #fae8ff 100%);
@@ -947,10 +1389,17 @@ const AnimationStyles = () => (
       white-space: nowrap;
       border-width: 0;
     }
+     
   `}</style>
 );
 
+
+
+
 // --- Components ---
+
+
+
 
 const ThemeToggle: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
@@ -972,11 +1421,17 @@ const ThemeToggle: React.FC = () => {
   );
 };
 
+
+
+
 const AccentToggle: React.FC = () => {
   const { accent, toggleAccent, theme } = useTheme();
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
   const isDark = theme === 'dark';
+
+
+
 
   return (
     <button
@@ -996,16 +1451,25 @@ const AccentToggle: React.FC = () => {
   );
 };
 
+
+
+
 const Toast = ({ toast, onDismiss }: { toast: ToastData; onDismiss: () => void }) => {
   const { theme, accent } = useTheme();
   const isDark = theme === 'dark';
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
 
+
+
+
   useEffect(() => {
     const timer = setTimeout(onDismiss, 5000);
     return () => clearTimeout(timer);
   }, [onDismiss]);
+
+
+
 
   return (
     <div className={`flex items-center gap-3 px-5 py-4 rounded-2xl shadow-2xl border-2 backdrop-blur-xl animate-slide-in ${
@@ -1034,6 +1498,9 @@ const Toast = ({ toast, onDismiss }: { toast: ToastData; onDismiss: () => void }
   );
 };
 
+
+
+
 const FullScreenConfetti = () => {
   const { accent } = useTheme();
   const isGreen = accent === 'green';
@@ -1045,12 +1512,18 @@ const FullScreenConfetti = () => {
       ? ['#EF4444', '#F97316', '#EAB308', '#22C55E', '#3B82F6', '#A855F7'] // Rainbow
       : ['#DB2777', '#BE185D', '#F472B6', '#FCD34D', '#60A5FA'];
 
+
+
+
   const pieces = Array.from({ length: 80 }).map((_, i) => ({
     id: i,
     left: Math.random() * 100 + '%',
     animationDelay: Math.random() * 2 + 's',
     backgroundColor: colors[Math.floor(Math.random() * colors.length)]
   }));
+
+
+
 
   return (
     <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
@@ -1071,11 +1544,17 @@ const FullScreenConfetti = () => {
   );
 };
 
+
+
+
 const ConfettiCheck = ({ isChecked, onClick, themeColor, icon }: { isChecked: boolean, onClick: () => void, themeColor: string, icon?: string }) => {
   const [isBursting, setIsBursting] = useState(false);
   const { theme, accent } = useTheme();
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
+
+
+
 
   const handleClick = () => {
     if (!isChecked) {
@@ -1085,12 +1564,18 @@ const ConfettiCheck = ({ isChecked, onClick, themeColor, icon }: { isChecked: bo
     onClick();
   };
 
+
+
+
   const IconComponent = icon ? HABIT_ICONS.find(i => i.name === icon)?.icon || CheckCircle2 : CheckCircle2;
   const confettiColors = isGreen 
     ? ['#10B981', '#34D399', '#059669', '#6EE7B7'] 
     : isLgbt
       ? ['#EF4444', '#F97316', '#EAB308', '#22C55E', '#3B82F6', '#A855F7']
       : ['#DB2777', '#BE185D', '#F472B6', '#9D174D'];
+
+
+
 
   return (
     <div className="relative">
@@ -1130,12 +1615,18 @@ const ConfettiCheck = ({ isChecked, onClick, themeColor, icon }: { isChecked: bo
   );
 };
 
+
+
+
 const WeeklyProgress = ({ completedDates }: { completedDates: string[] }) => {
   const { theme, accent } = useTheme();
   const isDark = theme === 'dark';
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
   const days = getCurrentWeekDays();
+
+
+
 
   return (
     <div className="flex gap-1 sm:gap-2 overflow-x-auto scrollbar-hide pb-1">
@@ -1168,6 +1659,9 @@ const WeeklyProgress = ({ completedDates }: { completedDates: string[] }) => {
   );
 };
 
+
+
+
 const SkeletonLoader = () => {
   const { theme } = useTheme();
   return (
@@ -1186,6 +1680,9 @@ const SkeletonLoader = () => {
     </div>
   );
 };
+
+
+
 
 // --- Enhanced HabitStats Component with Advanced Analytics ---
 const HabitStats = ({ 
@@ -1212,6 +1709,9 @@ const HabitStats = ({
   
   const days = getLast7Days();
   const today = getTodayString();
+
+
+
 
   // Enhanced Analytics Calculations
   const totalHabits = habits.length;
@@ -1251,6 +1751,9 @@ const HabitStats = ({
   ).length;
   const consistencyScore = Math.round((daysWithActivity / 7) * 100);
 
+
+
+
   // Monthly projection
   const avgDailyCompletions = weeklyData.reduce((sum, d) => sum + d.count, 0) / 7;
   const monthlyProjection = Math.round(avgDailyCompletions * 30);
@@ -1285,6 +1788,9 @@ const getMonthlyData = (month: number, year: number) => {
   return { dailyData, totalSpent, monthlyBudget, saved, categoryTotals };
 };
 
+
+
+
 const getYearlyData = (year: number) => {
   const yearExpenses = expenses.filter(e => {
     const expenseDate = new Date(e.date);
@@ -1312,6 +1818,9 @@ const getYearlyData = (year: number) => {
   return { monthlyData, totalSpent, yearlyBudget, saved };
 };
 
+
+
+
 // Weekly money data
 const last7Days = getLast7Days();
 const weeklySpending = last7Days.map(day => {
@@ -1325,8 +1834,14 @@ const weeklyTotal = weeklySpending.reduce((sum, day) => sum + day.spent, 0);
 const weeklyBudget = dailyAllowance * 7;
 const weeklySaved = weeklyBudget - weeklyTotal;
 
+
+
+
 const monthlyAnalytics = getMonthlyData(selectedMonth, selectedYear);
 const yearlyAnalytics = getYearlyData(selectedYear);
+
+
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
@@ -1336,6 +1851,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
         <button onClick={onClose} className={`absolute top-4 right-4 p-2 rounded-xl transition z-10 ${isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'}`}>
           <X className="w-5 h-5" />
         </button>
+
+
+
 
         {/* Header */}
         <div className="p-6 md:p-8 border-b border-slate-200 dark:border-slate-800">
@@ -1348,6 +1866,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
               Deep dive into your habit patterns
             </p>
           </div>
+
+
+
 
           {/* Tabs */}
           <div className={`flex gap-2 mt-6 p-1.5 rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
@@ -1378,6 +1899,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
             })}
           </div>
         </div>
+
+
+
 
         {/* Content */}
         <div className="p-6 md:p-8 max-h-[60vh] overflow-y-auto">
@@ -1411,6 +1935,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                 </div>
               </div>
 
+
+
+
               {/* Consistency Score */}
               <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
                 <div className="flex items-center justify-between mb-3">
@@ -1429,6 +1956,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                   ></div>
                 </div>
               </div>
+
+
+
 
               {/* Monthly Projection */}
               <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
@@ -1473,6 +2003,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                 </div>
               </div>
 
+
+
+
               {/* Completion Rate Trend */}
               <div>
                 <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Daily Completion Rate</h3>
@@ -1493,6 +2026,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                 </div>
               </div>
 
+
+
+
               {/* Total Completions */}
               <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
                 <div className="flex items-center justify-between">
@@ -1507,6 +2043,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
               </div>
             </div>
           )}
+
+
+
 
           {/* HABITS TAB */}
           {activeTab === 'habits' && (
@@ -1655,6 +2194,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
       </button>
     </div>
 
+
+
+
     {/* Overview View - Weekly Line Chart */}
     {moneyView === 'overview' && (
       <div className="space-y-4">
@@ -1681,6 +2223,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
             </div>
           </div>
         </div>
+
+
+
 
         {/* Weekly Line Chart */}
         <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
@@ -1720,6 +2265,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
       </div>
     )}
 
+
+
+
     {/* Monthly View - Daily Bar Chart */}
     {moneyView === 'monthly' && (
       <div className="space-y-6">
@@ -1756,6 +2304,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
           </button>
         </div>
 
+
+
+
         {/* Monthly Stats Cards */}
         <div className="grid grid-cols-3 gap-4">
           <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-blue-50 border-blue-200'}`}>
@@ -1779,6 +2330,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
             </div>
           </div>
         </div>
+
+
+
 
         {/* Daily Spending Bar Chart */}
         <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
@@ -1816,6 +2370,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
             </BarChart>
           </ResponsiveContainer>
         </div>
+
+
+
 
         {/* Category Breakdown */}
         {monthlyAnalytics.categoryTotals.length > 0 && (
@@ -1858,6 +2415,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
       </div>
     )}
 
+
+
+
     {/* Yearly View - Monthly Bar Chart with Line Overlay */}
     {moneyView === 'yearly' && (
       <div className="space-y-6">
@@ -1877,6 +2437,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
             →
           </button>
         </div>
+
+
+
 
         {/* Yearly Stats Cards */}
         <div className="grid grid-cols-3 gap-4">
@@ -1901,6 +2464,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
             </div>
           </div>
         </div>
+
+
+
 
         {/* Monthly Spending Bar + Line Chart */}
         <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
@@ -1945,6 +2511,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
             </BarChart>
           </ResponsiveContainer>
         </div>
+
+
+
 
         {/* Monthly Savings Bar Chart */}
         <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
@@ -1996,6 +2565,12 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 };
 
 
+
+
+
+
+
+
 // Landing Page
 const LandingPage = ({ onGetStarted }: { onGetStarted: () => void }) => {
   const { theme, accent } = useTheme();
@@ -2003,15 +2578,23 @@ const LandingPage = ({ onGetStarted }: { onGetStarted: () => void }) => {
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
 
+
+
+
   return (
     <div className={`min-h-screen font-sans overflow-hidden relative transition-colors duration-500 ${isDark ? (isLgbt ? 'bg-rainbow-dark text-white' : 'bg-slate-950 text-white') : isGreen ? 'bg-green-50 text-slate-900' : isLgbt ? 'bg-rainbow-light text-slate-900' : 'bg-pink-50 text-slate-900'}`}>
       <AnimationStyles />
+
+
       
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
         <div className={`absolute top-[-10%] left-[-10%] w-[500px] h-[500px] rounded-full blur-3xl animate-float ${isDark ? (isGreen ? 'bg-green-900/10' : isLgbt ? 'bg-red-900/10' : 'bg-pink-900/10') : (isGreen ? 'bg-green-200' : isLgbt ? 'bg-red-200' : 'bg-pink-200')} mix-blend-multiply opacity-50`} style={{ animationDuration: '7s' }}></div>
         <div className={`absolute top-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full blur-3xl animate-float ${isDark ? (isGreen ? 'bg-emerald-900/10' : isLgbt ? 'bg-blue-900/10' : 'bg-rose-900/10') : (isGreen ? 'bg-emerald-200' : isLgbt ? 'bg-blue-200' : 'bg-rose-200')} mix-blend-multiply opacity-50`} style={{ animationDuration: '10s' }}></div>
         <div className={`absolute bottom-[-20%] left-[20%] w-[600px] h-[600px] rounded-full blur-3xl animate-float ${isDark ? (isGreen ? 'bg-teal-900/10' : isLgbt ? 'bg-green-900/10' : 'bg-fuchsia-900/10') : (isGreen ? 'bg-teal-200' : isLgbt ? 'bg-green-200' : 'bg-fuchsia-200')} mix-blend-multiply opacity-50`} style={{ animationDuration: '12s' }}></div>
       </div>
+
+
+
 
       <nav className="relative z-10 flex justify-between items-center p-6 max-w-7xl mx-auto w-full backdrop-blur-sm">
         <div className="flex items-center space-x-2">
@@ -2025,6 +2608,9 @@ const LandingPage = ({ onGetStarted }: { onGetStarted: () => void }) => {
           <ThemeToggle />
         </div>
       </nav>
+
+
+
 
       <header className="relative z-10 flex-grow flex flex-col justify-center items-center text-center px-4 max-w-5xl mx-auto mt-10 mb-20">
         <div className={`inline-flex items-center px-4 py-1.5 rounded-full border text-sm font-bold mb-8 shadow-sm backdrop-blur-md animate-float ${isDark ? (isGreen ? 'bg-slate-900/50 border-green-500 text-green-300' : isLgbt ? 'bg-slate-900/50 border-indigo-500 text-white' : 'bg-slate-900/50 border-pink-500 text-pink-300') : (isGreen ? 'bg-white border-green-200 text-green-600' : isLgbt ? 'bg-white border-indigo-200 text-indigo-600' : 'bg-white border-pink-200 text-pink-600')}`}>
@@ -2048,6 +2634,9 @@ const LandingPage = ({ onGetStarted }: { onGetStarted: () => void }) => {
           </button>
         </div>
 
+
+
+
         <div className="mt-16 sm:mt-20 relative w-full max-w-3xl transform hover:scale-[1.02] transition duration-500">
           <div className={`absolute inset-0 rounded-3xl blur-2xl opacity-20 ${isDark ? (isGreen ? 'bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500' : 'bg-pink-400') : (isGreen ? 'bg-green-600' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600' : 'bg-pink-600')}`}></div>
           <div className={`relative backdrop-blur-xl border p-4 sm:p-6 rounded-3xl shadow-2xl ${isDark ? 'bg-slate-900/60 border-slate-700' : 'bg-white/60 border-white/50'}`}>
@@ -2068,14 +2657,28 @@ const LandingPage = ({ onGetStarted }: { onGetStarted: () => void }) => {
   );
 };
 
+
+
+
 // Welcome Component (Replaces AuthPage)
 // Replace the WelcomePage component with this updated version
+
+
+
 
 const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
   const [mode, setMode] = useState<'signup' | 'login'>('login'); // Default to login
   const [name, setName] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [toast, setToast] = useState<ToastData | null>(null);
+  const [showWelcome, setShowWelcome] = useState(true);
+  
+  const [showForgotPassword, setShowForgotPassword] = useState<boolean>(false);
+  const [resetEmail, setResetEmail] = useState<string>('');
+  const [resetLoading, setResetLoading] = useState<boolean>(false);
+  const [agreedToTerms, setAgreedToTerms] = useState<boolean>(false);
+  const [showTermsModal, setShowTermsModal] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const { theme, accent } = useTheme();
@@ -2083,17 +2686,32 @@ const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
 
+
+
+
  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
   e.preventDefault();
   const username = name.trim();
   if (!username || !password.trim()) return;
   
+  // NEW: Check terms agreement for signup
+  if (mode === 'signup' && !agreedToTerms) {
+    setError('Please agree to the Terms & Conditions');
+    return;
+  }
+  
   setLoading(true);
   setError('');
+
+
+
 
   try {
     const normalizedUsername = username.toLowerCase().replace(/\s+/g, '');
     const email = `${normalizedUsername}@habitflow.app`;
+
+
+
 
     if (mode === 'login') {
       // LOGIN MODE
@@ -2104,8 +2722,14 @@ const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const newUser = userCredential.user;
 
+
+
+
       // Update display name
       await updateProfile(newUser, { displayName: username });
+
+
+
 
       // Store additional data in Firestore
       try {
@@ -2114,6 +2738,9 @@ const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
           onboardingComplete: true,
           createdAt: serverTimestamp()
         });
+
+
+
 
         // Reserve username
         await setDoc(doc(db, 'usernames', normalizedUsername), {
@@ -2130,7 +2757,6 @@ const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
   } catch (err: any) {
     console.error("Auth Failed:", err);
     
-    // Handle specific auth errors
     if (err.code === 'auth/user-not-found') {
       setError('Account not found. Please sign up first.');
     } else if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
@@ -2144,7 +2770,56 @@ const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
     }
     setLoading(false);
   }
+}; // ← ADD THIS LINE
+
+
+
+
+const handlePasswordReset = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!resetEmail.trim()) {
+    setError('Please enter your username');
+    return;
+  }
+
+
+
+
+  setResetLoading(true);
+  setError('');
+
+
+
+
+  try {
+    const normalizedUsername = resetEmail.toLowerCase().replace(/\s+/g, '');
+    const email = `${normalizedUsername}@habitflow.app`;
+    
+    await sendPasswordResetEmail(auth, email);
+    
+    // Success! Show toast notification
+    setShowForgotPassword(false);
+    setResetEmail('');
+    // You'll need to add toast state at the top of WelcomePage if not already present
+    alert('✅ Password reset email sent! Check your inbox.');
+    
+  } catch (err: any) {
+    console.error("Password reset failed:", err);
+    
+    if (err.code === 'auth/user-not-found') {
+      setError('No account found with this username.');
+    } else if (err.code === 'auth/invalid-email') {
+      setError('Invalid username format.');
+    } else {
+      setError('Failed to send reset email. Please try again.');
+    }
+  } finally {
+    setResetLoading(false);
+  }
 };
+
+
+
 
   return (
     <div className={`min-h-screen flex flex-col justify-center items-center p-4 relative overflow-hidden transition-colors duration-500 ${isDark ? (isLgbt ? 'bg-rainbow-dark' : 'bg-slate-950') : isGreen ? 'bg-green-50' : isLgbt ? 'bg-rainbow-light' : 'bg-pink-50'}`}>
@@ -2155,6 +2830,9 @@ const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
         <AccentToggle />
         <ThemeToggle />
       </div>
+
+
+
 
       <div className={`backdrop-blur-xl p-6 sm:p-8 rounded-3xl shadow-2xl w-full max-w-md border relative z-10 transition-colors duration-300 ${isDark ? 'bg-slate-900/80 border-slate-700' : 'bg-white/80 border-white'}`}>
         
@@ -2190,6 +2868,9 @@ const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
           </button>
         </div>
 
+
+
+
         <div className="text-center mb-8">
           <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 shadow-lg transform rotate-3 ${isDark ? (isGreen ? 'bg-green-500 text-white shadow-green-500/40' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white shadow-pink-500/40') : (isGreen ? 'bg-green-600 text-white shadow-green-200' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-600 text-white shadow-pink-200')}`}>
             {mode === 'login' ? <UserCircle2 className="w-8 h-8" /> : <Sparkles className="w-8 h-8" />}
@@ -2205,12 +2886,18 @@ const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
           </p>
         </div>
 
+
+
+
         <form onSubmit={handleSubmit} className="space-y-5">
           {error && (
             <div className={`p-3 rounded-xl text-sm font-bold text-center animate-pop ${isDark ? 'bg-red-900/30 text-red-300 border border-red-800' : 'bg-red-50 text-red-600 border border-red-100'}`}>
               {error}
             </div>
           )}
+
+
+
 
           <div>
             <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Username</label>
@@ -2256,6 +2943,39 @@ const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
               )}
             </div>
           </div>
+          {/* ✨ NEW: Terms & Conditions Checkbox - ONLY for Sign Up */}
+          {mode === 'signup' && (
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="terms"
+                checked={agreedToTerms}
+                onChange={(e) => setAgreedToTerms(e.target.checked)}
+                className={`mt-1 w-5 h-5 rounded border-2 cursor-pointer transition ${
+                  isDark 
+                    ? (isGreen ? 'border-green-500 accent-green-500' : isLgbt ? 'border-indigo-500 accent-indigo-500' : 'border-pink-500 accent-pink-500')
+                    : (isGreen ? 'border-green-600 accent-green-600' : isLgbt ? 'border-indigo-600 accent-indigo-600' : 'border-pink-600 accent-pink-600')
+                }`}
+              />
+              <label htmlFor="terms" className={`text-sm cursor-pointer ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                I agree to the{' '}
+                <button
+                  type="button"
+                  onClick={() => setShowTermsModal(true)}
+                  className={`font-bold underline ${
+                    isDark 
+                      ? (isGreen ? 'text-green-400 hover:text-green-300' : isLgbt ? 'text-indigo-400 hover:text-indigo-300' : 'text-pink-400 hover:text-pink-300')
+                      : (isGreen ? 'text-green-600 hover:text-green-700' : isLgbt ? 'text-indigo-600 hover:text-indigo-700' : 'text-pink-600 hover:text-pink-700')
+                  }`}
+                >
+                  Terms & Conditions
+                </button>
+              </label>
+            </div>
+          )}
+
+
+
 
           <button
             type="submit"
@@ -2280,18 +3000,42 @@ const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
           </button>
         </form>
 
+
+
+
         {mode === 'login' && (
-          <p className={`text-center text-sm mt-4 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-            Don't have an account?{' '}
+          <>
             <button
               type="button"
-              onClick={() => { setMode('signup'); setError(''); }}
-              className={`font-bold ${isDark ? (isGreen ? 'text-green-400 hover:text-green-300' : isLgbt ? 'text-indigo-400 hover:text-indigo-300' : 'text-pink-400 hover:text-pink-300') : (isGreen ? 'text-green-600 hover:text-green-700' : isLgbt ? 'text-indigo-600 hover:text-indigo-700' : 'text-pink-600 hover:text-pink-700')}`}
+              onClick={() => setShowForgotPassword(true)}
+              className={`text-center text-sm mt-4 font-bold block w-full ${
+                isDark 
+                  ? (isGreen ? 'text-green-400 hover:text-green-300' : isLgbt ? 'text-indigo-400 hover:text-indigo-300' : 'text-pink-400 hover:text-pink-300')
+                  : (isGreen ? 'text-green-600 hover:text-green-700' : isLgbt ? 'text-indigo-600 hover:text-indigo-700' : 'text-pink-600 hover:text-pink-700')
+              }`}
             >
-              Sign up here
+              Forgot Password?
             </button>
-          </p>
+            
+            <p className={`text-center text-sm mt-4 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+              Don't have an account?{' '}
+              <button
+                type="button"
+                onClick={() => { setMode('signup'); setError(''); }}
+                className={`font-bold ${
+                  isDark 
+                    ? (isGreen ? 'text-green-400 hover:text-green-300' : isLgbt ? 'text-indigo-400 hover:text-indigo-300' : 'text-pink-400 hover:text-pink-300')
+                    : (isGreen ? 'text-green-600 hover:text-green-700' : isLgbt ? 'text-indigo-600 hover:text-indigo-700' : 'text-pink-600 hover:text-pink-700')
+                }`}
+              >
+                Sign up here
+              </button>
+            </p>
+          </>
         )}
+
+
+
 
         {mode === 'signup' && (
           <p className={`text-center text-sm mt-4 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
@@ -2306,9 +3050,251 @@ const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
           </p>
         )}
       </div>
-    </div>
+    {/* Terms & Conditions Modal */}
+        {showTermsModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowTermsModal(false)}></div>
+            
+            <div className={`relative w-full max-w-2xl max-h-[80vh] rounded-3xl shadow-2xl p-6 animate-pop overflow-y-auto ${
+              isDark ? 'bg-slate-900 border-2 border-slate-800' : 'bg-white border-2 border-slate-100'
+            }`}>
+              
+              <button 
+                onClick={() => setShowTermsModal(false)}
+                className={`absolute top-4 right-4 p-2 rounded-xl transition z-10 ${
+                  isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
+                }`}
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+
+
+
+              <div className="mb-6">
+                <h2 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Terms & Conditions
+                </h2>
+                <p className={`text-sm mt-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Last updated: January 2026
+                </p>
+              </div>
+
+
+
+
+              <div className={`space-y-4 text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                <section>
+                  <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>1. Acceptance of Terms</h3>
+                  <p>By accessing and using HabitFlow, you accept and agree to be bound by these Terms & Conditions.</p>
+                </section>
+
+
+
+
+                <section>
+                  <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>2. Use of Service</h3>
+                  <p>HabitFlow is a personal habit tracking application. You agree to use this service only for lawful purposes and in accordance with these terms.</p>
+                </section>
+
+
+
+
+                <section>
+                  <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>3. User Data</h3>
+                  <p>You retain all rights to your personal data. We store your habits, todos, and expense data securely using Firebase. We do not sell or share your personal information with third parties.</p>
+                </section>
+
+
+
+
+                <section>
+                  <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>4. Account Responsibility</h3>
+                  <p>You are responsible for maintaining the confidentiality of your account credentials and for all activities under your account.</p>
+                </section>
+
+
+
+
+                <section>
+                  <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>5. Service Availability</h3>
+                  <p>We strive to keep HabitFlow available 24/7, but we do not guarantee uninterrupted access and may perform maintenance as needed.</p>
+                </section>
+
+
+
+
+                <section>
+                  <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>6. Limitation of Liability</h3>
+                  <p>HabitFlow is provided "as is" without warranties. We are not liable for any damages arising from your use of the service.</p>
+                </section>
+
+
+
+
+                <section>
+                  <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>7. Changes to Terms</h3>
+                  <p>We reserve the right to modify these terms at any time. Continued use of the service constitutes acceptance of modified terms.</p>
+                </section>
+              </div>
+
+
+
+
+              <button
+                onClick={() => {
+                  setAgreedToTerms(true);
+                  setShowTermsModal(false);
+                }}
+                className={`w-full mt-6 text-white py-4 rounded-2xl font-bold text-lg transition shadow-lg ${
+                  isDark 
+                    ? (isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400')
+                    : (isGreen ? 'bg-green-600 hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700')
+                }`}
+              >
+                I Agree to Terms & Conditions
+              </button>
+            </div>
+          </div>
+        )}
+
+
+
+
+        {/* Forgot Password Modal */}
+        {showForgotPassword && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => {
+              setShowForgotPassword(false);
+              setResetEmail('');
+              setError('');
+            }}></div>
+            
+            <div className={`relative w-full max-w-md rounded-3xl shadow-2xl p-6 animate-pop ${
+              isDark ? 'bg-slate-900 border-2 border-slate-800' : 'bg-white border-2 border-slate-100'
+            }`}>
+              
+              <button 
+                onClick={() => {
+                  setShowForgotPassword(false);
+                  setResetEmail('');
+                  setError('');
+                }}
+                className={`absolute top-4 right-4 p-2 rounded-xl transition ${
+                  isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
+                }`}
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+
+
+
+              <div className="text-center mb-6">
+                <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 shadow-lg ${
+                  isDark 
+                    ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
+                    : (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-600 text-white')
+                }`}>
+                  <Lock className="w-8 h-8" />
+                </div>
+                <h2 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Reset Password
+                </h2>
+                <p className={`mt-2 text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Enter your username and we'll send you a password reset link
+                </p>
+              </div>
+
+
+
+
+              <form onSubmit={handlePasswordReset} className="space-y-5">
+                {error && (
+                  <div className={`p-3 rounded-xl text-sm font-bold text-center animate-pop ${
+                    isDark ? 'bg-red-900/30 text-red-300 border border-red-800' : 'bg-red-50 text-red-600 border border-red-100'
+                  }`}>
+                    {error}
+                  </div>
+                )}
+
+
+
+
+                <div>
+                  <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                    Username
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter your username"
+                    value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)}
+                    className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-medium text-lg ${
+                      isDark 
+                        ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400 placeholder-slate-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400 placeholder-slate-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400 placeholder-slate-500')
+                        : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-600 focus:bg-white focus:ring-4 focus:ring-green-100' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-600 focus:bg-white focus:ring-4 focus:ring-indigo-100' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-600 focus:bg-white focus:ring-4 focus:ring-pink-100')
+                    }`}
+                  />
+                </div>
+
+
+
+
+                <button
+                  type="submit"
+                  disabled={resetLoading}
+                  className={`w-full text-white py-4 rounded-xl font-bold text-xl transition transform hover:-translate-y-1 shadow-xl flex items-center justify-center gap-2 ${
+                    isDark 
+                      ? (isGreen ? 'bg-green-500 hover:bg-green-400 shadow-green-500/40' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400 shadow-pink-500/40')
+                      : (isGreen ? 'bg-green-600 hover:bg-green-700 shadow-green-200' : isLgbt ? 'bg-gradient-to-r from-red-600 via-green-600 to-blue-700 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700 shadow-pink-200')
+                  } ${resetLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                >
+                  {resetLoading ? 'Sending...' : (
+                    <>
+                      Send Reset Link <ArrowRight className="w-5 h-5" />
+                    </>
+                  )}
+                </button>
+
+
+
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowForgotPassword(false);
+                    setResetEmail('');
+                    setError('');
+                  }}
+                  className={`w-full py-3 rounded-xl font-bold transition ${
+                    isDark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'
+                  }`}
+                >
+                  Cancel
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+        
+        {toast && (
+          <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
+            <Toast toast={toast} onDismiss={() => setToast(null)} />
+          </div>
+        )}
+      </div>
+  
   );
 };
+
+
+
+
+
+
+
 
 // Template Browser Component
 const TemplateBrowser = ({ 
@@ -2324,6 +3310,9 @@ const TemplateBrowser = ({
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
 
+
+
+
   const categories = [
     { id: 'all', label: 'All Templates', icon: Layout },
     { id: 'student', label: 'Student', icon: Book },
@@ -2332,9 +3321,15 @@ const TemplateBrowser = ({
     { id: 'productivity', label: 'Productivity', icon: Zap },
   ];
 
+
+
+
   const filteredTemplates = selectedCategory === 'all' 
     ? HABIT_TEMPLATES 
     : HABIT_TEMPLATES.filter(t => t.category === selectedCategory);
+
+
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
@@ -2375,6 +3370,9 @@ const TemplateBrowser = ({
             </button>
           </div>
 
+
+
+
           {/* Category Filter */}
           <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
             {categories.map((cat) => {
@@ -2400,6 +3398,9 @@ const TemplateBrowser = ({
             })}
           </div>
         </div>
+
+
+
 
         {/* Templates Grid */}
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]">
@@ -2456,6 +3457,9 @@ const TemplateBrowser = ({
             })}
           </div>
 
+
+
+
           {filteredTemplates.length === 0 && (
             <div className={`text-center py-12 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
               <p className="text-lg font-bold mb-2">No templates found</p>
@@ -2484,10 +3488,16 @@ const ReminderModal = ({
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
 
+
+
+
   const handleSave = () => {
     onSave(enabled, time);
     onClose();
   };
+
+
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
@@ -2506,6 +3516,9 @@ const ReminderModal = ({
           <X className="w-5 h-5" />
         </button>
 
+
+
+
         <div className="text-center mb-6">
           <div className={`inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-3 ${
             isDark 
@@ -2521,6 +3534,9 @@ const ReminderModal = ({
             for "{habit.title}"
           </p>
         </div>
+
+
+
 
         <div className="space-y-5">
           {/* Enable/Disable Toggle */}
@@ -2554,6 +3570,9 @@ const ReminderModal = ({
             </div>
           </div>
 
+
+
+
           {/* Time Picker */}
           {enabled && (
             <div>
@@ -2573,6 +3592,9 @@ const ReminderModal = ({
             </div>
           )}
 
+
+
+
           {/* Permission Warning */}
           {enabled && 'Notification' in window && Notification.permission !== 'granted' && (
             <div className={`p-3 rounded-xl text-sm font-medium ${
@@ -2581,6 +3603,9 @@ const ReminderModal = ({
               ⚠️ Please allow notifications in your browser settings
             </div>
           )}
+
+
+
 
           {/* Action Buttons */}
           <div className="flex gap-3 pt-2">
@@ -2608,42 +3633,2582 @@ const ReminderModal = ({
     </div>
   );
 };
+// 🆕 PHASE 1: Budget Limits Section
+// LOCATION: Add this inside your MoneyTracker component (around line 4600-4700)
+
+
+
+
+interface BudgetLimitsSectionProps {
+  budgets: CategoryBudget[];
+  currencySymbol: string;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+  onEditBudgets: () => void;
+}
+
+
+
+
+const BudgetLimitsSection: React.FC<BudgetLimitsSectionProps> = ({
+  budgets,
+  currencySymbol,
+  isDark,
+  isGreen,
+  isLgbt,
+  onEditBudgets
+}) => {
+  const getProgressColor = (percentage: number) => {
+    if (percentage >= 100) return isDark ? 'bg-red-500' : 'bg-red-600';
+    if (percentage >= 80) return isDark ? 'bg-yellow-500' : 'bg-yellow-600';
+    if (isGreen) return isDark ? 'bg-green-500' : 'bg-green-600';
+    if (isLgbt) return 'bg-gradient-to-r from-red-500 to-blue-500';
+    return isDark ? 'bg-pink-500' : 'bg-pink-600';
+  };
+
+
+
+
+  return (
+    <div className={`p-6 rounded-2xl border-2 ${
+      isDark 
+        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+        : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
+    }`}>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+            isDark 
+              ? (isGreen ? 'bg-green-500/20' : isLgbt ? 'bg-gradient-to-br from-red-500/20 to-blue-500/20' : 'bg-pink-500/20')
+              : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-br from-red-100 to-blue-100' : 'bg-pink-100')
+          }`}>
+            <Target className={`w-6 h-6 ${
+              isDark 
+                ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
+                : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
+            }`} />
+          </div>
+          <div>
+            <h3 className={`font-bold text-xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              Category Budgets
+            </h3>
+            <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+              Monthly spending limits
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onEditBudgets}
+          className={`px-4 py-2 rounded-xl font-semibold text-sm transition ${
+            isDark 
+              ? (isGreen ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : isLgbt ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30' : 'bg-pink-500/20 text-pink-400 hover:bg-pink-500/30')
+              : (isGreen ? 'bg-green-100 text-green-700 hover:bg-green-200' : isLgbt ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-pink-100 text-pink-700 hover:bg-pink-200')
+          }`}
+        >
+          Edit Limits
+        </button>
+      </div>
+
+
+
+
+      <div className="space-y-4">
+        {budgets.length === 0 ? (
+          <p className={`text-center py-8 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+            No budget limits set. Click "Edit Limits" to get started!
+          </p>
+        ) : (
+          budgets.map((budget) => (
+            <div key={budget.category}>
+              <div className="flex items-center justify-between mb-2">
+                <span className={`font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                  {budget.category}
+                </span>
+                <span className={`text-sm font-bold ${
+                  budget.percentage >= 100 
+                    ? 'text-red-500' 
+                    : budget.percentage >= 80 
+                    ? 'text-yellow-500' 
+                    : isDark ? 'text-slate-400' : 'text-slate-600'
+                }`}>
+                  {currencySymbol}{budget.spent.toFixed(2)} / {currencySymbol}{budget.monthlyLimit.toFixed(2)}
+                  {budget.percentage >= 100 && ' ⚠️'}
+                </span>
+              </div>
+              <div className={`h-3 rounded-full overflow-hidden ${
+                isDark ? 'bg-slate-700' : 'bg-slate-200'
+              }`}>
+                <div
+                  className={`h-full transition-all duration-500 ${getProgressColor(budget.percentage)}`}
+                  style={{ width: `${Math.min(budget.percentage, 100)}%` }}
+                />
+              </div>
+              <p className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                {budget.percentage.toFixed(0)}% used
+                {budget.percentage >= 100 && ' - Budget exceeded!'}
+                {budget.percentage >= 80 && budget.percentage < 100 && ' - Approaching limit'}
+              </p>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+// 🆕 PHASE 1: Spending Insights Section
+// LOCATION: Add this inside your MoneyTracker component
+
+
+
+
+interface SpendingInsightsSectionProps {
+  insights: SpendingInsight;
+  currencySymbol: string;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+}
+
+
+
+
+const SpendingInsightsSection: React.FC<SpendingInsightsSectionProps> = ({
+  insights,
+  currencySymbol,
+  isDark,
+  isGreen,
+  isLgbt
+}) => {
+  const weeklyChange = insights.lastWeek > 0 
+    ? ((insights.thisWeek - insights.lastWeek) / insights.lastWeek * 100).toFixed(1)
+    : 0;
+  
+  const monthlyChange = insights.lastMonth > 0 
+    ? ((insights.thisMonth - insights.lastMonth) / insights.lastMonth * 100).toFixed(1)
+    : 0;
+
+
+
+
+  const isWeeklyUp = Number(weeklyChange) > 0;
+  const isMonthlyUp = Number(monthlyChange) > 0;
+
+
+
+
+  return (
+    <div className={`p-6 rounded-2xl border-2 ${
+      isDark 
+        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+        : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
+    }`}>
+      <div className="flex items-center gap-3 mb-6">
+        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+          isDark 
+            ? (isGreen ? 'bg-green-500/20' : isLgbt ? 'bg-gradient-to-br from-red-500/20 to-blue-500/20' : 'bg-pink-500/20')
+            : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-br from-red-100 to-blue-100' : 'bg-pink-100')
+        }`}>
+          <BarChart3 className={`w-6 h-6 ${
+            isDark 
+              ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
+              : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
+          }`} />
+        </div>
+        <div>
+          <h3 className={`font-bold text-xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            Spending Insights
+          </h3>
+          <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+            How you're doing
+          </p>
+        </div>
+      </div>
+
+
+
+
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        {/* This Week */}
+        <div className={`p-4 rounded-xl ${
+          isDark ? 'bg-slate-700/50' : 'bg-white'
+        }`}>
+          <p className={`text-sm mb-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+            This Week
+          </p>
+          <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            {currencySymbol}{insights.thisWeek.toFixed(2)}
+          </p>
+          <div className={`flex items-center gap-1 mt-2 text-sm font-semibold ${
+            isWeeklyUp ? 'text-red-500' : 'text-green-500'
+          }`}>
+            {isWeeklyUp ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+            <span>{isWeeklyUp ? '+' : ''}{weeklyChange}%</span>
+          </div>
+        </div>
+
+
+
+
+        {/* This Month */}
+        <div className={`p-4 rounded-xl ${
+          isDark ? 'bg-slate-700/50' : 'bg-white'
+        }`}>
+          <p className={`text-sm mb-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+            This Month
+          </p>
+          <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            {currencySymbol}{insights.thisMonth.toFixed(2)}
+          </p>
+          <div className={`flex items-center gap-1 mt-2 text-sm font-semibold ${
+            isMonthlyUp ? 'text-red-500' : 'text-green-500'
+          }`}>
+            {isMonthlyUp ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+            <span>{isMonthlyUp ? '+' : ''}{monthlyChange}%</span>
+          </div>
+        </div>
+      </div>
+
+
+
+
+      {/* Top Category */}
+      {insights.topCategory !== 'None' && (
+        <div className={`p-4 rounded-xl ${
+          isDark 
+            ? (isGreen ? 'bg-green-500/10 border border-green-500/30' : isLgbt ? 'bg-gradient-to-r from-red-500/10 to-blue-500/10 border border-indigo-500/30' : 'bg-pink-500/10 border border-pink-500/30')
+            : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-r from-red-100 to-blue-100' : 'bg-pink-100')
+        }`}>
+          <p className={`text-sm mb-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+            Top Spending Category
+          </p>
+          <div className="flex items-center justify-between">
+            <p className={`font-bold text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              {insights.topCategory}
+            </p>
+            <p className={`font-bold ${
+              isDark 
+                ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
+                : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
+            }`}>
+              {currencySymbol}{insights.topCategoryAmount.toFixed(2)}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+// 🆕 PHASE 1: Category Pie Chart Section
+// LOCATION: Add this inside your MoneyTracker component
+// NOTE: This uses Recharts PieChart which you'll need to import
+
+
+
+
+
+
+
+
+
+
+
+
+interface CategoryPieChartProps {
+  data: { name: string; value: number }[];
+  currencySymbol: string;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+}
+
+
+
+
+const CategoryPieChart: React.FC<CategoryPieChartProps> = ({
+  data,
+  currencySymbol,
+  isDark,
+  isGreen,
+  isLgbt
+}) => {
+  // Color palette for pie slices
+  const COLORS = isGreen 
+    ? ['#10b981', '#059669', '#047857', '#065f46', '#064e3b', '#6ee7b7']
+    : isLgbt
+    ? ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6']
+    : ['#ec4899', '#f43f5e', '#f97316', '#a855f7', '#3b82f6', '#06b6d4'];
+
+
+
+
+  const totalSpending = data.reduce((sum, item) => sum + item.value, 0);
+
+
+
+
+  if (data.length === 0) {
+    return (
+      <div className={`p-6 rounded-2xl border-2 ${
+        isDark 
+          ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+          : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
+      }`}>
+        <div className="flex items-center gap-3 mb-6">
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+            isDark 
+              ? (isGreen ? 'bg-green-500/20' : isLgbt ? 'bg-gradient-to-br from-red-500/20 to-blue-500/20' : 'bg-pink-500/20')
+              : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-br from-red-100 to-blue-100' : 'bg-pink-100')
+          }`}>
+            <PieChart className={`w-6 h-6 ${
+              isDark 
+                ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
+                : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
+            }`} />
+          </div>
+          <div>
+            <h3 className={`font-bold text-xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              Spending Breakdown
+            </h3>
+            <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+              By category
+            </p>
+          </div>
+        </div>
+        <p className={`text-center py-8 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+          No expenses yet. Start tracking to see your breakdown!
+        </p>
+      </div>
+    );
+  }
+
+
+
+
+  return (
+    <div className={`p-6 rounded-2xl border-2 ${
+      isDark 
+        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+        : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
+    }`}>
+      <div className="flex items-center gap-3 mb-6">
+        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+          isDark 
+            ? (isGreen ? 'bg-green-500/20' : isLgbt ? 'bg-gradient-to-br from-red-500/20 to-blue-500/20' : 'bg-pink-500/20')
+            : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-br from-red-100 to-blue-100' : 'bg-pink-100')
+        }`}>
+          <PieChart className={`w-6 h-6 ${
+            isDark 
+              ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
+              : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
+          }`} />
+        </div>
+        <div>
+          <h3 className={`font-bold text-xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            Spending Breakdown
+          </h3>
+          <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+            Top {data.length} categories
+          </p>
+        </div>
+      </div>
+
+
+
+
+      <div className="h-80">
+  <ResponsiveContainer width="100%" height={300} minHeight={300}>
+    <PieChart>
+      <Pie
+        data={data}
+        cx="50%"
+        cy="50%"
+        labelLine={false}
+        label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+        outerRadius={100}
+        fill="#8884d8"
+        dataKey="value"
+      >
+        {data.map((entry, index) => (
+          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+        ))}
+      </Pie>
+      <Tooltip 
+        formatter={(value: number | undefined) => `${currencySymbol}${(value ?? 0).toFixed(2)}`}
+        contentStyle={{
+          backgroundColor: isDark ? '#1e293b' : '#ffffff',
+          border: `2px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+          borderRadius: '12px',
+          color: isDark ? '#ffffff' : '#000000'
+        }}
+      />
+    </PieChart>
+  </ResponsiveContainer>
+</div>
+
+
+
+
+      {/* Category List */}
+      <div className="mt-4 space-y-2">
+        {data.map((item, index) => {
+          const percentage = ((item.value / totalSpending) * 100).toFixed(1);
+          return (
+            <div key={item.name} className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div 
+                  className="w-4 h-4 rounded-full" 
+                  style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                />
+                <span className={`font-medium ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                  {item.name}
+                </span>
+              </div>
+              <div className="text-right">
+                <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  {currencySymbol}{item.value.toFixed(2)}
+                </span>
+                <span className={`ml-2 text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                  ({percentage}%)
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+// 🆕 PHASE 1: Savings Goals Section
+// LOCATION: Add this inside your MoneyTracker component
+
+
+
+
+interface SavingsGoalsSectionProps {
+  goals: SavingsGoal[];
+  currencySymbol: string;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+  onAddGoal: () => void;
+  onUpdateProgress: (goalId: string, amount: number) => void;
+  onDeleteGoal: (goalId: string) => void;
+}
+
+
+
+
+const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
+  goals,
+  currencySymbol,
+  isDark,
+  isGreen,
+  isLgbt,
+  onAddGoal,
+  onUpdateProgress,
+  onDeleteGoal
+}) => {
+  const [editingGoal, setEditingGoal] = useState<string | null>(null);
+  const [addAmount, setAddAmount] = useState<string>('');
+
+
+
+
+  const handleAddProgress = (goalId: string) => {
+    const amount = parseFloat(addAmount);
+    if (!isNaN(amount) && amount > 0) {
+      onUpdateProgress(goalId, amount);
+      setEditingGoal(null);
+      setAddAmount('');
+    }
+  };
+
+
+
+
+  const getDaysRemaining = (deadline: string) => {
+    const today = new Date();
+    const deadlineDate = new Date(deadline);
+    const diffTime = deadlineDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  };
+
+
+
+
+  return (
+    <div className={`p-6 rounded-2xl border-2 ${
+      isDark 
+        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+        : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
+    }`}>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+            isDark 
+              ? (isGreen ? 'bg-green-500/20' : isLgbt ? 'bg-gradient-to-br from-red-500/20 to-blue-500/20' : 'bg-pink-500/20')
+              : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-br from-red-100 to-blue-100' : 'bg-pink-100')
+          }`}>
+            <Trophy className={`w-6 h-6 ${
+              isDark 
+                ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
+                : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
+            }`} />
+          </div>
+          <div>
+            <h3 className={`font-bold text-xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              Savings Goals
+            </h3>
+            <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+              Track your financial targets
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onAddGoal}
+          className={`p-2 rounded-xl transition ${
+            isDark 
+              ? (isGreen ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : isLgbt ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30' : 'bg-pink-500/20 text-pink-400 hover:bg-pink-500/30')
+              : (isGreen ? 'bg-green-100 text-green-700 hover:bg-green-200' : isLgbt ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-pink-100 text-pink-700 hover:bg-pink-200')
+          }`}
+        >
+          <Plus className="w-5 h-5" />
+        </button>
+      </div>
+
+
+
+
+      {goals.length === 0 ? (
+        <div className="text-center py-8">
+          <Trophy className={`w-16 h-16 mx-auto mb-4 ${isDark ? 'text-slate-600' : 'text-slate-400'}`} />
+          <p className={`mb-4 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+            No savings goals yet. Start building your future!
+          </p>
+          <button
+            onClick={onAddGoal}
+            className={`px-6 py-3 rounded-xl font-bold transition ${
+              isDark 
+                ? (isGreen ? 'bg-green-500 text-white hover:bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white hover:opacity-90' : 'bg-pink-500 text-white hover:bg-pink-400')
+                : (isGreen ? 'bg-green-600 text-white hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white hover:opacity-90' : 'bg-pink-600 text-white hover:bg-pink-700')
+            }`}
+          >
+            Create Your First Goal
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {goals.map(goal => {
+            const percentage = Math.min((goal.currentAmount / goal.targetAmount) * 100, 100);
+            const daysLeft = getDaysRemaining(goal.deadline);
+            const isComplete = percentage >= 100;
+
+
+
+
+            return (
+              <div 
+                key={goal.id}
+                className={`p-4 rounded-xl border-2 transition ${
+                  isComplete
+                    ? isDark 
+                      ? (isGreen ? 'bg-green-500/20 border-green-500/50' : isLgbt ? 'bg-gradient-to-r from-red-500/20 to-blue-500/20 border-indigo-500/50' : 'bg-pink-500/20 border-pink-500/50')
+                      : (isGreen ? 'bg-green-100 border-green-300' : isLgbt ? 'bg-gradient-to-r from-red-100 to-blue-100 border-indigo-300' : 'bg-pink-100 border-pink-300')
+                    : isDark ? 'bg-slate-700/50 border-slate-600' : 'bg-white border-slate-200'
+                }`}
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {goal.name}
+                      </h4>
+                      {isComplete && <span className="text-xl">🎉</span>}
+                    </div>
+                    <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                      {daysLeft > 0 ? `${daysLeft} days left` : daysLeft === 0 ? 'Due today!' : `${Math.abs(daysLeft)} days overdue`}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (confirm(`Delete "${goal.name}"?`)) {
+                        onDeleteGoal(goal.id);
+                      }
+                    }}
+                    className={`p-2 rounded-lg transition ${
+                      isDark ? 'hover:bg-red-500/20 text-red-400' : 'hover:bg-red-100 text-red-600'
+                    }`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+
+
+
+
+                <div className="mb-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className={`text-sm font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      Progress
+                    </span>
+                    <span className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      {currencySymbol}{goal.currentAmount.toFixed(2)} / {currencySymbol}{goal.targetAmount.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className={`h-3 rounded-full overflow-hidden ${
+                    isDark ? 'bg-slate-600' : 'bg-slate-200'
+                  }`}>
+                    <div
+                      className={`h-full transition-all duration-500 ${
+                        isComplete
+                          ? isGreen ? 'bg-green-500' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500' : 'bg-pink-500'
+                          : isGreen ? 'bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-400 to-blue-400' : 'bg-pink-400'
+                      }`}
+                      style={{ width: `${percentage}%` }}
+                    />
+                  </div>
+                  <p className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                    {percentage.toFixed(0)}% complete
+                  </p>
+                </div>
+
+
+
+
+                {!isComplete && (
+                  <div className="flex gap-2">
+                    {editingGoal === goal.id ? (
+                      <>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={addAmount}
+                          onChange={(e) => setAddAmount(e.target.value)}
+                          placeholder="Amount"
+                          className={`flex-1 px-3 py-2 rounded-lg border-2 outline-none ${
+                            isDark 
+                              ? 'bg-slate-800 border-slate-600 text-white' 
+                              : 'bg-white border-slate-200 text-slate-900'
+                          }`}
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => handleAddProgress(goal.id)}
+                          className={`px-4 py-2 rounded-lg font-semibold transition ${
+                            isDark 
+                              ? (isGreen ? 'bg-green-500 text-white hover:bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white hover:opacity-90' : 'bg-pink-500 text-white hover:bg-pink-400')
+                              : (isGreen ? 'bg-green-600 text-white hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white hover:opacity-90' : 'bg-pink-600 text-white hover:bg-pink-700')
+                          }`}
+                        >
+                          Add
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingGoal(null);
+                            setAddAmount('');
+                          }}
+                          className={`px-4 py-2 rounded-lg font-semibold transition ${
+                            isDark ? 'bg-slate-600 text-white hover:bg-slate-500' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                          }`}
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => setEditingGoal(goal.id)}
+                        className={`w-full px-4 py-2 rounded-lg font-semibold transition ${
+                          isDark 
+                            ? (isGreen ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : isLgbt ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30' : 'bg-pink-500/20 text-pink-400 hover:bg-pink-500/30')
+                            : (isGreen ? 'bg-green-100 text-green-700 hover:bg-green-200' : isLgbt ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-pink-100 text-pink-700 hover:bg-pink-200')
+                        }`}
+                      >
+                        Add Progress
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+
+
+interface RecurringExpensesSectionProps {
+  recurringExpenses: RecurringExpense[];
+  currencySymbol: string;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+  onAddRecurring: () => void;
+  onToggleActive: (expenseId: string, isActive: boolean) => void;
+  onDeleteRecurring: (expenseId: string) => void;
+  onEditRecurring: (expense: RecurringExpense) => void;
+}
+
+
+
+
+
+
+
+
+const RecurringExpensesSection: React.FC<RecurringExpensesSectionProps> = ({
+  recurringExpenses,
+  currencySymbol,
+  isDark,
+  isGreen,
+  isLgbt,
+  onAddRecurring,
+  onToggleActive,
+  onDeleteRecurring,
+  onEditRecurring
+}) => {
+  // Calculate summary
+  const summary: RecurringExpenseSummary = recurringExpenses
+    .filter(exp => exp.isActive)
+    .reduce((acc, exp) => {
+      const monthlyAmount = (() => {
+        switch (exp.frequency) {
+          case 'daily': return exp.amount * 30;
+          case 'weekly': return exp.amount * 4;
+          case 'monthly': return exp.amount;
+          case 'yearly': return exp.amount / 12;
+          default: return 0;
+        }
+      })();
+
+
+
+
+      return {
+        daily: acc.daily + (exp.frequency === 'daily' ? exp.amount : 0),
+        weekly: acc.weekly + (exp.frequency === 'weekly' ? exp.amount : 0),
+        monthly: acc.monthly + (exp.frequency === 'monthly' ? exp.amount : 0),
+        yearly: acc.yearly + (exp.frequency === 'yearly' ? exp.amount : 0),
+        total: acc.total + monthlyAmount,
+        count: acc.count + 1
+      };
+    }, { daily: 0, weekly: 0, monthly: 0, yearly: 0, total: 0, count: 0 });
+
+
+
+
+  const getDaysUntilPayment = (nextPaymentDate: string) => {
+    const today = new Date();
+    const payment = new Date(nextPaymentDate);
+    const diffTime = payment.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  };
+
+
+
+
+  const getFrequencyIcon = (frequency: string) => {
+    switch (frequency) {
+      case 'daily': return '📅';
+      case 'weekly': return '📆';
+      case 'monthly': return '🗓️';
+      case 'yearly': return '🎯';
+      default: return '💰';
+    }
+  };
+
+
+
+
+  return (
+    <div className={`p-6 rounded-2xl border-2 ${
+      isDark 
+        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+        : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
+    }`}>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+            isDark 
+              ? (isGreen ? 'bg-green-500/20' : isLgbt ? 'bg-gradient-to-br from-red-500/20 to-blue-500/20' : 'bg-pink-500/20')
+              : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-br from-red-100 to-blue-100' : 'bg-pink-100')
+          }`}>
+            <Receipt className={`w-6 h-6 ${
+              isDark 
+                ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
+                : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
+            }`} />
+          </div>
+          <div>
+            <h3 className={`font-bold text-xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              Recurring Expenses
+            </h3>
+            <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+              Subscriptions & regular bills
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onAddRecurring}
+          className={`p-2 rounded-xl transition ${
+            isDark 
+              ? (isGreen ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : isLgbt ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30' : 'bg-pink-500/20 text-pink-400 hover:bg-pink-500/30')
+              : (isGreen ? 'bg-green-100 text-green-700 hover:bg-green-200' : isLgbt ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-pink-100 text-pink-700 hover:bg-pink-200')
+          }`}
+        >
+          <Plus className="w-5 h-5" />
+        </button>
+      </div>
+
+
+
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className={`p-4 rounded-xl ${isDark ? 'bg-slate-700/50' : 'bg-white'}`}>
+          <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+            Monthly Total
+          </div>
+          <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            {currencySymbol}{summary.total.toFixed(2)}
+          </div>
+          <div className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-600'}`}>
+            {summary.count} active {summary.count === 1 ? 'subscription' : 'subscriptions'}
+          </div>
+        </div>
+
+
+
+
+        <div className={`p-4 rounded-xl ${isDark ? 'bg-slate-700/50' : 'bg-white'}`}>
+          <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+            Yearly Cost
+          </div>
+          <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            {currencySymbol}{(summary.total * 12).toFixed(2)}
+          </div>
+          <div className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-600'}`}>
+            Total annual expense
+          </div>
+        </div>
+      </div>
+
+
+
+
+      {/* Recurring Expenses List */}
+      {recurringExpenses.length === 0 ? (
+        <div className="text-center py-8">
+          <Receipt className={`w-16 h-16 mx-auto mb-4 ${isDark ? 'text-slate-600' : 'text-slate-400'}`} />
+          <p className={`mb-4 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+            No recurring expenses yet
+          </p>
+          <button
+            onClick={onAddRecurring}
+            className={`px-6 py-3 rounded-xl font-bold transition ${
+              isDark 
+                ? (isGreen ? 'bg-green-500 text-white hover:bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white hover:opacity-90' : 'bg-pink-500 text-white hover:bg-pink-400')
+                : (isGreen ? 'bg-green-600 text-white hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white hover:opacity-90' : 'bg-pink-600 text-white hover:bg-pink-700')
+            }`}
+          >
+            Add Your First Subscription
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {recurringExpenses
+            .sort((a, b) => getDaysUntilPayment(a.nextPaymentDate) - getDaysUntilPayment(b.nextPaymentDate))
+            .map((expense) => {
+              const daysUntil = getDaysUntilPayment(expense.nextPaymentDate);
+              const isUpcoming = daysUntil <= 7 && daysUntil >= 0;
+              const isOverdue = daysUntil < 0;
+
+
+
+
+              return (
+                <div
+                  key={expense.id}
+                  className={`p-4 rounded-xl border-2 transition ${
+                    !expense.isActive
+                      ? (isDark ? 'bg-slate-800/30 border-slate-700 opacity-50' : 'bg-slate-50 border-slate-200 opacity-50')
+                      : isOverdue
+                      ? (isDark ? 'bg-red-900/20 border-red-500/50' : 'bg-red-50 border-red-300')
+                      : isUpcoming
+                      ? (isDark ? 'bg-yellow-900/20 border-yellow-500/50' : 'bg-yellow-50 border-yellow-300')
+                      : (isDark ? 'bg-slate-700/50 border-slate-600' : 'bg-white border-slate-200')
+                  }`}
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                          {expense.name}
+                        </h4>
+                        <span className="text-xl">{getFrequencyIcon(expense.frequency)}</span>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                          isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+                        }`}>
+                          {expense.category}
+                        </span>
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                          isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+                        }`}>
+                          {expense.frequency}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className={`text-xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {currencySymbol}{expense.amount.toFixed(2)}
+                      </div>
+                      <div className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                        per {expense.frequency === 'yearly' ? 'year' : expense.frequency === 'monthly' ? 'month' : 'week'}
+                      </div>
+                    </div>
+                  </div>
+
+
+
+
+                  {/* Next Payment Info */}
+                  <div className={`p-3 rounded-lg mb-3 ${
+                    isOverdue
+                      ? (isDark ? 'bg-red-900/30' : 'bg-red-100')
+                      : isUpcoming
+                      ? (isDark ? 'bg-yellow-900/30' : 'bg-yellow-100')
+                      : (isDark ? 'bg-slate-800' : 'bg-slate-100')
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className={`text-sm font-bold ${
+                        isOverdue
+                          ? 'text-red-500'
+                          : isUpcoming
+                          ? 'text-yellow-600'
+                          : (isDark ? 'text-slate-400' : 'text-slate-600')
+                      }`}>
+                        {isOverdue ? '⚠️ Overdue' : isUpcoming ? '🔔 Coming Soon' : '📅 Next Payment'}
+                      </span>
+                      <span className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {new Date(expense.nextPaymentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        {!isOverdue && ` (${daysUntil} ${daysUntil === 1 ? 'day' : 'days'})`}
+                      </span>
+                    </div>
+                  </div>
+
+
+
+
+                  {/* Actions */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => onToggleActive(expense.id, !expense.isActive)}
+                      className={`flex-1 px-4 py-2 rounded-lg font-semibold text-sm transition ${
+                        expense.isActive
+                          ? (isDark ? 'bg-slate-600 hover:bg-slate-500 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-700')
+                          : (isDark 
+                              ? (isGreen ? 'bg-green-500 hover:bg-green-400 text-white' : isLgbt ? 'bg-indigo-500 hover:bg-indigo-400 text-white' : 'bg-pink-500 hover:bg-pink-400 text-white')
+                              : (isGreen ? 'bg-green-600 hover:bg-green-700 text-white' : isLgbt ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'bg-pink-600 hover:bg-pink-700 text-white')
+                            )
+                      }`}
+                    >
+                      {expense.isActive ? 'Pause' : 'Activate'}
+                    </button>
+                    <button
+                      onClick={() => onEditRecurring(expense)}
+                      className={`px-4 py-2 rounded-lg font-semibold text-sm transition ${
+                        isDark ? 'bg-slate-600 hover:bg-slate-500 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                      }`}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm(`Delete "${expense.name}"?`)) {
+                          onDeleteRecurring(expense.id);
+                        }
+                      }}
+                      className={`p-2 rounded-lg transition ${
+                        isDark ? 'hover:bg-red-500/20 text-red-400' : 'hover:bg-red-100 text-red-600'
+                      }`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+
+
+// ✅ DEBT TRACKER COMPONENT
+interface DebtTrackerProps {
+  debts: Debt[];
+  currencySymbol: string;
+  onAddDebt: () => void;
+  onDeleteDebt: (debtId: string) => void;
+  onMakePayment: (debtId: string, amount: number) => void;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+}
+
+
+
+
+const DebtTracker: React.FC<DebtTrackerProps> = ({
+  debts,
+  currencySymbol,
+  onAddDebt,
+  onDeleteDebt,
+  onMakePayment,
+  isDark,
+  isGreen,
+  isLgbt
+}) => {
+  const [paymentDebtId, setPaymentDebtId] = useState<string | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+
+
+
+
+  const totalDebt = debts.reduce((sum, debt) => sum + debt.balance, 0);
+  const totalMinPayment = debts.reduce((sum, debt) => sum + debt.minimumPayment, 0);
+  const avgInterestRate = debts.length > 0 
+    ? debts.reduce((sum, debt) => sum + debt.interestRate, 0) / debts.length 
+    : 0;
+
+
+
+
+  const getDebtTypeIcon = (type: string) => {
+    switch (type) {
+      case 'credit_card': return '💳';
+      case 'student_loan': return '🎓';
+      case 'mortgage': return '🏠';
+      case 'personal_loan': return '💰';
+      default: return '📄';
+    }
+  };
+
+
+
+
+  const getDebtTypeLabel = (type: string) => {
+    switch (type) {
+      case 'credit_card': return 'Credit Card';
+      case 'student_loan': return 'Student Loan';
+      case 'mortgage': return 'Mortgage';
+      case 'personal_loan': return 'Personal Loan';
+      default: return 'Other';
+    }
+  };
+
+
+
+
+  const handlePayment = (debtId: string) => {
+    const amount = parseFloat(paymentAmount);
+    if (isNaN(amount) || amount <= 0) {
+      alert('Please enter a valid payment amount');
+      return;
+    }
+    
+    onMakePayment(debtId, amount);
+    setPaymentDebtId(null);
+    setPaymentAmount('');
+  };
+
+
+
+
+  return (
+    <div className={`p-6 rounded-2xl border-2 ${
+      isDark 
+        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+        : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
+    }`}>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+            isDark 
+              ? (isGreen ? 'bg-green-500/20' : isLgbt ? 'bg-gradient-to-br from-red-500/20 to-blue-500/20' : 'bg-pink-500/20')
+              : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-br from-red-100 to-blue-100' : 'bg-pink-100')
+          }`}>
+            <Wallet className={`w-6 h-6 ${
+              isDark 
+                ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
+                : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
+            }`} />
+          </div>
+          <div>
+            <h3 className={`font-bold text-xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              Debt Tracker
+            </h3>
+            <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+              Manage and pay off your debts
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onAddDebt}
+          className={`p-2 rounded-xl transition ${
+            isDark 
+              ? (isGreen ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : isLgbt ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30' : 'bg-pink-500/20 text-pink-400 hover:bg-pink-500/30')
+              : (isGreen ? 'bg-green-100 text-green-700 hover:bg-green-200' : isLgbt ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-pink-100 text-pink-700 hover:bg-pink-200')
+          }`}
+        >
+          <Plus className="w-5 h-5" />
+        </button>
+      </div>
+
+
+
+
+      {/* Summary Cards */}
+      {debts.length > 0 && (
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          <div className={`p-4 rounded-xl ${isDark ? 'bg-slate-700/50' : 'bg-white'}`}>
+            <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+              Total Debt
+            </div>
+            <div className={`text-2xl font-black ${isDark ? 'text-red-400' : 'text-red-600'}`}>
+              {currencySymbol}{totalDebt.toFixed(2)}
+            </div>
+          </div>
+
+
+
+
+          <div className={`p-4 rounded-xl ${isDark ? 'bg-slate-700/50' : 'bg-white'}`}>
+            <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+              Min. Payment
+            </div>
+            <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              {currencySymbol}{totalMinPayment.toFixed(2)}
+            </div>
+          </div>
+
+
+
+
+          <div className={`p-4 rounded-xl ${isDark ? 'bg-slate-700/50' : 'bg-white'}`}>
+            <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+              Avg. APR
+            </div>
+            <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              {avgInterestRate.toFixed(1)}%
+            </div>
+          </div>
+        </div>
+      )}
+
+
+
+
+      {/* Debt List */}
+      {debts.length === 0 ? (
+        <div className="text-center py-8">
+          <Wallet className={`w-16 h-16 mx-auto mb-4 ${isDark ? 'text-slate-600' : 'text-slate-400'}`} />
+          <p className={`mb-4 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+            No debts tracked yet
+          </p>
+          <button
+            onClick={onAddDebt}
+            className={`px-6 py-3 rounded-xl font-bold transition ${
+              isDark 
+                ? (isGreen ? 'bg-green-500 text-white hover:bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white hover:opacity-90' : 'bg-pink-500 text-white hover:bg-pink-400')
+                : (isGreen ? 'bg-green-600 text-white hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white hover:opacity-90' : 'bg-pink-600 text-white hover:bg-pink-700')
+            }`}
+          >
+            Add Your First Debt
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {debts
+            .sort((a, b) => b.interestRate - a.interestRate)
+            .map((debt) => (
+              <div
+                key={debt.id}
+                className={`p-4 rounded-xl border-2 transition ${
+                  isDark ? 'bg-slate-700/50 border-slate-600' : 'bg-white border-slate-200'
+                }`}
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-2xl">{getDebtTypeIcon(debt.type)}</span>
+                      <h4 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {debt.name}
+                      </h4>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                        isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {getDebtTypeLabel(debt.type)}
+                      </span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                        isDark ? 'bg-red-900/30 text-red-300' : 'bg-red-100 text-red-700'
+                      }`}>
+                        {debt.interestRate}% APR
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`text-2xl font-black ${isDark ? 'text-red-400' : 'text-red-600'}`}>
+                      {currencySymbol}{debt.balance.toFixed(2)}
+                    </div>
+                    <div className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                      Min: {currencySymbol}{debt.minimumPayment.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+
+
+
+
+                {/* Payment Section */}
+                {paymentDebtId === debt.id ? (
+                  <div className="flex gap-2 mt-3">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={paymentAmount}
+                      onChange={(e) => setPaymentAmount(e.target.value)}
+                      placeholder="Payment amount"
+                      className={`flex-1 px-3 py-2 rounded-lg border-2 outline-none ${
+                        isDark 
+                          ? 'bg-slate-800 border-slate-600 text-white'
+                          : 'bg-white border-slate-200 text-slate-900'
+                      }`}
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => handlePayment(debt.id)}
+                      className={`px-4 py-2 rounded-lg font-semibold transition ${
+                        isDark 
+                          ? (isGreen ? 'bg-green-500 text-white hover:bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white hover:opacity-90' : 'bg-pink-500 text-white hover:bg-pink-400')
+                          : (isGreen ? 'bg-green-600 text-white hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white hover:opacity-90' : 'bg-pink-600 text-white hover:bg-pink-700')
+                      }`}
+                    >
+                      Pay
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPaymentDebtId(null);
+                        setPaymentAmount('');
+                      }}
+                      className={`px-4 py-2 rounded-lg font-semibold transition ${
+                        isDark ? 'bg-slate-600 text-white hover:bg-slate-500' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                      }`}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={() => setPaymentDebtId(debt.id)}
+                      className={`flex-1 px-4 py-2 rounded-lg font-semibold text-sm transition ${
+                        isDark 
+                          ? (isGreen ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : isLgbt ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30' : 'bg-pink-500/20 text-pink-400 hover:bg-pink-500/30')
+                          : (isGreen ? 'bg-green-100 text-green-700 hover:bg-green-200' : isLgbt ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-pink-100 text-pink-700 hover:bg-pink-200')
+                      }`}
+                    >
+                      Make Payment
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm(`Delete "${debt.name}"?`)) {
+                          onDeleteDebt(debt.id);
+                        }
+                      }}
+                      className={`p-2 rounded-lg transition ${
+                        isDark ? 'hover:bg-red-900/20 text-red-400' : 'hover:bg-red-100 text-red-600'
+                      }`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+
+
+
+                {/* Due Date Info */}
+                <div className={`mt-3 p-2 rounded-lg text-xs font-medium ${
+                  isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+                }`}>
+                  📅 Due on day {debt.dueDay} of each month
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+};
+// 🆕 PHASE 1: Add Savings Goal Modal
+// LOCATION: Add this modal component near your other modals (around line 4500-4600)
+
+
+
+
+interface AddGoalModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (name: string, targetAmount: number, deadline: string) => void;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+  currencySymbol: string;
+}
+
+
+
+
+const AddGoalModal: React.FC<AddGoalModalProps> = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  isDark,
+  isGreen,
+  isLgbt,
+  currencySymbol
+}) => {
+  const [name, setName] = useState('');
+  const [targetAmount, setTargetAmount] = useState('');
+  const [deadline, setDeadline] = useState('');
+
+
+
+
+  if (!isOpen) return null;
+
+
+
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(targetAmount);
+    if (name && !isNaN(amount) && amount > 0 && deadline) {
+      onSubmit(name, amount, deadline);
+      setName('');
+      setTargetAmount('');
+      setDeadline('');
+    }
+  };
+
+
+
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+      <div className={`w-full max-w-md rounded-2xl p-6 ${
+        isDark ? 'bg-slate-800' : 'bg-white'
+      }`}>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className={`font-bold text-2xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            Create Savings Goal 🎯
+          </h3>
+          <button
+            onClick={onClose}
+            className={`p-2 rounded-lg transition ${
+              isDark ? 'hover:bg-slate-700' : 'hover:bg-slate-100'
+            }`}
+          >
+            <X className={`w-5 h-5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`} />
+          </button>
+        </div>
+
+
+
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+              Goal Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g., Emergency Fund, New Phone"
+              className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                isDark 
+                  ? (isGreen ? 'bg-slate-700 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-700 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-700 border-pink-900/50 text-white focus:border-pink-400')
+                  : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500')
+              }`}
+              required
+            />
+          </div>
+
+
+
+
+          <div>
+            <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+              Target Amount ({currencySymbol})
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={targetAmount}
+              onChange={(e) => setTargetAmount(e.target.value)}
+              placeholder="1000.00"
+              className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                isDark 
+                  ? (isGreen ? 'bg-slate-700 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-700 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-700 border-pink-900/50 text-white focus:border-pink-400')
+                  : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500')
+              }`}
+              required
+            />
+          </div>
+
+
+
+
+          <div>
+            <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+              Target Date
+            </label>
+            <input
+              type="date"
+              value={deadline}
+              onChange={(e) => setDeadline(e.target.value)}
+              min={new Date().toISOString().split('T')[0]}
+              className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                isDark 
+                  ? (isGreen ? 'bg-slate-700 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-700 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-700 border-pink-900/50 text-white focus:border-pink-400')
+                  : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500')
+              }`}
+              required
+            />
+          </div>
+
+
+
+
+          <div className="flex gap-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className={`flex-1 px-4 py-3 rounded-xl font-bold transition ${
+                isDark ? 'bg-slate-700 text-white hover:bg-slate-600' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+              }`}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className={`flex-1 px-4 py-3 rounded-xl font-bold text-white transition ${
+                isDark 
+                  ? (isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400')
+                  : (isGreen ? 'bg-green-600 hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700')
+              }`}
+            >
+              Create Goal
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+
+
+
+// 🆕 PHASE 1: Edit Budget Limits Modal
+// LOCATION: Add this modal component near your other modals
+
+
+
+
+interface EditBudgetsModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  categoryBudgets: Record<string, number>;
+  onUpdateBudget: (category: string, limit: number) => void;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+  currencySymbol: string;
+  setCategoryBudgets: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+}
+
+
+
+
+const EditBudgetsModal: React.FC<EditBudgetsModalProps> = ({
+  isOpen,
+  onClose,
+  categoryBudgets,
+  onUpdateBudget,
+  isDark,
+  isGreen,
+  isLgbt,
+  currencySymbol,
+  setCategoryBudgets
+}) => {
+  const [tempBudgets, setTempBudgets] = useState<Record<string, string>>({});
+  const { theme } = useTheme();
+
+
+
+
+  useEffect(() => {
+  if (isOpen) {
+    const budgetStrings: Record<string, string> = {};
+    EXPENSE_CATEGORIES.forEach(category => {
+      budgetStrings[category.label] = (categoryBudgets[category.label] || 0).toString();
+    });
+    setTempBudgets(budgetStrings);
+  }
+}, [isOpen, categoryBudgets]);
+
+
+
+
+  if (!isOpen) return null;
+
+
+
+
+  const handleSave = () => {
+    Object.entries(tempBudgets).forEach(([category, value]) => {
+      const limit = parseFloat(value) || 0;
+      if (limit !== categoryBudgets[category]) {
+        onUpdateBudget(category, limit);
+      }
+    });
+    onClose();
+  };
+
+
+
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm overflow-y-auto">
+      <div className={`w-full max-w-2xl rounded-2xl p-6 my-8 ${
+        isDark ? 'bg-slate-800' : 'bg-white'
+      }`}>
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className={`font-bold text-2xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              Edit Budget Limits 💰
+            </h3>
+            <p className={`text-sm mt-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+              Set monthly spending limits for each category
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className={`p-2 rounded-lg transition ${
+              isDark ? 'hover:bg-slate-700' : 'hover:bg-slate-100'
+            }`}
+          >
+            <X className={`w-5 h-5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`} />
+          </button>
+        </div>
+
+
+
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 max-h-96 overflow-y-auto pr-2">
+  {EXPENSE_CATEGORIES.map(category => (
+    <div key={category.id} className="space-y-2">
+      <label className="flex items-center gap-2 text-sm font-medium">
+        <category.icon className="w-4 h-4" style={{ color: category.color }} />
+        <span>{category.label}</span>
+      </label>
+      <input
+        type="number"
+        placeholder="Enter monthly budget"
+        value={categoryBudgets[category.label] || ''}
+        onChange={(e) => {
+          const value = parseFloat(e.target.value) || 0;
+          setCategoryBudgets({
+            ...categoryBudgets,
+            [category.label]: value
+          });
+        }}
+      className={`w-full px-3 py-2 rounded-lg border ${
+        isDark
+          ? 'bg-gray-800 border-gray-700 text-white' 
+          : 'bg-white border-gray-300 text-gray-900'
+      }`}
+    />
+  </div>
+))}
+        </div>
+
+
+
+
+        <div className={`p-4 rounded-xl mb-6 ${
+          isDark 
+            ? (isGreen ? 'bg-green-500/10 border border-green-500/30' : isLgbt ? 'bg-gradient-to-r from-red-500/10 to-blue-500/10 border border-indigo-500/30' : 'bg-pink-500/10 border border-pink-500/30')
+            : (isGreen ? 'bg-green-50 border border-green-200' : isLgbt ? 'bg-gradient-to-r from-red-50 to-blue-50 border border-indigo-200' : 'bg-pink-50 border border-pink-200')
+        }`}>
+          <p className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+            💡 <strong>Tip:</strong> Set realistic monthly limits for each category. You'll get alerts when you reach 80% of your budget.
+          </p>
+        </div>
+
+
+
+
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className={`flex-1 px-4 py-3 rounded-xl font-bold transition ${
+              isDark ? 'bg-slate-700 text-white hover:bg-slate-600' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+            }`}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            className={`flex-1 px-4 py-3 rounded-xl font-bold text-white transition ${
+              isDark 
+                ? (isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400')
+                : (isGreen ? 'bg-green-600 hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700')
+            }`}
+          >
+            Save Budgets
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+
+
+// 🆕 PHASE 2: ADD/EDIT RECURRING EXPENSE MODAL
+interface RecurringExpenseModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSubmit: (data: Omit<RecurringExpense, 'id' | 'createdAt'>) => void;
+  editingExpense?: RecurringExpense | null;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+  currencySymbol: string;
+}
+
+
+
+
+const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
+  isOpen,
+  onClose,
+  onSubmit,
+  editingExpense,
+  isDark,
+  isGreen,
+  isLgbt,
+  currencySymbol
+}) => {
+  const [name, setName] = useState('');
+  const [amount, setAmount] = useState('');
+  const [category, setCategory] = useState('bills');
+  const [frequency, setFrequency] = useState<'daily' | 'weekly' | 'monthly' | 'yearly'>('monthly');
+  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState('');
+  const [reminderEnabled, setReminderEnabled] = useState(true);
+  const [reminderDaysBefore, setReminderDaysBefore] = useState(3);
+  const [notes, setNotes] = useState('');
+
+
+
+
+  useEffect(() => {
+    if (editingExpense) {
+      setName(editingExpense.name);
+      setAmount(editingExpense.amount.toString());
+      setCategory(editingExpense.category);
+      setFrequency(editingExpense.frequency);
+      setStartDate(editingExpense.startDate);
+      setEndDate(editingExpense.endDate || '');
+      setReminderEnabled(editingExpense.reminderEnabled);
+      setReminderDaysBefore(editingExpense.reminderDaysBefore);
+      setNotes(editingExpense.notes || '');
+    } else {
+      setName('');
+      setAmount('');
+      setCategory('bills');
+      setFrequency('monthly');
+      setStartDate(new Date().toISOString().split('T')[0]);
+      setEndDate('');
+      setReminderEnabled(true);
+      setReminderDaysBefore(3);
+      setNotes('');
+    }
+  }, [editingExpense, isOpen]);
+
+
+
+
+  if (!isOpen) return null;
+
+
+
+
+  const calculateNextPaymentDate = (start: string, freq: string): string => {
+    const startDateObj = new Date(start);
+    const today = new Date();
+    
+    if (startDateObj > today) {
+      return start;
+    }
+
+
+
+
+    let nextPayment = new Date(startDateObj);
+    
+    while (nextPayment < today) {
+      switch (freq) {
+        case 'daily':
+          nextPayment.setDate(nextPayment.getDate() + 1);
+          break;
+        case 'weekly':
+          nextPayment.setDate(nextPayment.getDate() + 7);
+          break;
+        case 'monthly':
+          nextPayment.setMonth(nextPayment.getMonth() + 1);
+          break;
+        case 'yearly':
+          nextPayment.setFullYear(nextPayment.getFullYear() + 1);
+          break;
+      }
+    }
+    
+    return nextPayment.toISOString().split('T')[0];
+  };
+
+
+
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsedAmount = parseFloat(amount);
+    
+    if (!name || isNaN(parsedAmount) || parsedAmount <= 0 || !startDate) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+
+
+
+    const nextPaymentDate = calculateNextPaymentDate(startDate, frequency);
+
+
+
+
+    onSubmit({
+      name: name.trim(),
+      amount: parsedAmount,
+      category,
+      frequency,
+      startDate,
+      endDate: endDate || undefined,
+      nextPaymentDate,
+      reminderEnabled,
+      reminderDaysBefore,
+      isActive: true,
+      notes: notes.trim() || undefined
+    });
+
+
+
+
+    onClose();
+  };
+
+
+
+
+  const popularSubscriptions = [
+    { name: 'Netflix', amount: 15.99, category: 'entertainment' },
+    { name: 'Spotify', amount: 9.99, category: 'entertainment' },
+    { name: 'Amazon Prime', amount: 14.99, category: 'shopping' },
+    { name: 'Disney+', amount: 7.99, category: 'entertainment' },
+    { name: 'YouTube Premium', amount: 11.99, category: 'entertainment' },
+    { name: 'Gym Membership', amount: 50.00, category: 'health' },
+  ];
+
+
+
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm overflow-y-auto">
+      <div className={`w-full max-w-2xl rounded-2xl p-6 my-8 ${
+        isDark ? 'bg-slate-800' : 'bg-white'
+      }`}>
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className={`font-bold text-2xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              {editingExpense ? 'Edit' : 'Add'} Recurring Expense
+            </h3>
+            <p className={`text-sm mt-1 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+              Track subscriptions and regular bills
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className={`p-2 rounded-lg transition ${
+              isDark ? 'hover:bg-slate-700' : 'hover:bg-slate-100'
+            }`}
+          >
+            <X className={`w-5 h-5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`} />
+          </button>
+        </div>
+
+
+
+
+        {!editingExpense && (
+          <div className="mb-6">
+            <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+              Quick Add (Optional)
+            </label>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              {popularSubscriptions.map((sub) => (
+                <button
+                  key={sub.name}
+                  type="button"
+                  onClick={() => {
+                    setName(sub.name);
+                    setAmount(sub.amount.toString());
+                    setCategory(sub.category);
+                  }}
+                  className={`p-3 rounded-lg text-left transition ${
+                    isDark ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-100 hover:bg-slate-200'
+                  }`}
+                >
+                  <div className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    {sub.name}
+                  </div>
+                  <div className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                    {currencySymbol}{sub.amount}/mo
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+
+
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Name *
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g., Netflix, Gym Membership"
+                className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                  isDark 
+                    ? (isGreen ? 'bg-slate-700 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-700 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-700 border-pink-900/50 text-white focus:border-pink-400')
+                    : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500')
+                }`}
+                required
+              />
+            </div>
+
+
+
+
+            <div>
+              <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Amount ({currencySymbol}) *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="15.99"
+                className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                  isDark 
+                    ? (isGreen ? 'bg-slate-700 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-700 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-700 border-pink-900/50 text-white focus:border-pink-400')
+                    : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500')
+                }`}
+                required
+              />
+            </div>
+
+
+
+
+            <div>
+              <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Frequency *
+              </label>
+              <select
+                value={frequency}
+                onChange={(e) => setFrequency(e.target.value as any)}
+                className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                  isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                }`}
+              >
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </div>
+
+
+
+
+            <div>
+              <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Category *
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                  isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                }`}
+              >
+                {EXPENSE_CATEGORIES.map(cat => (
+                  <option key={cat.id} value={cat.id}>{cat.label}</option>
+                ))}
+              </select>
+            </div>
+
+
+
+
+            <div>
+              <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Start Date *
+              </label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                  isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                }`}
+                required
+              />
+            </div>
+
+
+
+
+            <div>
+              <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                End Date (Optional)
+              </label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                min={startDate}
+                className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                  isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                }`}
+              />
+            </div>
+
+
+
+
+            <div className="md:col-span-2">
+              <div className="flex items-center gap-3 mb-3">
+                <input
+                  type="checkbox"
+                  id="reminder"
+                  checked={reminderEnabled}
+                  onChange={(e) => setReminderEnabled(e.target.checked)}
+                  className="w-5 h-5 rounded"
+                />
+                <label htmlFor="reminder" className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  Enable Payment Reminders
+                </label>
+              </div>
+              {reminderEnabled && (
+                <div>
+                  <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                    Remind me (days before payment)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="30"
+                    value={reminderDaysBefore}
+                    onChange={(e) => setReminderDaysBefore(parseInt(e.target.value) || 0)}
+                    className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                      isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                    }`}
+                  />
+                </div>
+              )}
+            </div>
+
+
+
+
+            <div className="md:col-span-2">
+              <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Notes (Optional)
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Add any additional details..."
+                rows={2}
+                className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition resize-none ${
+                  isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+                }`}
+              />
+            </div>
+          </div>
+
+
+
+
+          <div className="flex gap-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className={`flex-1 px-4 py-3 rounded-xl font-bold transition ${
+                isDark ? 'bg-slate-700 text-white hover:bg-slate-600' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+              }`}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className={`flex-1 px-4 py-3 rounded-xl font-bold text-white transition ${
+                isDark 
+                  ? (isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400')
+                  : (isGreen ? 'bg-green-600 hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700')
+              }`}
+            >
+              {editingExpense ? 'Update' : 'Add'} Expense
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+// ✅ ADD DEBT MODAL COMPONENT
+interface AddDebtModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onAdd: (data: {
+    name: string;
+    balance: number;
+    interestRate: number;
+    minimumPayment: number;
+    type: 'credit_card' | 'student_loan' | 'mortgage' | 'personal_loan' | 'other';
+    dueDay: number;
+  }) => void;
+  currencySymbol: string;
+}
+
+
+
+
+const AddDebtModal: React.FC<AddDebtModalProps> = ({
+  isOpen,
+  onClose,
+  onAdd,
+  currencySymbol
+}) => {
+  const [name, setName] = useState('');
+  const [balance, setBalance] = useState('');
+  const [interestRate, setInterestRate] = useState('');
+  const [minimumPayment, setMinimumPayment] = useState('');
+  const [type, setType] = useState<'credit_card' | 'student_loan' | 'mortgage' | 'personal_loan' | 'other'>('credit_card');
+  const [dueDay, setDueDay] = useState('1');
+  const { theme, accent } = useTheme();
+  const isDark = theme === 'dark';
+  const isGreen = accent === 'green';
+  const isLgbt = accent === 'lgbt';
+
+
+
+
+  if (!isOpen) return null;
+
+
+
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const balanceNum = parseFloat(balance);
+    const interestNum = parseFloat(interestRate);
+    const minPaymentNum = parseFloat(minimumPayment);
+    const dueDayNum = parseInt(dueDay);
+    
+    if (isNaN(balanceNum) || isNaN(interestNum) || isNaN(minPaymentNum) || isNaN(dueDayNum)) {
+      alert('Please fill in all fields with valid numbers');
+      return;
+    }
+    
+    if (dueDayNum < 1 || dueDayNum > 31) {
+      alert('Due day must be between 1 and 31');
+      return;
+    }
+    
+    onAdd({
+      name: name.trim(),
+      balance: balanceNum,
+      interestRate: interestNum,
+      minimumPayment: minPaymentNum,
+      type,
+      dueDay: dueDayNum
+    });
+    
+    // Reset form
+    setName('');
+    setBalance('');
+    setInterestRate('');
+    setMinimumPayment('');
+    setType('credit_card');
+    setDueDay('1');
+    onClose();
+  };
+
+
+
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+      <div className={`w-full max-w-md rounded-2xl p-6 ${
+        isDark ? 'bg-slate-800' : 'bg-white'
+      }`}>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className={`font-bold text-2xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            Add Debt 💳
+          </h3>
+          <button
+            onClick={onClose}
+            className={`p-2 rounded-lg transition ${
+              isDark ? 'hover:bg-slate-700' : 'hover:bg-slate-100'
+            }`}
+          >
+            <X className={`w-5 h-5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`} />
+          </button>
+        </div>
+
+
+
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+              Debt Name *
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g., Credit Card, Student Loan"
+              className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                isDark 
+                  ? 'bg-slate-700 border-slate-600 text-white placeholder-slate-400'
+                  : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+              }`}
+              required
+            />
+          </div>
+
+
+
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Balance ({currencySymbol}) *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={balance}
+                onChange={(e) => setBalance(e.target.value)}
+                placeholder="5000.00"
+                className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                  isDark 
+                    ? 'bg-slate-700 border-slate-600 text-white'
+                    : 'bg-slate-50 border-slate-200 text-slate-900'
+                }`}
+                required
+              />
+            </div>
+
+
+
+
+            <div>
+              <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Interest Rate (%) *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={interestRate}
+                onChange={(e) => setInterestRate(e.target.value)}
+                placeholder="18.99"
+                className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                  isDark 
+                    ? 'bg-slate-700 border-slate-600 text-white'
+                    : 'bg-slate-50 border-slate-200 text-slate-900'
+                }`}
+                required
+              />
+            </div>
+          </div>
+
+
+
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Min. Payment ({currencySymbol}) *
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={minimumPayment}
+                onChange={(e) => setMinimumPayment(e.target.value)}
+                placeholder="150.00"
+                className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                  isDark 
+                    ? 'bg-slate-700 border-slate-600 text-white'
+                    : 'bg-slate-50 border-slate-200 text-slate-900'
+                }`}
+                required
+              />
+            </div>
+
+
+
+
+            <div>
+              <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Due Day *
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="31"
+                value={dueDay}
+                onChange={(e) => setDueDay(e.target.value)}
+                placeholder="15"
+                className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                  isDark 
+                    ? 'bg-slate-700 border-slate-600 text-white'
+                    : 'bg-slate-50 border-slate-200 text-slate-900'
+                }`}
+                required
+              />
+            </div>
+          </div>
+
+
+
+
+          <div>
+            <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+              Debt Type *
+            </label>
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value as any)}
+              className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
+                isDark 
+                  ? 'bg-slate-700 border-slate-600 text-white'
+                  : 'bg-slate-50 border-slate-200 text-slate-900'
+              }`}
+            >
+              <option value="credit_card">Credit Card</option>
+              <option value="student_loan">Student Loan</option>
+              <option value="mortgage">Mortgage</option>
+              <option value="personal_loan">Personal Loan</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+
+
+
+          <div className="flex gap-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className={`flex-1 px-4 py-3 rounded-xl font-bold transition ${
+                isDark ? 'bg-slate-700 text-white hover:bg-slate-600' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+              }`}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className={`flex-1 px-4 py-3 rounded-xl font-bold text-white transition ${
+                isDark 
+                  ? (isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400')
+                  : (isGreen ? 'bg-green-600 hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700')
+              }`}
+            >
+              Add Debt
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+
+
+
 // Dashboard Component
 const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => void }) => {
+  // ✅ ZUSTAND STATE MANAGEMENT
+  const { ui, updateUI } = useAppStore();
   const [habits, setHabits] = useState<Habit[]>([]);
+ const [categoryBudgets, setCategoryBudgets] = useState<Record<string, number>>(DEFAULT_CATEGORY_BUDGETS)
+  const [editingBudget, setEditingBudget] = useState<string | null>(null);
+  const [showWelcome, setShowWelcome] = useState(() => {
+    const hasVisited = localStorage.getItem('hasVisitedBefore');
+    return !hasVisited;
+});
+const [showOnboarding, setShowOnboarding] = useState(() => {
+  const completed = localStorage.getItem('onboardingCompleted');
+  return !completed;
+});
+const [onboardingStep, setOnboardingStep] = useState(0);
   const [newHabitTitle, setNewHabitTitle] = useState('');
   const [newHabitIcon, setNewHabitIcon] = useState(HABIT_ICONS[0].name); // Added state for icon
-  const [isAdding, setIsAdding] = useState(false);
-  const [showTemplates, setShowTemplates] = useState(false); 
+  const isAdding = ui.isAdding;
+  const setIsAdding = (adding: boolean) => updateUI({ isAdding: adding });
+  const showTemplates = ui.showTemplates;
+  const setShowTemplates = (show: boolean) => updateUI({ showTemplates: show }); 
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editIcon, setEditIcon] = useState(''); // ← ADD THIS
-  const [loading, setLoading] = useState(true);
+  const loading = ui.loading;
+  const setLoading = (isLoading: boolean) => updateUI({ loading: isLoading });
+  const [deletingExpense, setDeletingExpense] = useState<string | null>(null);
+const [deletingHabit, setDeletingHabit] = useState<string | null>(null);
+const [addingExpense, setAddingExpense] = useState(false);
+const [showExportMenu, setShowExportMenu] = useState(false);
+const fileInputRef = useRef<HTMLInputElement>(null);
+const [addingHabit, setAddingHabit] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
-  
-  const [showStats, setShowStats] = useState(false);
+  const showStats = ui.showStats;
+  const setShowStats = (show: boolean) => updateUI({ showStats: show });
+  const showAchievements = ui.showAchievements;
+  const setShowAchievements = (show: boolean) => updateUI({ showAchievements: show });
   const [reminderHabit, setReminderHabit] = useState<Habit | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState<'habits' | 'todos' | 'money'>('habits');
+  // Map Zustand state to existing variable names (no breaking changes!)
+  const currentPage = ui.currentPage;
+  const setCurrentPage = (page: 'habits' | 'todos' | 'money') => updateUI({ currentPage: page });
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [newTodoTitle, setNewTodoTitle] = useState('');
   const [newTodoPriority, setNewTodoPriority] = useState<'low' | 'medium' | 'high'>('medium');
   const [newTodoDueDate, setNewTodoDueDate] = useState('');
   // Money Tracking State
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  // 🆕 NEW STATE FOR PHASE 1 FEATURES
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([]);
+  // 🆕 PHASE 2: Recurring Expenses State
+  const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
+  const [debts, setDebts] = useState<Debt[]>([]);
+  const showRecurringModal = ui.showRecurringModal;
+  const setShowRecurringModal = (show: boolean) => updateUI({ showRecurringModal: show });
+  const [editingRecurring, setEditingRecurring] = useState<RecurringExpense | null>(null);
+  const showBudgetModal = ui.showBudgetModal;
+  const setShowBudgetModal = (show: boolean) => updateUI({ showBudgetModal: show });
+  const showGoalsModal = ui.showGoalsModal;
+  const setShowGoalsModal = (show: boolean) => updateUI({ showGoalsModal: show });
+  
   const [dailyAllowance, setDailyAllowance] = useState<number>(0);
+  const [totalIncome, setTotalIncome] = useState<number>(0); // 💰 PHASE 3: Track income
   const [currency, setCurrency] = useState<string>('USD');  // ADD THIS
   const [currencySymbol, setCurrencySymbol] = useState<string>('$');  // ADD THIS
-  const [showAllowanceModal, setShowAllowanceModal] = useState(false);
+  const showAllowanceModal = ui.showAllowanceModal;
+  const setShowAllowanceModal = (show: boolean) => updateUI({ showAllowanceModal: show });
   const [newExpenseAmount, setNewExpenseAmount] = useState('');
   const [newExpenseCategory, setNewExpenseCategory] = useState('food');
   const [newExpenseDescription, setNewExpenseDescription] = useState('');
   const [newExpenseDate, setNewExpenseDate] = useState(getTodayString());
-  const [moneyView, setMoneyView] = useState<'overview' | 'monthly' | 'yearly'>('overview');
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [newExpenseImage, setNewExpenseImage] = useState<File | null>(null); // 📸 PHASE 3
+  const [imagePreview, setImagePreview] = useState<string | null>(null); // 📸 PHASE 3
+  const moneyView = ui.moneyView;
+  const setMoneyView = (view: 'overview' | 'monthly' | 'yearly') => updateUI({ moneyView: view });
+  const selectedMonth = ui.selectedMonth;
+  const setSelectedMonth = (month: number) => updateUI({ selectedMonth: month });
+   const selectedYear = ui.selectedYear;
+  const setSelectedYear = (year: number) => updateUI({ selectedYear: year });
   const touchStartX = useRef(0);
   const touchEndX = useRef(0);
+  const [incomes, setIncomes] = useState<Income[]>([]); // 💰 PHASE 3
+  const showIncomeModal = ui.showIncomeModal;
+  const setShowIncomeModal = (show: boolean) => updateUI({ showIncomeModal: show });
+  const showDebtModal = ui.showDebtModal;
+  const setShowDebtModal = (show: boolean) => updateUI({ showDebtModal: show });
+  const showInvestmentModal = ui.showInvestmentModal;
+  const setShowInvestmentModal = (show: boolean) => updateUI({ showInvestmentModal: show });
+  // 🆕 PHASE 1: Savings Goals Handlers
+  const handleAddGoal = async (name: string, targetAmount: number, deadline: string) => {
+    if (!user) return;
+    
+    try {
+      await addDoc(collection(db, `users/${user.uid}/savingsGoals`), {
+        name,
+        targetAmount,
+        currentAmount: 0,
+        deadline,
+        createdAt: serverTimestamp()
+      });
+      setShowGoalsModal(false);
+      setToast({ 
+        id: Date.now().toString(), 
+        message: `Goal "${name}" created!`, 
+        type: 'success' 
+      });
+    } catch (error) {
+      console.error("Error creating goal:", error);
+      setToast({ 
+        id: Date.now().toString(), 
+        message: 'Failed to create goal.', 
+        type: 'error' 
+      });
+    }
+  };
+
+
+
+
+  const handleUpdateProgress = async (goalId: string, amount: number) => {
+    if (!user) return;
+    
+    const goal = savingsGoals.find(g => g.id === goalId);
+    if (!goal) return;
+    
+    try {
+      const newAmount = goal.currentAmount + amount;
+      await updateDoc(doc(db, `users/${user.uid}/savingsGoals/${goalId}`), {
+        currentAmount: newAmount
+      });
+      
+      // Check if goal completed
+      if (newAmount >= goal.targetAmount) {
+        setToast({ 
+          id: Date.now().toString(), 
+          message: `🎉 Goal "${goal.name}" completed!`, 
+          type: 'success' 
+        });
+      } else {
+        setToast({ 
+          id: Date.now().toString(), 
+          message: `${currencySymbol}${amount} added to "${goal.name}"`, 
+          type: 'success' 
+        });
+      }
+    } catch (error) {
+      console.error("Error updating goal:", error);
+      setToast({ 
+        id: Date.now().toString(), 
+        message: 'Failed to update goal.', 
+        type: 'error' 
+      });
+    }
+  };
+
+
+
+
+  const handleDeleteGoal = async (goalId: string) => {
+    if (!user) return;
+    
+    try {
+      await deleteDoc(doc(db, `users/${user.uid}/savingsGoals/${goalId}`));
+      setToast({ 
+        id: Date.now().toString(), 
+        message: 'Goal deleted', 
+        type: 'success' 
+      });
+    } catch (error) {
+      console.error("Error deleting goal:", error);
+      setToast({ 
+        id: Date.now().toString(), 
+        message: 'Failed to delete goal.', 
+        type: 'error' 
+      });
+    }
+  };
+
+
+
+
+  const handleUpdateBudget = async (category: string, limit: number) => {
+    if (!user) return;
+    
+    try {
+      const updatedBudgets = { ...categoryBudgets, [category]: limit };
+      setCategoryBudgets(updatedBudgets);
+      
+      await setDoc(doc(db, `users/${user.uid}/settings/budgets`), updatedBudgets);
+      
+      setToast({ 
+        id: Date.now().toString(), 
+        message: 'Budget updated!', 
+        type: 'success' 
+      });
+    } catch (error) {
+      console.error("Error updating budget:", error);
+      setToast({ 
+        id: Date.now().toString(), 
+        message: 'Failed to update budget.', 
+        type: 'error' 
+      });
+    }
+  };
   
   // 👇 ADD FROM HERE
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -2657,6 +6222,10 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
+
+
+
+
   }, []);
   // 👆 ADD UNTIL HERE
    useEffect(() => {
@@ -2671,6 +6240,9 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
   const isLgbt = accent === 'lgbt';
   const [toast, setToast] = useState<ToastData | null>(null);
 
+
+
+
   // Load Habits
  // Load Habits
   useEffect(() => {
@@ -2680,10 +6252,16 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
       return;
     }
 
+
+
+
     const q = query(
       collection(db, 'users', user.uid, 'habits'),
       orderBy('createdAt', 'desc')
     );
+
+
+
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const habitsData = snapshot.docs.map(doc => ({
@@ -2698,8 +6276,164 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
       setLoading(false);
     });
 
+
+
+
     return () => unsubscribe();
      }, [user]);
+     
+     // 🆕 PHASE 1: Load savings goals from Firebase
+useEffect(() => {
+  if (!user) return;
+  
+  const goalsQuery = query(
+    collection(db, `users/${user.uid}/savingsGoals`),
+    orderBy('createdAt', 'desc')
+  );
+  
+  const unsubscribe = onSnapshot(goalsQuery, (snapshot) => {
+    const goalsData: SavingsGoal[] = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as SavingsGoal));
+    setSavingsGoals(goalsData);
+  });
+  
+  return () => unsubscribe();
+}, [user]);
+
+
+
+
+// 🆕 PHASE 1: Load category budgets from Firebase
+useEffect(() => {
+  if (!user) return;
+  
+  const loadBudgets = async () => {
+    const budgetRef = doc(db, `users/${user.uid}/settings/budgets`);
+    const budgetSnap = await getDoc(budgetRef);
+    
+    if (budgetSnap.exists()) {
+      setCategoryBudgets(budgetSnap.data() as Record<string, number>);
+    }
+  };
+  
+  loadBudgets();
+}, [user]);
+// 🆕 PHASE 2: Load recurring expenses
+useEffect(() => {
+  if (!user) return;
+  
+  const recurringQuery = query(
+    collection(db, `users/${user.uid}/recurringExpenses`),
+    orderBy('nextPaymentDate', 'asc')
+  );
+  
+  const unsubscribe = onSnapshot(recurringQuery, (snapshot) => {
+    const recurringData: RecurringExpense[] = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as RecurringExpense));
+    setRecurringExpenses(recurringData);
+  });
+  
+  return () => unsubscribe();
+}, [user]);
+
+
+
+
+// ✅ Load Debts
+useEffect(() => {
+  if (!user) return;
+  
+  const debtsQuery = query(
+    collection(db, `users/${user.uid}/debts`),
+    orderBy('interestRate', 'desc') // Highest interest first
+  );
+  
+  const unsubscribe = onSnapshot(debtsQuery, (snapshot) => {
+    const debtsData: Debt[] = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as Debt));
+    setDebts(debtsData);
+  });
+  
+  return () => unsubscribe();
+}, [user]);
+
+
+
+
+
+
+
+
+useEffect(() => {
+  if (!user) return;
+  
+  const expensesQuery = query(
+    collection(db, `users/${user.uid}/expenses`),
+    orderBy('createdAt', 'desc')
+  );
+  
+  const unsubscribe = onSnapshot(expensesQuery, (snapshot) => {
+    const expenseData: Expense[] = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as Expense));
+    setExpenses(expenseData);
+  });
+  
+  return () => unsubscribe();
+}, [user]);
+  
+  // Load savings goals
+  useEffect(() => {
+    if (!user) return;
+    
+    const goalsQuery = query(
+      collection(db, `users/${user.uid}/savingsGoals`),
+      orderBy('createdAt', 'desc')
+    );
+    
+    const unsubscribe = onSnapshot(goalsQuery, (snapshot) => {
+      const goalsData: SavingsGoal[] = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as SavingsGoal));
+      setSavingsGoals(goalsData);
+    });
+    
+    return () => unsubscribe();
+  }, [user]);
+
+
+
+
+  // Load category budgets
+  useEffect(() => {
+    if (!user) return;
+    
+    const loadBudgets = async () => {
+      const budgetRef = doc(db, `users/${user.uid}/settings/budgets`);
+      const budgetSnap = await getDoc(budgetRef);
+      
+      if (budgetSnap.exists()) {
+        setCategoryBudgets(budgetSnap.data() as Record<string, number>);
+      }
+    };
+    
+    loadBudgets();
+  }, [user]);
+
+
+
+
+
+
+
 
    useEffect(() => {
   const timeoutIds: ReturnType<typeof setTimeout>[] = [];
@@ -2719,17 +6453,35 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
       if (id) clearTimeout(id);
     });
   };
-}, [habits]);
+// Line 3010
+  }, [habits]);
+  
+  // ⬇️ ADD THIS NEW CODE HERE ⬇️
+  // Hide welcome message after 4 seconds
   useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowWelcome(false);
+    }, 4000);
+    
+    return () => clearTimeout(timer);
+  }, []);
+  // ⬆️ END OF NEW CODE ⬆️
+  
+  // Line 3011
+  useEffect(() => {
+    if (!user || !user.uid) {
     if (!user || !user.uid) {
       setTodos([]);
       return;
     }
-
+  }
     const q = query(
       collection(db, 'users', user.uid, 'todos'),
       orderBy('createdAt', 'desc')
     );
+
+
+
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const todosData = snapshot.docs.map(doc => ({
@@ -2741,11 +6493,21 @@ const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => voi
       console.error("Error fetching todos:", error);
     });
 
+
+
+
     return () => unsubscribe();
   }, [user]);
+
+
+
+
   // Load Money Settings - FIXED VERSION
-useEffect(() => {
+ useEffect(() => {
   if (!user || !user.uid) return;
+
+
+
 
   const settingsRef = doc(db, 'users', user.uid, 'money', 'settings');
   
@@ -2753,7 +6515,7 @@ useEffect(() => {
   getDoc(settingsRef).then((docSnap) => {
     if (docSnap.exists()) {
       const data = docSnap.data();
-      console.log('💰 Initial currency load:', data); // Debug log
+      console.log('💰 Initial currency load:', data);
       setDailyAllowance(data.dailyAllowance || 0);
       setCurrency(data.currency || 'USD');
       setCurrencySymbol(data.currencySymbol || '$');
@@ -2762,25 +6524,44 @@ useEffect(() => {
       setShowAllowanceModal(true);
     }
   }).catch((error) => {
+    // ✅ IMPROVED ERROR HANDLING
+    if (error.code === 'unavailable' || error.message?.includes('offline')) {
+      console.log('💤 Offline mode - settings will load when connection is restored');
+      return;
+    }
     console.error("Error loading money settings:", error);
     setShowAllowanceModal(true);
   });
+
+
+
 
   // Then, listen for real-time updates
   const unsubscribe = onSnapshot(settingsRef, (docSnap) => {
     if (docSnap.exists()) {
       const data = docSnap.data();
-      console.log('💱 Currency updated:', data); // Debug log
+      console.log('💱 Currency updated:', data);
       setDailyAllowance(data.dailyAllowance || 0);
       setCurrency(data.currency || 'USD');
       setCurrencySymbol(data.currencySymbol || '$');
     }
   }, (error) => {
+    // ✅ IMPROVED ERROR HANDLING FOR SNAPSHOT
+    if (error.code === 'unavailable' || error.message?.includes('offline')) {
+      console.log('💤 Offline mode - will reconnect automatically');
+      return;
+    }
     console.error("Error fetching money settings:", error);
   });
 
+
+
+
   return () => unsubscribe();
 }, [user]);
+
+
+
 
   // Load Expenses
   useEffect(() => {
@@ -2789,10 +6570,16 @@ useEffect(() => {
       return;
     }
 
+
+
+
     const q = query(
       collection(db, 'users', user.uid, 'expenses'),
       orderBy('date', 'desc')
     );
+
+
+
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const expensesData = snapshot.docs.map(doc => ({
@@ -2804,8 +6591,14 @@ useEffect(() => {
       console.error("Error fetching expenses:", error);
     });
 
+
+
+
     return () => unsubscribe();
   }, [user]);
+
+
+
 
   const today = getTodayString();
   const totalHabits = habits.length;
@@ -2815,6 +6608,18 @@ useEffect(() => {
   const completedToday = habits.filter(h => h.completedDates?.includes(today)).length;
   const progress = totalHabits === 0 ? 0 : Math.round((completedToday / totalHabits) * 100);
 
+
+  // Close export menu when clicking outside
+useEffect(() => {
+  const handleClickOutside = (e: MouseEvent) => {
+    if (showExportMenu && !(e.target as Element).closest('.relative')) {
+      setShowExportMenu(false);
+    }
+  };
+  
+  document.addEventListener('mousedown', handleClickOutside);
+  return () => document.removeEventListener('mousedown', handleClickOutside);
+}, [showExportMenu]);
   // Trigger celebration logic
   useEffect(() => {
     if (progress === 100 && totalHabits > 0) {
@@ -2823,6 +6628,939 @@ useEffect(() => {
       return () => clearTimeout(timer);
     }
   }, [progress, totalHabits]);
+  // 🆕 PHASE 1: Calculate spending insights
+const calculateSpendingInsights = useCallback((): SpendingInsight => {
+  const now = new Date();
+  const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
+  const startOfLastWeek = new Date(startOfWeek);
+  startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
+  
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+
+
+
+
+  const thisWeek = expenses
+    .filter(e => new Date(e.date) >= startOfWeek)
+    .reduce((sum, e) => sum + e.amount, 0);
+
+
+
+
+  const lastWeek = expenses
+    .filter(e => {
+      const d = new Date(e.date);
+      return d >= startOfLastWeek && d < startOfWeek;
+    })
+    .reduce((sum, e) => sum + e.amount, 0);
+
+
+
+
+  const thisMonth = expenses
+    .filter(e => new Date(e.date) >= startOfMonth)
+    .reduce((sum, e) => sum + e.amount, 0);
+
+
+
+
+  const lastMonth = expenses
+    .filter(e => {
+      const d = new Date(e.date);
+      return d >= startOfLastMonth && d <= endOfLastMonth;
+    })
+    .reduce((sum, e) => sum + e.amount, 0);
+    // 💰 PHASE 3: Load Income
+useEffect(() => {
+  if (!user) return;
+  
+  const incomeQuery = query(
+    collection(db, `users/${user.uid}/incomes`),
+    orderBy('createdAt', 'desc')
+  );
+  
+  const unsubscribe = onSnapshot(incomeQuery, (snapshot) => {
+    const incomeData: Income[] = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as Income));
+    setIncomes(incomeData);
+  });
+  
+  return () => unsubscribe();
+}, [user]);
+
+
+
+
+  // Find top spending category
+  const categoryTotals: Record<string, number> = {};
+  expenses.forEach(e => {
+    categoryTotals[e.category] = (categoryTotals[e.category] || 0) + e.amount;
+  });
+  
+  const topCategory = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1])[0];
+
+
+
+
+  return {
+    thisWeek,
+    lastWeek,
+    thisMonth,
+    lastMonth,
+    topCategory: topCategory?.[0] || 'None',
+    topCategoryAmount: topCategory?.[1] || 0
+  };
+}, [expenses]);
+const categorySpending = expenses.reduce((acc, expense) => {
+  acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
+  return acc;
+}, {} as Record<string, number>);
+// 🎯 FINANCIAL HEALTH SCORE CALCULATOR
+const calculateFinancialHealth = useCallback((): FinancialHealthScore => {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  
+  const monthlyExpenses = expenses.filter(e => new Date(e.date) >= startOfMonth);
+  const totalSpent = monthlyExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const monthlyBudget = dailyAllowance * daysInMonth;
+  
+  // Factor 1: Savings Rate (30% weight)
+  const savingsAmount = monthlyBudget - totalSpent;
+  const savingsRate = monthlyBudget > 0 ? (savingsAmount / monthlyBudget) * 100 : 0;
+  const savingsScore = Math.min(Math.max(savingsRate * 5, 0), 100); // 20% = 100 points
+  
+  // Factor 2: Budget Adherence (30% weight)
+  const budgetAdherence = monthlyBudget > 0 ? Math.min((monthlyBudget / Math.max(totalSpent, 1)) * 100, 100) : 100;
+  const adherenceScore = budgetAdherence;
+  
+  // Factor 3: Spending Control - days under budget (20% weight)
+  const daysElapsed = now.getDate();
+  const dailySpending = Array.from({ length: daysElapsed }, (_, i) => {
+    const day = i + 1;
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const dayExpenses = monthlyExpenses.filter(e => e.date === dateStr);
+    const spent = dayExpenses.reduce((sum, e) => sum + e.amount, 0);
+    return spent <= dailyAllowance ? 1 : 0;
+  });
+  const daysUnderBudget = dailySpending.reduce((sum: number, val) => sum + val, 0);
+  const controlScore = daysElapsed > 0 ? (daysUnderBudget / daysElapsed) * 100 : 100;
+  
+  // Factor 4: Consistency - tracking regularity (20% weight)
+  const hasRecentExpenses = expenses.filter(e => {
+    const expenseDate = new Date(e.date);
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    return expenseDate >= threeDaysAgo;
+  }).length > 0;
+  const consistencyScore = hasRecentExpenses ? 100 : 50;
+  
+  // Calculate overall score
+  const overallScore = Math.round(
+    (savingsScore * 0.3) + 
+    (adherenceScore * 0.3) + 
+    (controlScore * 0.2) + 
+    (consistencyScore * 0.2)
+  );
+  
+  // Determine grade
+  let grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  if (overallScore >= 90) grade = 'A';
+  else if (overallScore >= 80) grade = 'B';
+  else if (overallScore >= 70) grade = 'C';
+  else if (overallScore >= 60) grade = 'D';
+  else grade = 'F';
+  
+  // Generate recommendations
+  const recommendations: string[] = [];
+  if (savingsScore < 60) recommendations.push("💡 Try to save at least 20% of your income");
+  if (adherenceScore < 70) recommendations.push("📊 Review your budget - you're overspending");
+  if (controlScore < 60) recommendations.push("🎯 Focus on staying under your daily limit");
+  if (consistencyScore < 80) recommendations.push("📱 Track expenses daily for better insights");
+  if (recommendations.length === 0) recommendations.push("🌟 Great job! Keep up the excellent financial habits");
+  
+  // Determine trend (compare to last month if data exists)
+  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+  const lastMonthExpenses = expenses.filter(e => {
+    const date = new Date(e.date);
+    return date >= lastMonthStart && date <= lastMonthEnd;
+  });
+  const lastMonthSpent = lastMonthExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const trend = totalSpent < lastMonthSpent ? 'improving' : totalSpent > lastMonthSpent ? 'declining' : 'stable';
+  
+  return {
+    score: overallScore,
+    grade,
+    factors: {
+      savingsRate: { score: Math.round(savingsScore), value: savingsRate },
+      budgetAdherence: { score: Math.round(adherenceScore), value: budgetAdherence },
+      spendingControl: { score: Math.round(controlScore), value: (daysUnderBudget / Math.max(daysElapsed, 1)) * 100 },
+      consistency: { score: Math.round(consistencyScore), value: consistencyScore }
+    },
+    recommendations,
+    trend
+  };
+}, [expenses, dailyAllowance]);
+// 🏆 ACHIEVEMENT CALCULATOR
+const calculateAchievements = useCallback((): Achievement[] => {
+  const totalHabits = habits.length;
+  const bestStreak = Math.max(...habits.map(h => h.streak), 0);
+  const totalCompletions = habits.reduce((sum, h) => h.completedDates.length + sum, 0);
+  
+  // Check perfect week
+  const last7Days = getLast7Days();
+  const perfectWeekDays = last7Days.filter(day => {
+    const completed = habits.filter(h => h.completedDates.includes(day.date)).length;
+    return completed === totalHabits && totalHabits > 0;
+  }).length;
+  
+  // Check budget adherence
+  const last7DaysExpenses = expenses.filter(e => {
+    const expenseDate = new Date(e.date);
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    return expenseDate >= sevenDaysAgo;
+  });
+  
+  const daysUnderBudget = getLast7Days().filter(day => {
+    const dayExpenses = expenses.filter(e => e.date === day.date);
+    const spent = dayExpenses.reduce((sum, e) => sum + e.amount, 0);
+    return spent <= dailyAllowance;
+  }).length;
+  
+  const hasBudget = dailyAllowance > 0;
+  
+  return ACHIEVEMENT_DEFINITIONS.map(def => {
+    let progress = 0;
+    
+    switch (def.id) {
+      case 'first-habit':
+      case 'habit-master':
+        progress = totalHabits;
+        break;
+      case 'week-warrior':
+      case 'month-master':
+      case 'century-club':
+        progress = bestStreak;
+        break;
+      case 'first-budget':
+        progress = hasBudget ? 1 : 0;
+        break;
+      case 'money-saver':
+      case 'budget-boss':
+        progress = daysUnderBudget;
+        break;
+      case 'hundred-completions':
+        progress = totalCompletions;
+        break;
+      case 'perfect-week':
+        progress = perfectWeekDays;
+        break;
+      default:
+        progress = 0;
+    }
+    
+    const unlocked = progress >= def.requirement;
+    
+    return {
+      ...def,
+      progress,
+      unlocked,
+      unlockedAt: unlocked ? new Date() : undefined
+    };
+  });
+}, [habits, expenses, dailyAllowance]);
+
+
+// 🔮 SPENDING PREDICTION CALCULATOR
+const calculateSpendingPrediction = useCallback((): SpendingPrediction => {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const daysElapsed = now.getDate();
+  const daysRemaining = daysInMonth - daysElapsed;
+  
+  // Get last 30 days of expenses for analysis
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  
+  const recentExpenses = expenses.filter(e => new Date(e.date) >= thirtyDaysAgo);
+  const totalRecentSpending = recentExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const averageDailySpending = recentExpenses.length > 0 ? totalRecentSpending / 30 : 0;
+  
+  // Current month expenses
+  const monthExpenses = expenses.filter(e => new Date(e.date) >= startOfMonth);
+  const currentMonthSpending = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
+  
+  // Weekly analysis (last 7 days vs previous 7 days)
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const fourteenDaysAgo = new Date();
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+  
+  const lastWeekExpenses = expenses.filter(e => {
+    const date = new Date(e.date);
+    return date >= sevenDaysAgo && date < now;
+  });
+  const previousWeekExpenses = expenses.filter(e => {
+    const date = new Date(e.date);
+    return date >= fourteenDaysAgo && date < sevenDaysAgo;
+  });
+  
+  const lastWeekTotal = lastWeekExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const previousWeekTotal = previousWeekExpenses.reduce((sum, e) => sum + e.amount, 0);
+  
+  // Determine trend
+  let trend: 'increasing' | 'stable' | 'decreasing';
+  const weeklyChange = lastWeekTotal - previousWeekTotal;
+  if (weeklyChange > previousWeekTotal * 0.1) trend = 'increasing';
+  else if (weeklyChange < -previousWeekTotal * 0.1) trend = 'decreasing';
+  else trend = 'stable';
+  
+  // Predictions
+  const nextWeekEstimate = trend === 'increasing' 
+    ? lastWeekTotal * 1.1 
+    : trend === 'decreasing' 
+    ? lastWeekTotal * 0.9 
+    : lastWeekTotal;
+    
+  const projectedMonthEnd = currentMonthSpending + (averageDailySpending * daysRemaining);
+  const monthlyBudget = dailyAllowance * daysInMonth;
+  const willExceedBudget = projectedMonthEnd > monthlyBudget;
+  
+  // Calculate days until budget exceeded
+  let daysUntilBudgetExceeded: number | null = null;
+  if (averageDailySpending > 0) {
+    const budgetRemaining = monthlyBudget - currentMonthSpending;
+    if (budgetRemaining > 0) {
+      daysUntilBudgetExceeded = Math.floor(budgetRemaining / averageDailySpending);
+      if (daysUntilBudgetExceeded > daysRemaining) {
+        daysUntilBudgetExceeded = null; // Won't exceed this month
+      }
+    } else {
+      daysUntilBudgetExceeded = 0; // Already exceeded
+    }
+  }
+  
+  // Confidence level based on data availability
+  let confidence: 'high' | 'medium' | 'low';
+  if (recentExpenses.length >= 20) confidence = 'high';
+  else if (recentExpenses.length >= 10) confidence = 'medium';
+  else confidence = 'low';
+  
+  // Generate recommendations
+  const recommendations: string[] = [];
+  
+  if (willExceedBudget) {
+    const overage = projectedMonthEnd - monthlyBudget;
+    recommendations.push(`⚠️ You're projected to exceed budget by ${currencySymbol}${overage.toFixed(2)} this month`);
+    recommendations.push(`💡 Reduce daily spending to ${currencySymbol}${((monthlyBudget - currentMonthSpending) / daysRemaining).toFixed(2)} to stay on track`);
+  } else {
+    recommendations.push(`✅ You're on track to stay within budget this month!`);
+  }
+  
+  if (trend === 'increasing') {
+    recommendations.push(`📈 Your spending is trending up - review recent purchases`);
+  } else if (trend === 'decreasing') {
+    recommendations.push(`📉 Great job! Your spending is decreasing`);
+  }
+  
+  if (averageDailySpending > dailyAllowance) {
+    recommendations.push(`🎯 Daily average (${currencySymbol}${averageDailySpending.toFixed(2)}) exceeds your limit (${currencySymbol}${dailyAllowance.toFixed(2)})`);
+  }
+  
+  if (daysUntilBudgetExceeded !== null && daysUntilBudgetExceeded <= 7) {
+    recommendations.push(`⏰ At current rate, budget will be exceeded in ${daysUntilBudgetExceeded} days`);
+  }
+  
+  const nextMonthEstimate = averageDailySpending * new Date(now.getFullYear(), now.getMonth() + 2, 0).getDate();
+  
+  return {
+    nextWeekEstimate,
+    nextMonthEstimate,
+    confidence,
+    trend,
+    averageDailySpending,
+    projectedMonthEnd,
+    willExceedBudget,
+    daysUntilBudgetExceeded,
+    recommendations
+  };
+}, [expenses, dailyAllowance, currencySymbol]);
+
+
+
+
+// 🆕 PHASE 1: Calculate category budgets with spending
+const calculateCategoryBudgets = useCallback((): CategoryBudget[] => {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  
+  const monthlyExpenses = expenses.filter(e => new Date(e.date) >= startOfMonth);
+  
+  const budgets: CategoryBudget[] = EXPENSE_CATEGORIES.map(category => {
+    const spent = monthlyExpenses
+      .filter(e => e.category === category.label)
+      .reduce((sum, e) => sum + e.amount, 0);
+    
+    const monthlyLimit = categoryBudgets[category.id] || DEFAULT_CATEGORY_BUDGETS[category.id] || 0;
+    const percentage = monthlyLimit > 0 ? Math.min((spent / monthlyLimit) * 100, 100) : 0;
+    
+    // Ensure icon is a component, not a string
+    const icon = typeof category.icon === 'string' ? undefined : category.icon;
+    
+    return {
+      category: category.id,
+      categoryLabel: category.label,
+      categoryIcon: icon as React.ComponentType<any>,
+      categoryColor: category.color,
+      monthlyLimit,
+      spent,
+      percentage
+    };
+  }).filter(b => b.monthlyLimit > 0);
+  
+  return budgets;
+}, [expenses, categoryBudgets]);
+// 🏆 ACHIEVEMENTS MODAL COMPONENT
+const AchievementsModal = ({ 
+  achievements, 
+  onClose,
+  isDark,
+  isGreen,
+  isLgbt 
+}: { 
+  achievements: Achievement[];
+  onClose: () => void;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+}) => {
+  const unlockedCount = achievements.filter(a => a.unlocked).length;
+  const totalCount = achievements.length;
+  const progressPercent = (unlockedCount / totalCount) * 100;
+  
+  const categories = ['habits', 'money', 'streak', 'milestone'] as const;
+  
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in overflow-y-auto">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}></div>
+      
+      <div className={`relative w-full max-w-3xl my-8 rounded-3xl shadow-2xl animate-pop ${
+        isDark ? 'bg-slate-900 border-2 border-slate-800' : 'bg-white border-2 border-slate-100'
+      }`}>
+        
+        <button 
+          onClick={onClose}
+          className={`absolute top-4 right-4 p-2 rounded-xl transition z-10 ${
+            isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
+          }`}
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+
+
+
+        {/* Header */}
+        <div className="p-6 md:p-8 border-b border-slate-200 dark:border-slate-800">
+          <div className="text-center">
+            <div className={`inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-4 ${
+              isDark 
+                ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-indigo-500/20 text-indigo-400' : 'bg-pink-500/20 text-pink-400')
+                : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')
+            }`}>
+              <Trophy className="w-7 h-7" />
+            </div>
+            <h2 className="text-3xl font-black mb-2">Achievements</h2>
+            <p className={`text-sm font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+              {unlockedCount} of {totalCount} unlocked
+            </p>
+            
+            {/* Progress Bar */}
+            <div className={`h-3 w-full rounded-full overflow-hidden mt-4 ${
+              isDark ? 'bg-slate-800' : 'bg-slate-100'
+            }`}>
+              <div 
+                className={`h-full rounded-full transition-all duration-1000 ${
+                  isDark 
+                    ? (isGreen ? 'bg-gradient-to-r from-green-500 to-emerald-400' : isLgbt ? 'bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500' : 'bg-gradient-to-r from-pink-500 to-rose-400')
+                    : (isGreen ? 'bg-gradient-to-r from-green-600 to-emerald-600' : isLgbt ? 'bg-gradient-to-r from-red-500 via-yellow-500 to-blue-600' : 'bg-gradient-to-r from-pink-600 to-rose-600')
+                }`}
+                style={{ width: `${progressPercent}%` }}
+              ></div>
+            </div>
+          </div>
+        </div>
+
+
+
+
+        {/* Achievement Grid */}
+        <div className="p-6 md:p-8 max-h-[60vh] overflow-y-auto">
+          {categories.map(category => {
+            const categoryAchievements = achievements.filter(a => a.category === category);
+            if (categoryAchievements.length === 0) return null;
+            
+            return (
+              <div key={category} className="mb-6 last:mb-0">
+                <h3 className={`text-lg font-bold mb-3 capitalize ${
+                  isDark ? 'text-slate-300' : 'text-slate-700'
+                }`}>
+                  {category}
+                </h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {categoryAchievements.map(achievement => (
+                    <div
+                      key={achievement.id}
+                      className={`p-4 rounded-2xl border-2 transition-all ${
+                        achievement.unlocked
+                          ? (isDark 
+                              ? (isGreen ? 'bg-green-900/20 border-green-500/50' : isLgbt ? 'bg-gradient-to-r from-red-900/20 to-blue-900/20 border-indigo-500/50' : 'bg-pink-900/20 border-pink-500/50')
+                              : (isGreen ? 'bg-green-50 border-green-300' : isLgbt ? 'bg-gradient-to-r from-red-50 to-blue-50 border-indigo-300' : 'bg-pink-50 border-pink-300')
+                            )
+                          : (isDark ? 'bg-slate-800 border-slate-700 opacity-60' : 'bg-slate-50 border-slate-200 opacity-60')
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`text-3xl ${achievement.unlocked ? 'animate-bounce' : 'grayscale'}`}>
+                          {achievement.icon}
+                        </div>
+                        <div className="flex-1">
+                          <h4 className={`font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                            {achievement.title}
+                          </h4>
+                          <p className={`text-xs mb-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                            {achievement.description}
+                          </p>
+                          
+                          {achievement.unlocked ? (
+                            <div className={`text-xs font-bold ${
+                              isDark 
+                                ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
+                                : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
+                            }`}>
+                              ✓ Unlocked! {achievement.reward}
+                            </div>
+                          ) : (
+                            <div>
+                              <div className={`flex items-center justify-between text-xs mb-1 ${
+                                isDark ? 'text-slate-500' : 'text-slate-500'
+                              }`}>
+                                <span>Progress</span>
+                                <span>{achievement.progress}/{achievement.requirement}</span>
+                              </div>
+                              <div className={`h-1.5 rounded-full overflow-hidden ${
+                                isDark ? 'bg-slate-700' : 'bg-slate-200'
+                              }`}>
+                                <div
+                                  className={`h-full rounded-full ${
+                                    isDark ? 'bg-slate-600' : 'bg-slate-400'
+                                  }`}
+                                  style={{ width: `${Math.min((achievement.progress / achievement.requirement) * 100, 100)}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+
+
+
+
+
+
+// 🎯 FINANCIAL HEALTH SCORE COMPONENT
+interface FinancialHealthProps {
+  healthScore: FinancialHealthScore;
+  currencySymbol: string;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+}
+
+
+
+
+const FinancialHealthCard: React.FC<FinancialHealthProps> = ({
+  healthScore,
+  currencySymbol,
+  isDark,
+  isGreen,
+  isLgbt
+}) => {
+  const getGradeColor = (grade: string) => {
+    if (grade === 'A') return isDark ? 'text-green-400' : 'text-green-600';
+    if (grade === 'B') return isDark ? 'text-blue-400' : 'text-blue-600';
+    if (grade === 'C') return isDark ? 'text-yellow-400' : 'text-yellow-600';
+    if (grade === 'D') return isDark ? 'text-orange-400' : 'text-orange-600';
+    return isDark ? 'text-red-400' : 'text-red-600';
+  };
+  
+  const getTrendIcon = (trend: string) => {
+    if (trend === 'improving') return { icon: TrendingUp, color: 'text-green-500' };
+    if (trend === 'declining') return { icon: TrendingDown, color: 'text-red-500' };
+    return { icon: TrendingUp, color: 'text-slate-400' };
+  };
+  
+  const trendData = getTrendIcon(healthScore.trend);
+  const TrendIcon = trendData.icon;
+  
+  return (
+    <div className={`p-6 rounded-2xl border-2 ${
+      isDark 
+        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+        : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
+    }`}>
+      <div className="flex items-center gap-3 mb-6">
+        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+          isDark 
+            ? (isGreen ? 'bg-green-500/20' : isLgbt ? 'bg-gradient-to-br from-red-500/20 to-blue-500/20' : 'bg-pink-500/20')
+            : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-br from-red-100 to-blue-100' : 'bg-pink-100')
+        }`}>
+          <Shield className={`w-6 h-6 ${
+            isDark 
+              ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
+              : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
+          }`} />
+        </div>
+        <div className="flex-1">
+          <h3 className={`font-bold text-xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            Financial Health Score
+          </h3>
+          <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+            Your money management rating
+          </p>
+        </div>
+        <div className="text-right">
+          <div className={`text-5xl font-black ${getGradeColor(healthScore.grade)}`}>
+            {healthScore.grade}
+          </div>
+          <div className={`text-sm font-bold flex items-center gap-1 justify-end mt-1 ${trendData.color}`}>
+            <TrendIcon className="w-4 h-4" />
+            {healthScore.trend}
+          </div>
+        </div>
+      </div>
+
+
+
+
+      {/* Score Circle */}
+      <div className="flex justify-center mb-6">
+        <div className="relative w-32 h-32">
+          <svg className="transform -rotate-90 w-32 h-32">
+            <circle
+              cx="64"
+              cy="64"
+              r="56"
+              stroke="currentColor"
+              strokeWidth="8"
+              fill="transparent"
+              className={isDark ? 'text-slate-700' : 'text-slate-200'}
+            />
+            <circle
+              cx="64"
+              cy="64"
+              r="56"
+              stroke="currentColor"
+              strokeWidth="8"
+              fill="transparent"
+              strokeDasharray={`${(healthScore.score / 100) * 351.86} 351.86`}
+              className={
+                healthScore.score >= 80 
+                  ? 'text-green-500' 
+                  : healthScore.score >= 60 
+                  ? 'text-yellow-500' 
+                  : 'text-red-500'
+              }
+              strokeLinecap="round"
+            />
+          </svg>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className={`text-3xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              {healthScore.score}
+            </span>
+          </div>
+        </div>
+      </div>
+
+
+
+
+      {/* Factors Breakdown */}
+      <div className="space-y-3 mb-6">
+        {Object.entries(healthScore.factors).map(([key, data]) => {
+          const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+          return (
+            <div key={key}>
+              <div className="flex items-center justify-between mb-1">
+                <span className={`text-sm font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                  {label}
+                </span>
+                <span className={`text-sm font-bold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                  {data.score}/100
+                </span>
+              </div>
+              <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                <div
+                  className={`h-full rounded-full transition-all duration-1000 ${
+                    data.score >= 80 ? 'bg-green-500' : data.score >= 60 ? 'bg-yellow-500' : 'bg-red-500'
+                  }`}
+                  style={{ width: `${data.score}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+
+
+
+      {/* Recommendations */}
+      <div className={`p-4 rounded-xl ${
+        isDark 
+          ? (isGreen ? 'bg-green-500/10 border border-green-500/30' : isLgbt ? 'bg-gradient-to-r from-red-500/10 to-blue-500/10 border border-indigo-500/30' : 'bg-pink-500/10 border border-pink-500/30')
+          : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-r from-red-100 to-blue-100' : 'bg-pink-100')
+      }`}>
+        <h4 className={`text-sm font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          💡 Recommendations
+        </h4>
+        <ul className="space-y-1">
+          {healthScore.recommendations.map((rec, idx) => (
+            <li key={idx} className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+              {rec}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+
+// 🔮 SPENDING PREDICTIONS COMPONENT
+const SpendingPredictionsCard: React.FC<{
+  prediction: SpendingPrediction;
+  currencySymbol: string;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+}> = ({ prediction, currencySymbol, isDark, isGreen, isLgbt }) => {
+  
+  const getTrendIcon = () => {
+    if (prediction.trend === 'increasing') return { icon: TrendingUp, color: 'text-red-500', bg: 'bg-red-500/10' };
+    if (prediction.trend === 'decreasing') return { icon: TrendingDown, color: 'text-green-500', bg: 'bg-green-500/10' };
+    return { icon: TrendingUp, color: 'text-blue-500', bg: 'bg-blue-500/10' };
+  };
+  
+  const trendData = getTrendIcon();
+  const TrendIcon = trendData.icon;
+  
+  const getConfidenceBadge = () => {
+    if (prediction.confidence === 'high') return { text: 'High Confidence', color: 'bg-green-500' };
+    if (prediction.confidence === 'medium') return { text: 'Medium Confidence', color: 'bg-yellow-500' };
+    return { text: 'Low Confidence', color: 'bg-orange-500' };
+  };
+  
+  const confidenceBadge = getConfidenceBadge();
+  
+  return (
+    <div className={`p-6 rounded-2xl border-2 ${
+      isDark 
+        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+        : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-purple-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
+    }`}>
+      
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+          isDark 
+            ? (isGreen ? 'bg-green-500/20' : isLgbt ? 'bg-gradient-to-br from-purple-500/20 to-blue-500/20' : 'bg-pink-500/20')
+            : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-br from-purple-100 to-blue-100' : 'bg-pink-100')
+        }`}>
+          <Zap className={`w-6 h-6 ${
+            isDark 
+              ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
+              : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
+          }`} />
+        </div>
+        <div className="flex-1">
+          <h3 className={`font-bold text-xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            Spending Predictions
+          </h3>
+          <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+            AI-powered forecast
+          </p>
+        </div>
+        <div className={`px-3 py-1 rounded-full text-xs font-bold text-white ${confidenceBadge.color}`}>
+          {confidenceBadge.text}
+        </div>
+      </div>
+
+
+      {/* Trend Indicator */}
+      <div className={`p-4 rounded-xl mb-6 flex items-center gap-3 ${trendData.bg}`}>
+        <TrendIcon className={`w-6 h-6 ${trendData.color}`} />
+        <div>
+          <div className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            Spending Trend: {prediction.trend.charAt(0).toUpperCase() + prediction.trend.slice(1)}
+          </div>
+          <div className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+            Average: {currencySymbol}{prediction.averageDailySpending.toFixed(2)}/day
+          </div>
+        </div>
+      </div>
+
+
+      {/* Predictions Grid */}
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className={`p-4 rounded-xl ${
+          isDark ? 'bg-slate-900/50' : 'bg-white'
+        }`}>
+          <div className={`text-xs font-bold mb-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+            NEXT WEEK
+          </div>
+          <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            {currencySymbol}{prediction.nextWeekEstimate.toFixed(0)}
+          </div>
+        </div>
+        
+        <div className={`p-4 rounded-xl ${
+          isDark ? 'bg-slate-900/50' : 'bg-white'
+        }`}>
+          <div className={`text-xs font-bold mb-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+            NEXT MONTH
+          </div>
+          <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            {currencySymbol}{prediction.nextMonthEstimate.toFixed(0)}
+          </div>
+        </div>
+        
+        <div className={`p-4 rounded-xl ${
+          isDark ? 'bg-slate-900/50' : 'bg-white'
+        }`}>
+          <div className={`text-xs font-bold mb-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+            MONTH END PROJECTION
+          </div>
+          <div className={`text-2xl font-black ${
+            prediction.willExceedBudget 
+              ? 'text-red-500' 
+              : 'text-green-500'
+          }`}>
+            {currencySymbol}{prediction.projectedMonthEnd.toFixed(0)}
+          </div>
+        </div>
+        
+        <div className={`p-4 rounded-xl ${
+          isDark ? 'bg-slate-900/50' : 'bg-white'
+        }`}>
+          <div className={`text-xs font-bold mb-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+            BUDGET STATUS
+          </div>
+          <div className={`text-lg font-black ${
+            prediction.willExceedBudget 
+              ? 'text-red-500' 
+              : 'text-green-500'
+          }`}>
+            {prediction.willExceedBudget ? '⚠️ OVER' : '✅ SAFE'}
+          </div>
+        </div>
+      </div>
+
+
+      {/* Budget Warning */}
+      {prediction.daysUntilBudgetExceeded !== null && (
+        <div className={`p-4 rounded-xl mb-4 border-2 ${
+          isDark 
+            ? 'bg-red-900/20 border-red-500/50 text-red-300'
+            : 'bg-red-50 border-red-300 text-red-700'
+        }`}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xl">⏰</span>
+            <span className="font-bold">Budget Alert</span>
+          </div>
+          <div className="text-sm">
+            {prediction.daysUntilBudgetExceeded === 0 
+              ? 'Budget already exceeded this month'
+              : `Budget will be exceeded in ${prediction.daysUntilBudgetExceeded} days at current rate`
+            }
+          </div>
+        </div>
+      )}
+
+
+      {/* Recommendations */}
+      <div className={`p-4 rounded-xl ${
+        isDark 
+          ? (isGreen ? 'bg-green-500/10 border border-green-500/30' : isLgbt ? 'bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-indigo-500/30' : 'bg-pink-500/10 border border-pink-500/30')
+          : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-r from-purple-100 to-blue-100' : 'bg-pink-100')
+      }`}>
+        <h4 className={`text-sm font-bold mb-2 flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          <Sparkles className="w-4 h-4" />
+          AI Recommendations
+        </h4>
+        <ul className="space-y-1">
+          {prediction.recommendations.map((rec, idx) => (
+            <li key={idx} className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+              {rec}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+
+// 🆕 PHASE 1: Get pie chart data
+const getCategoryPieData = useCallback(() => {
+  const categoryTotals: Record<string, number> = {};
+  
+  expenses.forEach(e => {
+    categoryTotals[e.category] = (categoryTotals[e.category] || 0) + e.amount;
+  });
+  
+  return Object.entries(categoryTotals)
+    .map(([category, amount]) => ({
+      name: category,
+      value: amount
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 6); // Top 6 categories
+  
+}, [expenses]);
+
+
+
+
+
+
+
+
+
+
+
 
   const selectTemplate = (template: HabitTemplate) => {
   setNewHabitTitle(template.title);
@@ -2830,12 +7568,22 @@ useEffect(() => {
   // Also set the color theme based on template
   setIsAdding(true);
   setShowTemplates(false); // Close the template browser
+  
 };
+
+
+
+
+
+
 
 
   const addHabit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newHabitTitle.trim() || !user) return;
+
+
+
 
     // Validation
     if (newHabitTitle.length > 100) {
@@ -2843,11 +7591,17 @@ useEffect(() => {
       return;
     }
 
+
+
+
     // Check for duplicates
     if (habits.some(h => h.title.toLowerCase() === newHabitTitle.trim().toLowerCase())) {
       setToast({ id: Date.now().toString(), message: 'You already have this habit!', type: 'error' });
       return;
     }
+
+
+
 
     const newHabit = {
       title: newHabitTitle,
@@ -2858,11 +7612,17 @@ useEffect(() => {
       colorTheme: isGreen ? 'Green' : isLgbt ? 'Red' : 'Pink' 
     };
 
+
+
+
     // Optimistic UI Update: Close modal and reset immediately
     setNewHabitTitle('');
     setNewHabitIcon(HABIT_ICONS[0].name); 
     setIsAdding(false);
     setToast({ id: Date.now().toString(), message: 'Habit created successfully!', type: 'success' });
+
+
+
 
     try {
       await addDoc(collection(db, 'users', user.uid, 'habits'), newHabit);
@@ -2871,6 +7631,9 @@ useEffect(() => {
      setToast({ id: Date.now().toString(), message: 'Failed to create habit.', type: 'error' });
     }
   };
+
+
+
 
   const toggleCheckIn = async (habit: Habit) => {
     if (!user) return;
@@ -2882,7 +7645,13 @@ useEffect(() => {
      newDates.push(today);
     }
 
+
+
+
     try {
+
+
+
 
      const habitRef = doc(db, 'users', user.uid, 'habits', habit.id);
      await updateDoc(habitRef, {
@@ -2894,17 +7663,29 @@ useEffect(() => {
     }
   };
 
+
+
+
   const deleteHabit = (habitId: string) => {
     if (!user) return;
     
     const habitToDelete = habits.find(h => h.id === habitId);
     if (!habitToDelete) return;
 
+
+
+
     // Optimistically remove from UI
     const updatedHabits = habits.filter(h => h.id !== habitId);
     setHabits(updatedHabits);
 
+
+
+
    let timeoutId: ReturnType<typeof setTimeout>;
+
+
+
 
     const undoDelete = () => {
       clearTimeout(timeoutId);
@@ -2917,6 +7698,9 @@ useEffect(() => {
       setToast(null);
     };
 
+
+
+
     // Show undo toast
     setToast({ 
       id: Date.now().toString(), 
@@ -2927,6 +7711,9 @@ useEffect(() => {
         onClick: undoDelete
       }
     });
+
+
+
 
    // Delete after 5 seconds if not undone
     timeoutId = setTimeout(() => {
@@ -2942,6 +7729,9 @@ useEffect(() => {
     const saveReminder = async (habitId: string, enabled: boolean, time: string) => {
   if (!user) return;
 
+
+
+
   const updatedHabits = habits.map(h => 
     h.id === habitId 
       ? { ...h, reminderEnabled: enabled, reminderTime: time }
@@ -2949,6 +7739,9 @@ useEffect(() => {
   );
   
   setHabits(updatedHabits);
+
+
+
 
   try {
     const habitRef = doc(db, 'users', user.uid, 'habits', habitId);
@@ -2968,11 +7761,17 @@ useEffect(() => {
   }
 };
 
+
+
+
 const startEditingHabit = (habit: Habit) => {
   setEditingHabit(habit);
   setEditTitle(habit.title);
   setEditIcon(habit.icon || HABIT_ICONS[0].name);
 };
+
+
+
 
 const cancelEditing = () => {
   setEditingHabit(null);
@@ -2980,14 +7779,23 @@ const cancelEditing = () => {
   setEditIcon('');
 };
 
+
+
+
 const saveEditedHabit = async (e: React.FormEvent) => {
   e.preventDefault();
   if (!editTitle.trim() || !editingHabit || !user) return;
+
+
+
 
   if (editTitle.length > 100) {
     setToast({ id: Date.now().toString(), message: 'Title too long (max 100 chars)', type: 'error' });
     return;
   }
+
+
+
 
   // Check for duplicate (excluding current habit)
   if (habits.some(h => h.id !== editingHabit.id && h.title.toLowerCase() === editTitle.toLowerCase())) {
@@ -2995,10 +7803,16 @@ const saveEditedHabit = async (e: React.FormEvent) => {
     return;
   }
 
+
+
+
   const updates = {
     title: editTitle.trim(),
     icon: editIcon
   };
+
+
+
 
   // Optimistic update
   setHabits(prevHabits => 
@@ -3006,6 +7820,9 @@ const saveEditedHabit = async (e: React.FormEvent) => {
   );
   cancelEditing();
   setToast({ id: Date.now().toString(), message: 'Habit updated!', type: 'success' });
+
+
+
 
   try {
     const habitRef = doc(db, 'users', user.uid, 'habits', editingHabit.id);
@@ -3022,17 +7839,29 @@ const saveEditedHabit = async (e: React.FormEvent) => {
   
  
 
+
+
+
  const handleTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
   };
+
+
+
 
   const handleTouchMove = (e: React.TouchEvent) => {
     touchEndX.current = e.touches[0].clientX;
   };
 
+
+
+
   const handleTouchEnd = () => {
     const swipeDistance = touchStartX.current - touchEndX.current;
     const minSwipeDistance = 50;
+
+
+
 
     if (swipeDistance > minSwipeDistance) {
       setCurrentPage('todos');
@@ -3041,9 +7870,15 @@ const saveEditedHabit = async (e: React.FormEvent) => {
     }
   };
 
+
+
+
   const addTodo = async (e: React.FormEvent) => {
   e.preventDefault();
   if (!newTodoTitle.trim() || !user) return;
+
+
+
 
   const newTodo = {
     title: newTodoTitle.trim(),
@@ -3053,9 +7888,15 @@ const saveEditedHabit = async (e: React.FormEvent) => {
     createdAt: serverTimestamp()
   };
 
+
+
+
   setNewTodoTitle('');
   setNewTodoDueDate('');
   setToast({ id: Date.now().toString(), message: 'To-do added!', type: 'success' });
+
+
+
 
     try {
       await addDoc(collection(db, 'users', user.uid, 'todos'), newTodo);
@@ -3064,6 +7905,9 @@ const saveEditedHabit = async (e: React.FormEvent) => {
       setToast({ id: Date.now().toString(), message: 'Failed to add to-do.', type: 'error' });
     }
   };
+
+
+
 
   const toggleTodo = async (todo: TodoItem) => {
     if (!user) return;
@@ -3076,6 +7920,9 @@ const saveEditedHabit = async (e: React.FormEvent) => {
       console.error("Error updating todo", error);
     }
   };
+
+
+
 
   const deleteTodo = async (todoId: string) => {
     if (!user) return;
@@ -3090,12 +7937,18 @@ const saveEditedHabit = async (e: React.FormEvent) => {
   const saveDailyAllowance = async (amount: number, currencyCode: string) => {
   if (!user) return;
 
+
+
+
   console.log('💰 Saving allowance:', { amount, currencyCode }); // ← ADD THIS
   try {
     const selectedCurrency = CURRENCIES.find(c => c.code === currencyCode);
     const symbol = selectedCurrency?.symbol || '$';
     console.log('💱 Found currency:', selectedCurrency); // ← ADD THIS
     console.log('💲 Symbol to save:', symbol); // ← ADD THIS
+
+
+
 
     await setDoc(doc(db, 'users', user.uid, 'money', 'settings'), {
       dailyAllowance: amount,
@@ -3113,54 +7966,581 @@ const saveEditedHabit = async (e: React.FormEvent) => {
     setToast({ id: Date.now().toString(), message: 'Failed to save allowance.', type: 'error' });
   }
 };
+const addExpense = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!newExpenseAmount.trim() || !user) return;
 
-  const addExpense = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newExpenseAmount.trim() || !user) return;
 
-    const amount = parseFloat(newExpenseAmount);
-    if (isNaN(amount) || amount <= 0) {
-      setToast({ id: Date.now().toString(), message: 'Please enter a valid amount', type: 'error' });
-      return;
+
+
+  const amount = parseFloat(newExpenseAmount);
+  setAddingExpense(true);
+  if (isNaN(amount) || amount <= 0) {
+    setToast({ id: Date.now().toString(), message: 'Please enter a valid amount', type: 'error' });
+    return;
+  }
+
+
+
+
+  try {
+    let receiptUrl = '';
+    
+    // 📸 PHASE 3: Upload image if exists
+    if (newExpenseImage) {
+      const imageRef = ref(storage, `receipts/${user.uid}/${Date.now()}_${newExpenseImage.name}`);
+      await uploadBytes(imageRef, newExpenseImage);
+      receiptUrl = await getDownloadURL(imageRef);
     }
 
-    const newExpense = {
-      date: newExpenseDate,
-      amount: amount,
-      category: newExpenseCategory,
-      description: newExpenseDescription.trim() || 'Expense',
-      createdAt: serverTimestamp()
-    };
 
+
+
+    const newExpense: any = {
+  date: newExpenseDate,
+  amount: amount,
+  category: newExpenseCategory,
+  description: newExpenseDescription.trim() || 'Expense',
+  createdAt: serverTimestamp()
+};
+
+
+
+
+// Only add receiptImage if it exists
+if (receiptUrl) {
+  newExpense.receiptImage = receiptUrl;
+}
+
+
+
+
+    await addDoc(collection(db, 'users', user.uid, 'expenses'), newExpense);
+    
+    // Reset form
     setNewExpenseAmount('');
     setNewExpenseDescription('');
     setNewExpenseDate(getTodayString());
-    setToast({ id: Date.now().toString(), message: 'Expense added!', type: 'success' });
-
-    try {
-      await addDoc(collection(db, 'users', user.uid, 'expenses'), newExpense);
-    } catch (error) {
-      console.error("Error adding expense", error);
-      setToast({ id: Date.now().toString(), message: 'Failed to add expense.', type: 'error' });
-    }
+    setNewExpenseImage(null); // 📸 PHASE 3
+    setImagePreview(null); // 📸 PHASE 3
+    
+   setToast({ id: Date.now().toString(), message: 'Expense added!', type: 'success' });
+  } catch (error) {
+    console.error("Error adding expense", error);
+    setToast({ id: Date.now().toString(), message: 'Failed to add expense.', type: 'error' });
+  } finally {
+    setAddingExpense(false);
+  }
+};
+// 📸 PHASE 3: Handle image selection
+const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  
+  // Validate file type
+  if (!file.type.startsWith('image/')) {
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Please select an image file', 
+      type: 'error' 
+    });
+    return;
+  }
+  
+  // Validate file size (5MB max)
+  if (file.size > 5 * 1024 * 1024) {
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Image must be less than 5MB', 
+      type: 'error' 
+    });
+    return;
+  }
+  
+  setNewExpenseImage(file);
+  
+  // Create preview
+  const reader = new FileReader();
+  reader.onloadend = () => {
+    setImagePreview(reader.result as string);
   };
+  reader.readAsDataURL(file);
+};
+
+
+
 
   const deleteExpense = async (expenseId: string) => {
     if (!user) return;
+    setDeletingExpense(expenseId);
     try {
       await deleteDoc(doc(db, 'users', user.uid, 'expenses', expenseId));
       setToast({ id: Date.now().toString(), message: 'Expense deleted', type: 'success' });
     } catch (error) {
       console.error("Error deleting expense", error);
+      setToast({ id: Date.now().toString(), message: 'Failed to delete', type: 'error' });
+    } finally {
+      setDeletingExpense(null);
     }
   };
+  // ✅ Add Debt Handler
+const handleAddDebt = async (debtData: {
+  name: string;
+  balance: number;
+  interestRate: number;
+  minimumPayment: number;
+  type: 'credit_card' | 'student_loan' | 'mortgage' | 'personal_loan' | 'other';
+  dueDay: number;
+}) => {
+  if (!user) return;
+  
+  try {
+    await addDoc(collection(db, `users/${user.uid}/debts`), {
+      ...debtData,
+      createdAt: serverTimestamp()
+    });
+    
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Debt added successfully', 
+      type: 'success' 
+    });
+  } catch (error) {
+    console.error('Error adding debt:', error);
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Failed to add debt', 
+      type: 'error' 
+    });
+  }
+};
+
+
+
+
+// ✅ Delete Debt Handler
+const handleDeleteDebt = async (debtId: string) => {
+  if (!user) return;
+  
+  try {
+    await deleteDoc(doc(db, `users/${user.uid}/debts/${debtId}`));
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Debt removed', 
+      type: 'success' 
+    });
+  } catch (error) {
+    console.error('Error deleting debt:', error);
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Failed to delete debt', 
+      type: 'error' 
+    });
+  }
+};
+
+
+
+
+// ✅ Make Payment Handler
+const handleMakePayment = async (debtId: string, amount: number) => {
+  if (!user) return;
+  
+  const debt = debts.find(d => d.id === debtId);
+  if (!debt) return;
+  
+  try {
+    // Update debt balance
+    const newBalance = Math.max(0, debt.balance - amount);
+    await updateDoc(doc(db, `users/${user.uid}/debts/${debtId}`), {
+      balance: newBalance
+    });
+    
+    // Record as expense
+    await addDoc(collection(db, `users/${user.uid}/expenses`), {
+      date: getTodayString(),
+      amount: amount,
+      category: 'debt_payment',
+      description: `Payment to ${debt.name}`,
+      createdAt: serverTimestamp()
+    });
+    
+    setToast({ 
+      id: Date.now().toString(), 
+      message: `${currencySymbol}${amount.toFixed(2)} payment recorded!`, 
+      type: 'success' 
+    });
+  } catch (error) {
+    console.error('Error recording payment:', error);
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Failed to record payment', 
+      type: 'error' 
+    });
+  }
+};
+  // 🆕 PHASE 2: Recurring Expense Handlers
+const handleAddRecurring = async (data: Omit<RecurringExpense, 'id' | 'createdAt'>) => {
+  if (!user) return;
+  
+  try {
+    await addDoc(collection(db, `users/${user.uid}/recurringExpenses`), {
+      ...data,
+      createdAt: serverTimestamp()
+    });
+    
+    setToast({ 
+      id: Date.now().toString(), 
+      message: `"${data.name}" added to recurring expenses!`, 
+      type: 'success' 
+    });
+  } catch (error) {
+    console.error("Error adding recurring expense:", error);
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Failed to add recurring expense.', 
+      type: 'error' 
+    });
+  }
+};
+
+
+
+
+const handleUpdateRecurring = async (expenseId: string, data: Partial<RecurringExpense>) => {
+  if (!user) return;
+  
+  try {
+    await updateDoc(doc(db, `users/${user.uid}/recurringExpenses/${expenseId}`), data);
+    
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Recurring expense updated!', 
+      type: 'success' 
+    });
+  } catch (error) {
+    console.error("Error updating recurring expense:", error);
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Failed to update recurring expense.', 
+      type: 'error' 
+    });
+  }
+};
+
+
+
+
+const handleToggleRecurringActive = async (expenseId: string, isActive: boolean) => {
+  if (!user) return;
+  
+  try {
+    await updateDoc(doc(db, `users/${user.uid}/recurringExpenses/${expenseId}`), {
+      isActive
+    });
+    
+    setToast({ 
+      id: Date.now().toString(), 
+      message: isActive ? 'Recurring expense activated' : 'Recurring expense paused', 
+      type: 'success' 
+    });
+  } catch (error) {
+    console.error("Error toggling recurring expense:", error);
+  }
+};
+
+
+
+
+const handleDeleteRecurring = async (expenseId: string) => {
+  if (!user) return;
+  
+  try {
+    await deleteDoc(doc(db, `users/${user.uid}/recurringExpenses/${expenseId}`));
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Recurring expense deleted', 
+      type: 'success' 
+    });
+  } catch (error) {
+    console.error("Error deleting recurring expense:", error);
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Failed to delete recurring expense.', 
+      type: 'error' 
+    });
+  }
+};
+// 📊 PHASE 3: Export to CSV
+const exportToCSV = () => {
+  if (expenses.length === 0) {
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'No expenses to export', 
+      type: 'error' 
+    });
+    return;
+  }
+
+
+
+
+  // Create CSV header
+  const headers = ['Date', 'Category', 'Description', 'Amount', 'Currency'];
+  
+  // Create CSV rows
+  const rows = expenses.map(expense => {
+    const category = EXPENSE_CATEGORIES.find(c => c.id === expense.category);
+    return [
+      expense.date,
+      category?.label || expense.category,
+      expense.description,
+      expense.amount.toFixed(2),
+      currencySymbol
+    ];
+  });
+  
+  // Combine headers and rows
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+  ].join('\n');
+  
+  // Create download
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  
+  link.setAttribute('href', url);
+  link.setAttribute('download', `habitflow-expenses-${getTodayString()}.csv`);
+  link.style.visibility = 'hidden';
+  
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  
+  setToast({ 
+    id: Date.now().toString(), 
+    message: `Exported ${expenses.length} expenses!`, 
+    type: 'success' 
+  });
+};
+// 📦 COMPLETE DATA EXPORT (JSON) - Full Backup
+const exportAllData = () => {
+  try {
+    const exportData = {
+      version: '1.0.0',
+      exportDate: new Date().toISOString(),
+      user: {
+        email: user?.email || 'anonymous',
+        displayName: user?.displayName || 'User'
+      },
+      habits: habits.map(h => ({
+        id: h.id,
+        title: h.title,
+        icon: h.icon || '🎯',  // ✅ CHANGED: emoji → icon
+        streak: h.streak,
+        longestStreak: h.longestStreak || 0,  // ✅ CHANGED: bestStreak → longestStreak
+        completedDates: h.completedDates,
+        createdAt: h.createdAt
+      })),
+      todos: todos.map(t => ({
+        id: t.id,
+        title: t.title,  // ✅ CHANGED: text → title
+        completed: t.completed,
+        priority: t.priority,
+        dueDate: t.dueDate,
+        createdAt: t.createdAt
+      })),
+      expenses: expenses.map(e => ({
+        id: e.id,
+        amount: e.amount,
+        category: e.category,
+        description: e.description || '',  // ✅ CHANGED: note → description
+        date: e.date,
+        imageUrl: e.imageUrl || null  // ✅ CHANGED: receiptUrl → imageUrl
+      })),
+      settings: {
+        dailyAllowance,
+        currency,
+        currencySymbol,
+        theme: isDark ? 'dark' : 'light',  // ✅ CHANGED: Store as string
+        accentColor: isGreen ? 'green' : isLgbt ? 'lgbt' : 'pink'  // ✅ CHANGED: Store as string
+      },
+      statistics: {
+        totalHabits: habits.length,
+        totalTodos: todos.length,
+        totalExpenses: expenses.length,
+        totalSpent: expenses.reduce((sum, e) => sum + e.amount, 0),
+        longestStreak: Math.max(...habits.map(h => h.longestStreak|| 0), 0)  // ✅ CHANGED: bestStreak → longestStreak
+      }
+    };
+
+
+    const jsonString = JSON.stringify(exportData, null, 2);
+
+
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `habitflow-backup-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+
+    setToast({
+      id: Date.now().toString(),
+      message: `✅ Complete backup exported!`,
+      type: 'success'
+    });
+  } catch (error) {
+    console.error('Export failed:', error);
+    setToast({
+      id: Date.now().toString(),
+      message: '❌ Export failed',
+      type: 'error'
+    });
+  }
+};
+// 📥 IMPORT DATA FROM JSON - Restore Backup
+const importData = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const file = event.target.files?.[0];
+  if (!file || !user) return;
+
+
+  try {
+    const text = await file.text();
+    const importedData = JSON.parse(text);
+
+
+    // Validate data structure
+    if (!importedData.version || !importedData.habits) {
+      throw new Error('Invalid backup file format');
+    }
+
+
+    // Confirm with user
+    const confirmImport = window.confirm(
+      `Import ${importedData.habits?.length || 0} habits, ${importedData.todos?.length || 0} todos, and ${importedData.expenses?.length || 0} expenses?\n\nThis will REPLACE your current data.`
+    );
+
+
+    if (!confirmImport) return;
+
+
+    // Import habits
+    if (importedData.habits && Array.isArray(importedData.habits)) {
+      for (const habit of importedData.habits) {
+        await setDoc(doc(db, 'users', user.uid, 'habits', habit.id), {
+          title: habit.title,
+          icon: habit.icon || '🎯',  // ✅ CHANGED: emoji → icon
+          streak: habit.streak || 0,
+          longestStreak: habit.longestStreak || 0,  // ✅ CHANGED: bestStreak → longestStreak
+          completedDates: habit.completedDates || [],
+          createdAt: habit.createdAt || new Date().toISOString()
+        });
+      }
+    }
+
+
+    // Import todos
+    if (importedData.todos && Array.isArray(importedData.todos)) {
+      for (const todo of importedData.todos) {
+        await setDoc(doc(db, 'users', user.uid, 'todos', todo.id), {
+          title: todo.title,  // ✅ CHANGED: text → title
+          completed: todo.completed || false,
+          priority: todo.priority || 'medium',
+          dueDate: todo.dueDate || null,
+          createdAt: todo.createdAt || new Date().toISOString()
+        });
+      }
+    }
+
+
+    // Import expenses
+    if (importedData.expenses && Array.isArray(importedData.expenses)) {
+      for (const expense of importedData.expenses) {
+        await setDoc(doc(db, 'users', user.uid, 'expenses', expense.id), {
+          amount: expense.amount,
+          category: expense.category,
+          description: expense.description || '',  // ✅ CHANGED: note → description
+          date: expense.date,
+          imageUrl: expense.imageUrl || null  // ✅ CHANGED: receiptUrl → imageUrl
+        });
+      }
+    }
+
+
+    // Import settings
+    if (importedData.settings) {
+      await setDoc(doc(db, 'users', user.uid, 'settings', 'money'), {
+        dailyAllowance: importedData.settings.dailyAllowance || 0,
+        currency: importedData.settings.currency || 'USD',
+        currencySymbol: importedData.settings.currencySymbol || '$'
+      });
+
+
+      // ✅ FIXED: Update theme settings using localStorage only
+      if (importedData.settings.theme) {
+        localStorage.setItem('theme', importedData.settings.theme);
+        window.location.reload(); // Reload to apply theme
+      }
+      if (importedData.settings.accentColor) {
+        localStorage.setItem('accentColor', importedData.settings.accentColor);
+        window.location.reload(); // Reload to apply accent color
+      }
+    }
+
+
+    setToast({
+      id: Date.now().toString(),
+      message: `✅ Data imported successfully! Page will reload...`,
+      type: 'success'
+    });
+
+
+    // Reload after 2 seconds to apply all changes
+    setTimeout(() => {
+      window.location.reload();
+    }, 2000);
+
+
+    // Reset file input
+    event.target.value = '';
+  } catch (error) {
+    console.error('Import failed:', error);
+    setToast({
+      id: Date.now().toString(),
+      message: `❌ Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      type: 'error'
+    });
+  }
+};
+
+
+
+
+const handleEditRecurring = (expense: RecurringExpense) => {
+  setEditingRecurring(expense);
+  setShowRecurringModal(true);
+};
+  
+
+
+
 
   // Calculate today's spending
   const todayExpenses = expenses.filter(e => e.date === today);
   const todaySpent = todayExpenses.reduce((sum, e) => sum + e.amount, 0);
   const todayRemaining = dailyAllowance - todaySpent;
   const todaySavingsRate = dailyAllowance > 0 ? Math.round((todayRemaining / dailyAllowance) * 100) : 0;
-
+   // 💰 PHASE 3: Net Worth Calculations
+const totalIncomeAmount = incomes.reduce((sum, income) => sum + income.amount, 0);
+const totalExpenseAmount = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+const netWorth = totalIncomeAmount - totalExpenseAmount;
   // Calculate weekly spending
   const last7Days = getLast7Days();
   const weeklySpending = last7Days.map(day => {
@@ -3205,6 +8585,9 @@ const getMonthlyData = (month: number, year: number) => {
   return { dailyData, totalSpent, monthlyBudget, saved, categoryTotals };
 };
 
+
+
+
 // Yearly Analytics
 const getYearlyData = (year: number) => {
   const yearExpenses = expenses.filter(e => {
@@ -3233,6 +8616,9 @@ const getYearlyData = (year: number) => {
   return { monthlyData, totalSpent, yearlyBudget, saved };
 };
 
+
+
+
 const monthlyAnalytics = getMonthlyData(selectedMonth, selectedYear);
 const yearlyAnalytics = getYearlyData(selectedYear);
   // Helper to get correct theme set
@@ -3246,9 +8632,21 @@ const yearlyAnalytics = getYearlyData(selectedYear);
     return themes[index];
   };
 
+
+
+
   return (
     <div className={`min-h-screen w-full overflow-x-hidden font-sans pb-20 px-4 sm:px-6 transition-colors duration-500 relative overflow-hidden ${isDark ? (isLgbt ? 'bg-rainbow-dark text-slate-100' : 'bg-slate-950 text-slate-100') : isGreen ? 'bg-[#F0FDF4] text-slate-900' : isLgbt ? 'bg-rainbow-light text-slate-900' : 'bg-[#FDF2F8] text-slate-900'}`}>
       <AnimationStyles />
+      {/* 🎓 ONBOARDING FLOW */}
+{showOnboarding && (
+  <OnboardingFlow
+    onComplete={() => setShowOnboarding(false)}
+    isDark={isDark}
+    isGreen={isGreen}
+    isLgbt={isLgbt}
+  />
+)}
       {!isOnline && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-yellow-500 text-white px-6 py-3 rounded-full font-bold text-sm shadow-2xl animate-bounce">
           📡 You're offline - changes will sync when back online
@@ -3273,8 +8671,21 @@ const yearlyAnalytics = getYearlyData(selectedYear);
          <div className={`absolute top-40 -right-20 w-72 h-72 rounded-full blur-3xl opacity-20 animate-float ${isDark ? (isGreen ? 'bg-emerald-900' : isLgbt ? 'bg-purple-900' : 'bg-rose-900') : (isGreen ? 'bg-emerald-300' : isLgbt ? 'bg-purple-200' : 'bg-rose-200')}`} style={{ animationDuration: '10s', animationDelay: '2s' }}></div>
       </div>
 
+
+
+
       {showCelebration && <FullScreenConfetti />}
        {showStats && <HabitStats habits={habits} expenses={expenses} dailyAllowance={dailyAllowance} currencySymbol={currencySymbol} onClose={() => setShowStats(false)} />}
+        {showAchievements && (
+  <AchievementsModal
+    achievements={calculateAchievements()}
+    onClose={() => setShowAchievements(false)}
+    isDark={isDark}
+    isGreen={isGreen}
+    isLgbt={isLgbt}
+  />
+)}
+       
        {showTemplates && (
        <TemplateBrowser 
         onSelectTemplate={selectTemplate} 
@@ -3282,11 +8693,52 @@ const yearlyAnalytics = getYearlyData(selectedYear);
       />
 )}
 
+
+
+
+{/* WELCOME MESSAGE */}
+{showWelcome && (
+  <div 
+    className="fixed top-24 left-1/2 z-50 pointer-events-none max-w-md px-4" 
+    style={{ 
+      animation: 'slideUp 0.4s ease-out, fadeOut 4s ease-in-out forwards',
+      transform: 'translateX(-50%)'
+    }}
+  >
+    <div className={`backdrop-blur-xl p-6 rounded-3xl shadow-2xl border-2 text-center ${
+      isDark
+        ? (isGreen 
+            ? 'bg-green-900/95 border-green-700 text-white' 
+            : isLgbt 
+              ? 'bg-gradient-to-r from-red-900/95 to-blue-900/95 border-indigo-700 text-white' 
+              : 'bg-pink-900/95 border-pink-700 text-white')
+        : (isGreen 
+            ? 'bg-green-600/95 border-green-500 text-white' 
+            : isLgbt 
+              ? 'bg-gradient-to-r from-red-500/95 to-blue-600/95 border-indigo-400 text-white' 
+              : 'bg-pink-600/95 border-pink-500 text-white')
+    }`}>
+      <h2 className="text-xl sm:text-2xl font-black mb-2">
+        Let's crush it today, {user.displayName || user.email?.split('@')[0]}! 👋
+      </h2>
+      <p className="text-sm opacity-90 font-medium">
+        Your consistency is building a better future.
+      </p>
+    </div>
+  </div>
+)}
+
+
+
+
 {toast && (
   <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
     <Toast toast={toast} onDismiss={() => setToast(null)} />
   </div>
 )}
+
+
+
 
       {/* Top Bar */}
       <div className={`backdrop-blur-md border-b sticky top-0 z-20 transition-colors duration-300 relative ${isDark ? (isGreen ? 'bg-green-900/80 border-green-800 shadow-green-900/40' : isLgbt ? 'bg-slate-900/80 border-slate-800' : 'bg-pink-900/80 border-pink-800 shadow-pink-900/40') : (isGreen ? 'bg-green-600/90 border-green-700' : isLgbt ? 'bg-white/80 border-slate-200' : 'bg-pink-600/90 border-pink-700')}`}>
@@ -3306,6 +8758,16 @@ const yearlyAnalytics = getYearlyData(selectedYear);
               <PieChart className="w-5 h-5" />
               <span className="hidden sm:inline">Insights</span>
             </button>
+            <button 
+  onClick={() => setShowAchievements(true)}
+  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold transition ${isDark ? (isGreen ? 'bg-green-800/50 hover:bg-green-700 text-green-100' : isLgbt ? 'bg-slate-800/50 hover:bg-slate-700 text-indigo-300' : 'bg-pink-800/50 hover:bg-pink-700 text-pink-100') : (isLgbt ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-white/20 hover:bg-white/30 text-white')}`}
+>
+  <Trophy className="w-5 h-5" />
+  <span className="hidden sm:inline">Achievements</span>
+</button>
+
+
+
 
             <AccentToggle />
             <ThemeToggle />
@@ -3324,184 +8786,121 @@ const yearlyAnalytics = getYearlyData(selectedYear);
         </div>
       </div>
 
-      <main className="max-w-5xl mx-auto px-6 py-10 relative z-10">
-        
-        {/* Welcome Header */}
-        <div className="mb-8 animate-fade-in-up">
-           <h1 className={`text-3xl md:text-4xl font-black mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-             Let's crush it today, {user.displayName ? user.displayName.split(' ')[0] : 'Champ'}. 
-             <span className="inline-block animate-bounce ml-2">👋</span>
-           </h1>
-           <p className={`font-medium text-lg ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Your consistency is building a better future.</p>
-        </div>
 
-        {/* Health Bar */}
-        <div className={`mb-10 p-6 rounded-3xl border shadow-sm transition-all duration-300 ${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`}>
-          <div className="flex justify-between items-end mb-3">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Heart className={`w-5 h-5 fill-current ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-red-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-red-500' : 'text-pink-600')}`} />
-                <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>Habit Health</h3>
-              </div>
-              <p className={`text-sm font-medium ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                {progress === 100 ? "Amazing work! You're fully charged." : "Complete habits to boost your daily health."}
-              </p>
-            </div>
-            <div className={`text-3xl font-black ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-blue-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-blue-500' : 'text-pink-600')}`}>
-              {progress}%
-            </div>
+
+
+      
+        
+       <main className="max-w-5xl mx-auto px-6 py-10 pb-24 md:pb-10 relative z-10">
+        
+        {/* 🆕 LED-Style Digital Display Component */}
+        <div className={`mb-8 p-6 rounded-3xl border-2 shadow-2xl overflow-hidden relative ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-900 border-slate-700'}`}>
+          {/* Scanline Effect */}
+          <div className="absolute inset-0 pointer-events-none opacity-10">
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-green-500 to-transparent animate-scan"></div>
           </div>
           
-          <div className={`h-6 w-full rounded-full overflow-hidden p-1 ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
-            <div 
-              className={`h-full rounded-full transition-all duration-1000 ease-out relative shadow-sm ${progress === 100 ? (isGreen ? 'shadow-[0_0_15px_rgba(16,185,129,0.6)]' : isLgbt ? 'shadow-[0_0_15px_rgba(99,102,241,0.6)]' : 'shadow-[0_0_15px_rgba(236,72,153,0.6)]') : ''} ${isDark ? (isGreen ? 'bg-gradient-to-r from-green-500 to-emerald-400' : isLgbt ? 'bg-gradient-to-r from-red-500 via-green-500 to-blue-500' : 'bg-gradient-to-r from-pink-500 to-rose-400') : (isGreen ? 'bg-gradient-to-r from-green-600 to-emerald-600' : isLgbt ? 'bg-gradient-to-r from-red-500 via-green-500 to-blue-600' : 'bg-gradient-to-r from-pink-600 to-rose-600')}`}
-              style={{ width: `${progress}%` }}
-            >
-              <div className="absolute top-0 left-0 w-full h-full bg-white/20 progress-bar-fill"></div>
-            </div>
-          </div>
-        </div>
+          {/* Grid Background */}
+          <div className="absolute inset-0 opacity-5" style={{
+            backgroundImage: 'linear-gradient(rgba(0,255,0,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,0,0.1) 1px, transparent 1px)',
+            backgroundSize: '20px 20px'
+          }}></div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-10">
-          <div className={`p-5 rounded-3xl shadow-sm border transition ${isDark ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : (isGreen ? 'bg-white border-green-100 hover:shadow-lg hover:shadow-green-100' : isLgbt ? 'bg-white border-indigo-100 hover:shadow-lg hover:shadow-indigo-100' : 'bg-white border-pink-100 hover:shadow-lg hover:shadow-pink-100')}`}>
-            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center mb-3 ${isDark ? (isGreen ? 'bg-green-900/40 text-green-300' : isLgbt ? 'bg-indigo-900/40 text-indigo-300' : 'bg-pink-900/40 text-pink-300') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')}`}>
-               <Layout className="w-5 h-5" />
-            </div>
-            <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-slate-500' : (isGreen ? 'text-green-300' : isLgbt ? 'text-indigo-400' : 'text-pink-300')}`}>Total Habits</p>
-            <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{habits.length}</p>
-          </div>
-          <div className={`p-5 rounded-3xl shadow-sm border transition ${isDark ? 'bg-slate-900 border-slate-800 hover:border-slate-700' : (isGreen ? 'bg-white border-green-100 hover:shadow-lg hover:shadow-green-100' : isLgbt ? 'bg-white border-indigo-100 hover:shadow-lg hover:shadow-indigo-100' : 'bg-white border-pink-100 hover:shadow-lg hover:shadow-pink-100')}`}>
-             <div className={`w-10 h-10 rounded-2xl flex items-center justify-center mb-3 ${isDark ? (isGreen ? 'bg-emerald-900/40 text-emerald-300' : isLgbt ? 'bg-purple-900/40 text-purple-300' : 'bg-rose-900/40 text-rose-300') : (isGreen ? 'bg-emerald-100 text-emerald-600' : isLgbt ? 'bg-purple-100 text-purple-600' : 'bg-rose-100 text-rose-600')}`}>
-               <CheckCircle2 className="w-5 h-5" />
-            </div>
-            <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-slate-500' : (isGreen ? 'text-green-300' : isLgbt ? 'text-purple-400' : 'text-pink-300')}`}>Done Today</p>
-            <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
-              {completedToday}
-            </p>
-          </div>
-          <div className={`col-span-2 p-6 rounded-3xl shadow-xl text-white flex items-center justify-between relative overflow-hidden group cursor-default ${isDark ? (isGreen ? 'bg-green-900 shadow-green-900/50' : isLgbt ? 'bg-slate-800 shadow-indigo-900/50' : 'bg-pink-900 shadow-pink-900/50') : (isGreen ? 'bg-green-600 shadow-green-200' : isLgbt ? 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 shadow-indigo-200' : 'bg-pink-600 shadow-pink-200')}`}>
-             <div className="absolute right-0 top-0 w-32 h-32 bg-white opacity-10 rounded-full transform translate-x-10 -translate-y-10 group-hover:scale-110 transition duration-700"></div>
-             <div className="relative z-10">
-               <div className="flex items-center gap-2 mb-2 opacity-90">
-                 <Trophy className={`w-4 h-4 ${isGreen ? 'text-green-200' : isLgbt ? 'text-white' : 'text-pink-200'}`} />
-                 <span className={`text-xs font-bold uppercase tracking-wider ${isGreen ? 'text-green-100' : isLgbt ? 'text-white/80' : 'text-pink-100'}`}>Top Streak</span>
-               </div>
-               <p className="text-4xl font-black">
-                 {Math.max(...habits.map(h => h.streak), 0)} <span className="text-lg font-medium opacity-80">days</span>
-               </p>
-             </div>
-             <Flame className={`w-16 h-16 opacity-80 drop-shadow-lg animate-pulse ${isGreen ? 'text-green-200' : isLgbt ? 'text-yellow-300' : 'text-pink-200'}`} />
-          </div>
-        </div>
 
-         {/* Add Habit Section */}
-        <div className="mb-8">
-          {!isAdding ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Browse Templates Button */}
-              <button 
-                onClick={() => setShowTemplates(true)}
-                className={`group py-5 border-2 rounded-3xl font-bold transition flex items-center justify-center gap-3 text-lg ${
-                  isDark 
-                    ? (isGreen ? 'border-green-500 bg-green-500/10 text-green-300 hover:bg-green-500/20' : isLgbt ? 'border-indigo-500 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20' : 'border-pink-500 bg-pink-500/10 text-pink-300 hover:bg-pink-500/20') 
-                    : (isGreen ? 'border-green-400 bg-green-50 text-green-600 hover:bg-green-100' : isLgbt ? 'border-indigo-400 bg-indigo-50 text-indigo-600 hover:bg-indigo-100' : 'border-pink-400 bg-pink-50 text-pink-600 hover:bg-pink-100')
-                }`}
-              >
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
-                  isDark 
-                    ? (isGreen ? 'bg-green-500/20 group-hover:bg-green-500/30' : isLgbt ? 'bg-indigo-500/20 group-hover:bg-indigo-500/30' : 'bg-pink-500/20 group-hover:bg-pink-500/30') 
-                    : (isGreen ? 'bg-green-200 group-hover:bg-green-300' : isLgbt ? 'bg-indigo-200 group-hover:bg-indigo-300' : 'bg-pink-200 group-hover:bg-pink-300')
-                }`}>
-                  <Sparkles className="w-5 h-5" />
+
+
+          {/* Main Display Content */}
+          <div className="relative z-10">
+            {/* Header Section */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse"></div>
+                <div className="w-3 h-3 rounded-full bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.8)]"></div>
+                <div className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.8)] animate-pulse"></div>
+                <span className="ml-2 font-mono text-sm text-green-400 tracking-wider">SYSTEM STATUS: ONLINE</span>
+              </div>
+              <div className="font-mono text-xs text-green-400/60">
+                {new Date().toLocaleTimeString('en-US', { hour12: false })}
+              </div>
+            </div>
+
+
+
+
+            {/* LED Display Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Display Panel 1 - Habits */}
+              <div className={`p-5 rounded-2xl border backdrop-blur-sm ${isDark ? 'bg-slate-900/50 border-green-900/30' : 'bg-slate-800/50 border-green-800/30'}`}>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]"></div>
+                  <span className="font-mono text-xs text-green-400/80 uppercase tracking-widest">Habits Module</span>
                 </div>
-                Browse Templates
-              </button>
-
-              {/* Create Custom Habit Button */}
-              <button 
-                onClick={() => setIsAdding(true)}
-                className={`group py-5 border-2 border-dashed rounded-3xl font-bold transition flex items-center justify-center gap-3 text-lg ${
-                  isDark 
-                    ? (isGreen ? 'border-slate-800 text-slate-500 hover:border-green-500 hover:text-green-300 hover:bg-slate-900' : isLgbt ? 'border-slate-800 text-slate-500 hover:border-indigo-500 hover:text-indigo-300 hover:bg-slate-900' : 'border-slate-800 text-slate-500 hover:border-pink-500 hover:text-pink-300 hover:bg-slate-900') 
-                    : (isGreen ? 'border-green-200 text-green-400 hover:border-green-400 hover:text-green-600 hover:bg-green-50' : isLgbt ? 'border-indigo-200 text-indigo-400 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50' : 'border-pink-200 text-pink-400 hover:border-pink-400 hover:text-pink-600 hover:bg-pink-50')
-                }`}
-              >
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
-                  isDark 
-                    ? (isGreen ? 'bg-slate-800 group-hover:bg-green-900/50' : isLgbt ? 'bg-slate-800 group-hover:bg-indigo-900/50' : 'bg-slate-800 group-hover:bg-pink-900/50') 
-                    : (isGreen ? 'bg-green-100 group-hover:bg-green-200' : isLgbt ? 'bg-indigo-100 group-hover:bg-indigo-200' : 'bg-pink-100 group-hover:bg-pink-200')
-                }`}>
-                  <Plus className="w-5 h-5" />
+                <div className="font-mono text-4xl font-black text-green-400 mb-1 drop-shadow-[0_0_10px_rgba(34,197,94,0.5)]">
+                  {progress}%
                 </div>
-                Create Custom Habit
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={addHabit} className={`p-6 rounded-3xl shadow-xl border animate-pop ${isDark ? 'bg-slate-900 border-slate-700 shadow-slate-950' : (isGreen ? 'bg-white shadow-green-100 border-green-100' : isLgbt ? 'bg-white shadow-indigo-100 border-indigo-100' : 'bg-white shadow-pink-100 border-pink-100')}`}>
-              <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>What's your new goal?</h3>
-              
-              <div className="space-y-5">
-                <input
-                  type="text"
-                  autoFocus
-                  placeholder="e.g., Meditate for 10 mins..."
-                  className={`w-full px-5 py-4 rounded-2xl border-2 outline-none transition font-medium text-lg ${
-                    isDark 
-                      ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400') 
-                      : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500 focus:bg-white' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500 focus:bg-white' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500 focus:bg-white')
-                  }`}
-                  value={newHabitTitle}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setNewHabitTitle(e.target.value)}
-                />
-
-                {/* Icon Selection */}
-                <div>
-                  <label className={`block text-sm font-bold mb-3 ml-1 uppercase tracking-wider text-[10px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Choose an icon</label>
-                  <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
-                    {HABIT_ICONS.map((iconData) => {
-                      const Icon = iconData.icon;
-                      const isSelected = newHabitIcon === iconData.name;
-                      return (
-                        <button
-                          key={iconData.name}
-                          type="button"
-                          onClick={() => setNewHabitIcon(iconData.name)}
-                          className={`aspect-square rounded-xl flex items-center justify-center transition border-2 ${
-                            isSelected 
-                              ? `${isGreen ? 'border-green-500 bg-green-500/20 text-green-500' : isLgbt ? 'border-indigo-500 bg-indigo-500/20 text-indigo-500' : 'border-pink-500 bg-pink-500/20 text-pink-500'} scale-110 shadow-sm` 
-                              : `${isDark ? 'border-slate-800 text-slate-500 hover:bg-slate-800 hover:text-slate-300' : 'border-slate-100 text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`
-                          }`}
-                        >
-                          <Icon className="w-5 h-5" />
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <button 
-                    type="submit" 
-                    className={`flex-1 text-white px-6 py-3.5 rounded-2xl font-bold transition shadow-lg hover:-translate-y-0.5 active:translate-y-0 ${isDark ? (isGreen ? 'bg-green-500 hover:bg-green-400 shadow-green-500/40' : isLgbt ? 'bg-gradient-to-r from-red-500 via-green-500 to-blue-500 shadow-indigo-500/40' : 'bg-pink-500 hover:bg-pink-400 shadow-pink-500/40') : (isGreen ? 'bg-green-600 hover:bg-green-700 shadow-green-200' : isLgbt ? 'bg-gradient-to-r from-red-600 via-green-600 to-blue-600 hover:opacity-90 shadow-indigo-200' : 'bg-pink-600 hover:bg-pink-700 shadow-pink-200')}`}
-                  >
-                    Save Habit
-                  </button>
-                  <button 
-                    type="button" 
-                    onClick={() => setIsAdding(false)}
-                    className={`px-6 py-3.5 font-bold rounded-2xl transition hover:bg-opacity-80 ${isDark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'}`}
-                  >
-                    Cancel
-                  </button>
+                <div className="font-mono text-xs text-green-400/60">
+                  {completedToday}/{habits.length} COMPLETE
                 </div>
               </div>
-            </form>
-          )}
+
+
+
+
+              {/* Display Panel 2 - ToDo */}
+              <div className={`p-5 rounded-2xl border backdrop-blur-sm ${isDark ? 'bg-slate-900/50 border-cyan-900/30' : 'bg-slate-800/50 border-cyan-800/30'}`}>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)]"></div>
+                  <span className="font-mono text-xs text-cyan-400/80 uppercase tracking-widest">Tasks Module</span>
+                </div>
+                <div className="font-mono text-4xl font-black text-cyan-400 mb-1 drop-shadow-[0_0_10px_rgba(6,182,212,0.5)]">
+                  {todos.filter(t => !t.completed).length}
+                </div>
+                <div className="font-mono text-xs text-cyan-400/60">
+                  PENDING TASKS
+                </div>
+              </div>
+
+
+
+
+              {/* Display Panel 3 - Money */}
+              <div className={`p-5 rounded-2xl border backdrop-blur-sm ${isDark ? 'bg-slate-900/50 border-yellow-900/30' : 'bg-slate-800/50 border-yellow-800/30'}`}>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.8)]"></div>
+                  <span className="font-mono text-xs text-yellow-400/80 uppercase tracking-widest">Finance Module</span>
+                </div>
+                <div className="font-mono text-4xl font-black text-yellow-400 mb-1 drop-shadow-[0_0_10px_rgba(234,179,8,0.5)]">
+                  ₱{((totalIncomeAmount - totalExpenseAmount) / 1000).toFixed(1)}K
+                </div>
+                <div className="font-mono text-xs text-yellow-400/60">
+                  NET BALANCE
+                </div>
+              </div>
+            </div>
+
+
+
+
+            {/* Bottom Info Bar */}
+            <div className="mt-6 pt-4 border-t border-green-900/30 flex items-center justify-between">
+              <div className="font-mono text-xs text-green-400/40 flex items-center gap-4">
+                <span>SYS: v2.0.1</span>
+                <span className="hidden sm:inline">|</span>
+                <span className="hidden sm:inline">CORE: STABLE</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Zap className="w-3 h-3 text-yellow-400 animate-pulse" />
+                <span className="font-mono text-xs text-green-400/60">READY</span>
+              </div>
+            </div>
+          </div>
         </div>
 
+
+
+
         {/* Swipeable Container */}
-        <div className="relative overflow-hidden">
+        <div className="relative">
           <div className="flex justify-center gap-2 mb-6 overflow-x-auto pb-2">
             <button
               onClick={() => setCurrentPage('habits')}
@@ -3544,6 +8943,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
             </button>
           </div>
 
+
+
+
           <div
             className="relative"
             onTouchStart={handleTouchStart}
@@ -3552,6 +8954,182 @@ const yearlyAnalytics = getYearlyData(selectedYear);
           >
             {/* HABITS PAGE */}
             <div className={`transition-all duration-300 ${currentPage === 'habits' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'}`}>
+              
+              
+      
+               {/* 🆕 Habit Health Card - NOW INSIDE HABITS TAB */}
+              <div className={`mb-6 p-6 rounded-3xl border-2 shadow-lg ${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`}>
+                <div className="flex justify-between items-end mb-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Heart className={`w-5 h-5 fill-current ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-red-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-red-500' : 'text-pink-600')}`} />
+                      <h3 className={`font-bold text-xl ${isDark ? 'text-white' : 'text-slate-900'}`}>Habit Health</h3>
+                    </div>
+                    <p className={`text-sm font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      {progress === 100 ? "Amazing work! You're fully charged." : "Complete habits to boost your daily health."}
+                    </p>
+                  </div>
+                  <div className={`text-5xl font-black ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-blue-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-blue-500' : 'text-pink-600')}`}>
+                    {progress}%
+                  </div>
+                </div>
+                
+                {/* Progress Bar */}
+                <div className={`h-6 w-full rounded-full overflow-hidden p-1 mb-4 ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                  <div 
+                    className={`h-full rounded-full transition-all duration-1000 ease-out relative shadow-sm ${progress === 100 ? (isGreen ? 'shadow-[0_0_15px_rgba(16,185,129,0.6)]' : isLgbt ? 'shadow-[0_0_15px_rgba(99,102,241,0.6)]' : 'shadow-[0_0_15px_rgba(236,72,153,0.6)]') : ''} ${isDark ? (isGreen ? 'bg-gradient-to-r from-green-500 to-emerald-400' : isLgbt ? 'bg-gradient-to-r from-red-500 via-green-500 to-blue-500' : 'bg-gradient-to-r from-pink-500 to-rose-400') : (isGreen ? 'bg-gradient-to-r from-green-600 to-emerald-600' : isLgbt ? 'bg-gradient-to-r from-red-500 via-green-500 to-blue-600' : 'bg-gradient-to-r from-pink-600 to-rose-600')}`}
+                    style={{ width: `${progress}%` }}
+                  >
+                    <div className="absolute top-0 left-0 w-full h-full bg-white/20 progress-bar-fill"></div>
+                  </div>
+                </div>
+
+
+
+
+                {/* Stats Grid */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center mb-2 ${isDark ? (isGreen ? 'bg-green-900/40 text-green-300' : isLgbt ? 'bg-indigo-900/40 text-indigo-300' : 'bg-pink-900/40 text-pink-300') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')}`}>
+                      <Layout className="w-4 h-4" />
+                    </div>
+                    <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Total</p>
+                    <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{habits.length}</p>
+                  </div>
+                  
+                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center mb-2 ${isDark ? (isGreen ? 'bg-emerald-900/40 text-emerald-300' : isLgbt ? 'bg-purple-900/40 text-purple-300' : 'bg-rose-900/40 text-rose-300') : (isGreen ? 'bg-emerald-100 text-emerald-600' : isLgbt ? 'bg-purple-100 text-purple-600' : 'bg-rose-100 text-rose-600')}`}>
+                      <CheckCircle2 className="w-4 h-4" />
+                    </div>
+                    <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Done</p>
+                    <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{completedToday}</p>
+                  </div>
+                  
+                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center mb-2 ${isDark ? (isGreen ? 'bg-green-900/40 text-green-300' : isLgbt ? 'bg-orange-900/40 text-orange-300' : 'bg-pink-900/40 text-pink-300') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-orange-100 text-orange-600' : 'bg-pink-100 text-pink-600')}`}>
+                      <Flame className="w-4 h-4" />
+                    </div>
+                    <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Streak</p>
+                    <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{Math.max(...habits.map(h => h.streak), 0)}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="mb-6">
+                {!isAdding ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Browse Templates Button */}
+                    <button 
+                      onClick={() => setShowTemplates(true)}
+                      className={`group py-5 border-2 rounded-3xl font-bold transition flex items-center justify-center gap-3 text-lg ${
+                        isDark 
+                          ? (isGreen ? 'border-green-500 bg-green-500/10 text-green-300 hover:bg-green-500/20' : isLgbt ? 'border-indigo-500 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20' : 'border-pink-500 bg-pink-500/10 text-pink-300 hover:bg-pink-500/20') 
+                          : (isGreen ? 'border-green-400 bg-green-50 text-green-600 hover:bg-green-100' : isLgbt ? 'border-indigo-400 bg-indigo-50 text-indigo-600 hover:bg-indigo-100' : 'border-pink-400 bg-pink-50 text-pink-600 hover:bg-pink-100')
+                      }`}
+                    >
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
+                        isDark 
+                          ? (isGreen ? 'bg-green-500/20 group-hover:bg-green-500/30' : isLgbt ? 'bg-indigo-500/20 group-hover:bg-indigo-500/30' : 'bg-pink-500/20 group-hover:bg-pink-500/30') 
+                          : (isGreen ? 'bg-green-200 group-hover:bg-green-300' : isLgbt ? 'bg-indigo-200 group-hover:bg-indigo-300' : 'bg-pink-200 group-hover:bg-pink-300')
+                      }`}>
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                      Browse Templates
+                    </button>
+                    
+
+
+                    {/* Create Custom Habit Button */}
+                    <button 
+                      onClick={() => setIsAdding(true)}
+                      className={`group py-5 border-2 border-dashed rounded-3xl font-bold transition flex items-center justify-center gap-3 text-lg ${
+                        isDark 
+                          ? (isGreen ? 'border-slate-800 text-slate-500 hover:border-green-500 hover:text-green-300 hover:bg-slate-900' : isLgbt ? 'border-slate-800 text-slate-500 hover:border-indigo-500 hover:text-indigo-300 hover:bg-slate-900' : 'border-slate-800 text-slate-500 hover:border-pink-500 hover:text-pink-300 hover:bg-slate-900') 
+                          : (isGreen ? 'border-green-200 text-green-400 hover:border-green-400 hover:text-green-600 hover:bg-green-50' : isLgbt ? 'border-indigo-200 text-indigo-400 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50' : 'border-pink-200 text-pink-400 hover:border-pink-400 hover:text-pink-600 hover:bg-pink-50')
+                      }`}
+                    >
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
+                        isDark 
+                          ? (isGreen ? 'bg-slate-800 group-hover:bg-green-900/50' : isLgbt ? 'bg-slate-800 group-hover:bg-indigo-900/50' : 'bg-slate-800 group-hover:bg-pink-900/50') 
+                          : (isGreen ? 'bg-green-100 group-hover:bg-green-200' : isLgbt ? 'bg-indigo-100 group-hover:bg-indigo-200' : 'bg-pink-100 group-hover:bg-pink-200')
+                      }`}>
+                        <Plus className="w-5 h-5" />
+                      </div>
+                      Create Custom Habit
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={addHabit} className={`p-6 rounded-3xl shadow-xl border animate-pop ${isDark ? 'bg-slate-900 border-slate-700 shadow-slate-950' : (isGreen ? 'bg-white shadow-green-100 border-green-100' : isLgbt ? 'bg-white shadow-indigo-100 border-indigo-100' : 'bg-white shadow-pink-100 border-pink-100')}`}>
+                    <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>What's your new goal?</h3>
+                    
+                    <div className="space-y-5">
+                      <input
+                        type="text"
+                        autoFocus
+                        placeholder="e.g., Meditate for 10 mins..."
+                        className={`w-full px-5 py-4 rounded-2xl border-2 outline-none transition font-medium text-lg ${
+                          isDark 
+                            ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400') 
+                            : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500 focus:bg-white' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500 focus:bg-white' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500 focus:bg-white')
+                        }`}
+                        value={newHabitTitle}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => setNewHabitTitle(e.target.value)}
+                      />
+
+
+
+
+                      {/* Icon Selection */}
+                      <div>
+                        <label className={`block text-sm font-bold mb-3 ml-1 uppercase tracking-wider text-[10px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Choose an icon</label>
+                        <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
+                          {HABIT_ICONS.map((iconData) => {
+                            const Icon = iconData.icon;
+                            const isSelected = newHabitIcon === iconData.name;
+                            return (
+                              <button
+                                key={iconData.name}
+                                type="button"
+                                onClick={() => setNewHabitIcon(iconData.name)}
+                                className={`aspect-square rounded-xl flex items-center justify-center transition border-2 ${
+                                  isSelected 
+                                    ? `${isGreen ? 'border-green-500 bg-green-500/20 text-green-500' : isLgbt ? 'border-indigo-500 bg-indigo-500/20 text-indigo-500' : 'border-pink-500 bg-pink-500/20 text-pink-500'} scale-110 shadow-sm` 
+                                    : `${isDark ? 'border-slate-800 text-slate-500 hover:bg-slate-800 hover:text-slate-300' : 'border-slate-100 text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`
+                                }`}
+                              >
+                                <Icon className="w-5 h-5" />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+
+
+
+                      <div className="flex gap-3 pt-2">
+                        <button 
+                          type="submit" 
+                          className={`flex-1 text-white px-6 py-3.5 rounded-2xl font-bold transition shadow-lg hover:-translate-y-0.5 active:translate-y-0 ${isDark ? (isGreen ? 'bg-green-500 hover:bg-green-400 shadow-green-500/40' : isLgbt ? 'bg-gradient-to-r from-red-500 via-green-500 to-blue-500 shadow-indigo-500/40' : 'bg-pink-500 hover:bg-pink-400 shadow-pink-500/40') : (isGreen ? 'bg-green-600 hover:bg-green-700 shadow-green-200' : isLgbt ? 'bg-gradient-to-r from-red-600 via-green-600 to-blue-600 hover:opacity-90 shadow-indigo-200' : 'bg-pink-600 hover:bg-pink-700 shadow-pink-200')}`}
+                        >
+                          Save Habit
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => setIsAdding(false)}
+                          className={`px-6 py-3.5 font-bold rounded-2xl transition hover:bg-opacity-80 ${isDark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'}`}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+                )}
+              </div>
+
+
+
+
+              
               {/* Habits List */}
               {habits.length > 0 && (
                 <div className="mb-6">
@@ -3598,6 +9176,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
               <div className="grid gap-5">
                 {loading && <SkeletonLoader />}
 
+
+
+
                 {!loading && habits.length === 0 && !isAdding && (
                   <div className={`text-center py-16 rounded-3xl border border-dashed ${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-200' : isLgbt ? 'bg-white border-indigo-200' : 'bg-white border-pink-200')}`}>
                     <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 animate-float ${isDark ? 'bg-slate-800 text-slate-600' : (isGreen ? 'bg-green-50 text-green-300' : isLgbt ? 'bg-indigo-50 text-indigo-300' : 'bg-pink-50 text-pink-300')}`}>
@@ -3607,6 +9188,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                     <p className={isDark ? 'text-slate-500' : 'text-slate-500'}>Add your first habit to start the engine!</p>
                   </div>
                 )}
+
+
+
 
                 {!loading && habits.length > 0 && filteredHabits.length === 0 && (
                   <div className={`text-center py-16 rounded-3xl border border-dashed ${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-200' : isLgbt ? 'bg-white border-indigo-200' : 'bg-white border-pink-200')}`}>
@@ -3627,6 +9211,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                     </button>
                   </div>
                 )}
+
+
+
 
                 {filteredHabits
                 .sort((a, b) => {
@@ -3667,6 +9254,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                             onChange={(e: ChangeEvent<HTMLInputElement>) => setEditTitle(e.target.value)}
                           />
 
+
+
+
                           <div>
                             <label className={`block text-sm font-bold mb-3 ml-1 uppercase tracking-wider text-[10px] ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
                               Choose an icon
@@ -3692,6 +9282,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                               })}
                             </div>
                           </div>
+
+
+
 
                           <div className="flex gap-3 pt-2">
                             <button 
@@ -3731,6 +9324,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                     >
                       <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition duration-500 rounded-3xl bg-gradient-to-r ${themeBase.light.bg.replace('bg-', 'from-white via-white to-')}/30 pointer-events-none`}></div>
 
+
+
+
                       {/* MOBILE LAYOUT */}
                       <div className="block sm:hidden relative z-10">
                         <div className="flex items-center justify-between gap-3 mb-3">
@@ -3759,6 +9355,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                             </div>
                           </div>
 
+
+
+
                           {/* Mobile Actions */}
                           <div className="flex items-center gap-1 flex-shrink-0">
                             <button
@@ -3769,6 +9368,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
+                            
                             <button
                               onClick={() => setReminderHabit(habit)}
                               className={`p-2.5 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center ${
@@ -3793,10 +9393,16 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                           </div>
                         </div>
 
+
+
+
                         <div className="w-full">
                           <WeeklyProgress completedDates={habit.completedDates} />
                         </div>
                       </div>
+
+
+
 
                       {/* DESKTOP LAYOUT */}
                       <div className="hidden sm:flex items-center justify-between gap-6 relative z-10">
@@ -3824,6 +9430,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                             </div>
                           </div>
                         </div>
+
+
+
 
                         <div className="flex items-center gap-4">
                           <WeeklyProgress completedDates={habit.completedDates} />
@@ -3865,6 +9474,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                 })}
               </div>
             </div>
+
+
+
 
             {/* TO-DO LIST PAGE */}
             <div className={`transition-all duration-300 ${currentPage === 'todos' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'}`}>
@@ -3925,6 +9537,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
               </div>
              </form>
               </div>
+
+
+
 
               {/* Todo Items */}
               <div className="grid gap-3">
@@ -4042,6 +9657,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
   </div>
 </div>
 
+
+
+
                 {/* Today's Budget Card */}
                 <div className={`mb-6 p-6 rounded-3xl border-2 shadow-lg ${
                   isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'
@@ -4073,6 +9691,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                     </button>
                   </div>
 
+
+
+
                   {/* Progress Bar */}
                   <div className={`h-4 w-full rounded-full overflow-hidden mb-3 ${
                     isDark ? 'bg-slate-800' : 'bg-slate-100'
@@ -4091,6 +9712,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                       style={{ width: `${Math.min((todaySpent / dailyAllowance) * 100, 100)}%` }}
                     ></div>
                   </div>
+
+
+
 
                   {/* Status Message */}
                   <div className="flex items-center justify-between">
@@ -4112,6 +9736,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                     </span>
                   </div>
                 </div>
+
+
+
 
                 {/* Quick Add Expense */}
                 <form onSubmit={addExpense} className={`p-5 rounded-2xl border-2 mb-6 ${
@@ -4151,6 +9778,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                       </select>
                     </div>
 
+
+
+
                     <input
                       type="text"
                       placeholder="Description (optional)"
@@ -4163,30 +9793,104 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                       }`}
                     />
 
-                    <div className="flex gap-3">
-                      <input
-                        type="date"
-                        value={newExpenseDate}
-                        onChange={(e) => setNewExpenseDate(e.target.value)}
-                        className={`flex-1 px-4 py-3 rounded-xl border-2 outline-none transition font-medium ${
-                          isDark 
-                            ? 'bg-slate-800 border-slate-700 text-white'
-                            : 'bg-slate-50 border-slate-200 text-slate-900'
-                        }`}
-                      />
-                      <button
-                        type="submit"
-                        className={`px-8 py-3 rounded-xl font-bold transition shadow-lg ${
-                          isDark 
-                            ? (isGreen ? 'bg-green-500 hover:bg-green-400 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400 text-white')
-                            : (isGreen ? 'bg-green-600 hover:bg-green-700 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700 text-white')
-                        }`}
-                      >
-                        Add
-                      </button>
-                    </div>
+
+
+
+                    <div className="space-y-3">
+  {/* 📸 PHASE 3: Image Upload */}
+  <div className={`p-4 rounded-xl border-2 border-dashed ${
+    isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'
+  }`}>
+    <label className="cursor-pointer flex items-center gap-3">
+      <input
+        type="file"
+        accept="image/*"
+        onChange={handleImageSelect}
+        className="hidden"
+      />
+      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+        isDark ? 'bg-slate-700' : 'bg-white'
+      }`}>
+        <Camera className={`w-6 h-6 ${isDark ? 'text-slate-400' : 'text-slate-500'}`} />
+      </div>
+      <div className="flex-1">
+        <p className={`font-bold text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          {imagePreview ? 'Receipt attached' : 'Attach receipt (optional)'}
+        </p>
+        <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+          Click to upload image
+        </p>
+      </div>
+      {imagePreview && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            setImagePreview(null);
+            setNewExpenseImage(null);
+          }}
+          className={`p-2 rounded-lg transition ${
+            isDark ? 'hover:bg-red-900/20 text-red-400' : 'hover:bg-red-50 text-red-500'
+          }`}
+        >
+          <X className="w-4 h-4" />
+        </button>
+      )}
+    </label>
+    
+    {/* Image Preview */}
+    {imagePreview && (
+      <div className="mt-3">
+        <img 
+          src={imagePreview} 
+          alt="Receipt preview" 
+          className="w-full h-32 object-cover rounded-lg"
+        />
+      </div>
+    )}
+  </div>
+
+
+
+
+  <div className="flex gap-3">
+    <input
+      type="date"
+      value={newExpenseDate}
+      onChange={(e) => setNewExpenseDate(e.target.value)}
+      className={`flex-1 px-4 py-3 rounded-xl border-2 outline-none transition font-medium ${
+        isDark 
+          ? 'bg-slate-800 border-slate-700 text-white'
+          : 'bg-slate-50 border-slate-200 text-slate-900'
+      }`}
+    />
+    <button
+  type="submit"
+  disabled={addingExpense}
+  className={`px-8 py-3 rounded-xl font-bold transition shadow-lg flex items-center gap-2 ${
+    addingExpense ? 'opacity-50 cursor-not-allowed' : ''
+  } ${
+    isDark 
+      ? (isGreen ? 'bg-green-500 hover:bg-green-400 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400 text-white')
+      : (isGreen ? 'bg-green-600 hover:bg-green-700 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700 text-white')
+  }`}
+>
+  {addingExpense ? (
+    <>
+      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+      Adding...
+    </>
+  ) : (
+    'Add'
+  )}
+</button>
+  </div>
+</div>
                   </div>
                 </form>
+
+
+
 
                 {/* Weekly Overview */}
                 <div className={`p-5 rounded-2xl border-2 mb-6 ${
@@ -4233,6 +9937,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                     })}
                   </div>
 
+
+
+
                   <div className={`flex items-center justify-between pt-4 border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
                     <div>
                       <p className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
@@ -4256,12 +9963,237 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                     </div>
                   </div>
                 </div>
+                
+                
+                
+                {/* 🎯 FINANCIAL HEALTH SCORE */}
+<div className="mb-6">
+  <FinancialHealthCard
+    healthScore={calculateFinancialHealth()}
+    currencySymbol={currencySymbol}
+    isDark={isDark}
+    isGreen={isGreen}
+    isLgbt={isLgbt}
+  />
+</div>
 
+
+{/* 🔮 SPENDING PREDICTIONS */}
+{expenses.length >= 5 && (
+  <div className="mb-6">
+    <SpendingPredictionsCard
+      prediction={calculateSpendingPrediction()}
+      currencySymbol={currencySymbol}
+      isDark={isDark}
+      isGreen={isGreen}
+      isLgbt={isLgbt}
+    />
+  </div>
+)}
+
+
+                {/* 🆕 PHASE 1: Budget Limits Section */}
+                <div className="mb-6">
+                  <BudgetLimitsSection
+                    budgets={calculateCategoryBudgets()}
+                    currencySymbol={currencySymbol}
+                    isDark={isDark}
+                    isGreen={isGreen}
+                    isLgbt={isLgbt}
+                    onEditBudgets={() => setShowBudgetModal(true)}
+                  />
+                </div>
+
+
+
+
+                {/* 🆕 PHASE 1: Spending Insights Section */}
+                <div className="mb-6">
+                  <SpendingInsightsSection
+                    insights={calculateSpendingInsights()}
+                    currencySymbol={currencySymbol}
+                    isDark={isDark}
+                    isGreen={isGreen}
+                    isLgbt={isLgbt}
+                  />
+                </div>
+
+
+
+
+                {/* 🆕 PHASE 1: Category Pie Chart */}
+                <div className="mb-6">
+                  <CategoryPieChart
+                    data={getCategoryPieData()}
+                    currencySymbol={currencySymbol}
+                    isDark={isDark}
+                    isGreen={isGreen}
+                    isLgbt={isLgbt}
+                  />
+                </div>
+
+
+
+
+                {/* 🆕 PHASE 1: Savings Goals Section */}
+                <div className="mb-6">
+                  <SavingsGoalsSection
+                    goals={savingsGoals}
+                    currencySymbol={currencySymbol}
+                    isDark={isDark}
+                    isGreen={isGreen}
+                    isLgbt={isLgbt}
+                    onAddGoal={() => setShowGoalsModal(true)}
+                    onUpdateProgress={handleUpdateProgress}
+                    onDeleteGoal={handleDeleteGoal}
+                  />
+                </div>
+                {/* 🆕 PHASE 2: Recurring Expenses Section */}
+<div className="mb-6">
+  <RecurringExpensesSection
+    recurringExpenses={recurringExpenses}
+    currencySymbol={currencySymbol}
+    isDark={isDark}
+    isGreen={isGreen}
+    isLgbt={isLgbt}
+    onAddRecurring={() => {
+      setEditingRecurring(null);
+      setShowRecurringModal(true);
+    }}
+    onToggleActive={handleToggleRecurringActive}
+    onDeleteRecurring={handleDeleteRecurring}
+    onEditRecurring={handleEditRecurring}
+  />
+</div>
+                {/* 🆕 PHASE 2: Recurring Expense Modal */}
+{showRecurringModal && (
+  <RecurringExpenseModal
+    isOpen={showRecurringModal}
+    onClose={() => {
+      setShowRecurringModal(false);
+      setEditingRecurring(null);
+    }}
+    onSubmit={(data) => {
+      if (editingRecurring) {
+        handleUpdateRecurring(editingRecurring.id, data);
+      } else {
+        handleAddRecurring(data);
+      }
+      setShowRecurringModal(false);
+      setEditingRecurring(null);
+    }}
+    editingExpense={editingRecurring}
+    isDark={isDark}
+    isGreen={isGreen}
+    isLgbt={isLgbt}
+    currencySymbol={currencySymbol}
+  />
+)}
+{/* ✅ DEBT TRACKER SECTION */}
+<div className="mb-6">
+  <DebtTracker
+    debts={debts}
+    currencySymbol={currencySymbol}
+    onAddDebt={() => setShowDebtModal(true)}
+    onDeleteDebt={handleDeleteDebt}
+    onMakePayment={handleMakePayment}
+    isDark={isDark}
+    isGreen={isGreen}
+    isLgbt={isLgbt}
+  />
+</div>
                 {/* Recent Expenses */}
                 <div>
-                  <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                    Recent Expenses
-                  </h3>
+  <div className="flex items-center justify-between mb-4">
+    <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>
+      Recent Expenses
+    </h3>
+    <div className="relative">
+  <button
+    onClick={() => setShowExportMenu(!showExportMenu)}
+    className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition ${
+      isDark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+    }`}
+  >
+    <Download className="w-4 h-4" />
+    Export Data
+    <ChevronRight className={`w-4 h-4 transition-transform ${showExportMenu ? 'rotate-90' : ''}`} />
+  </button>
+
+
+  {showExportMenu && (
+    <div className={`absolute top-full right-0 mt-2 w-56 rounded-xl shadow-2xl border-2 overflow-hidden z-50 ${
+      isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'
+    }`}>
+      <button
+        onClick={() => {
+          exportToCSV();
+          setShowExportMenu(false);
+        }}
+        className={`w-full px-4 py-3 text-left flex items-center gap-3 transition ${
+          isDark ? 'hover:bg-slate-700 text-slate-300' : 'hover:bg-slate-50 text-slate-700'
+        }`}
+      >
+        <Receipt className="w-4 h-4" />
+        <div>
+          <div className="font-bold text-sm">Export as CSV</div>
+          <div className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+            Expenses only (spreadsheet)
+          </div>
+        </div>
+      </button>
+
+
+      <button
+        onClick={() => {
+          exportAllData();
+          setShowExportMenu(false);
+        }}
+        className={`w-full px-4 py-3 text-left flex items-center gap-3 transition border-t ${
+          isDark ? 'hover:bg-slate-700 text-slate-300 border-slate-700' : 'hover:bg-slate-50 text-slate-700 border-slate-200'
+        }`}
+      >
+        <Shield className="w-4 h-4" />
+        <div>
+          <div className="font-bold text-sm">Complete Backup</div>
+          <div className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+            All data (habits + todos + expenses)
+          </div>
+        </div>
+      </button>
+
+
+      <button
+        onClick={() => {
+          fileInputRef.current?.click();
+          setShowExportMenu(false);
+        }}
+        className={`w-full px-4 py-3 text-left flex items-center gap-3 transition border-t ${
+          isDark ? 'hover:bg-slate-700 text-green-400 border-slate-700' : 'hover:bg-slate-50 text-green-600 border-slate-200'
+        }`}
+      >
+        <Upload className="w-4 h-4" />
+        <div>
+          <div className="font-bold text-sm">Import Backup</div>
+          <div className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+            Restore from JSON file
+          </div>
+        </div>
+      </button>
+    </div>
+  )}
+
+
+  {/* Hidden File Input */}
+  <input
+    ref={fileInputRef}
+    type="file"
+    accept=".json"
+    onChange={importData}
+    className="hidden"
+  />
+</div>
+  </div>
                   
                   {expenses.length === 0 ? (
                     <div className={`text-center py-12 rounded-2xl border-2 border-dashed ${
@@ -4290,15 +10222,31 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                             }`}
                           >
                             <div className="flex items-center gap-3 flex-1">
-                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                                isDark ? 'bg-slate-800' : 'bg-slate-100'
-                              }`}>
-                                <CategoryIcon className={`w-5 h-5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`} />
-                              </div>
-                              <div className="flex-1">
-                                <p className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                                  {expense.description}
-                                </p>
+              
+  {/* 📸 PHASE 3: Show receipt thumbnail or category icon */}
+  {expense.receiptImage ? (
+    <div className="relative group">
+      <img 
+        src={expense.receiptImage} 
+        alt="Receipt" 
+        className="w-10 h-10 rounded-xl object-cover cursor-pointer"
+        onClick={() => window.open(expense.receiptImage, '_blank')}
+      />
+      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition rounded-xl flex items-center justify-center">
+        <Camera className="w-5 h-5 text-white" />
+      </div>
+    </div>
+  ) : (
+    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+      isDark ? 'bg-slate-800' : 'bg-slate-100'
+    }`}>
+      <CategoryIcon className={`w-5 h-5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`} />
+    </div>
+  )}
+  <div className="flex-1">
+    <p className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+      {expense.description}
+    </p>
                                 <div className="flex items-center gap-2 mt-1">
                                   <span className={`text-xs font-bold px-2 py-0.5 rounded ${
                                     isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
@@ -4318,13 +10266,20 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                                 {currencySymbol}{expense.amount.toFixed(2)}
                               </span>
                               <button
-                                onClick={() => deleteExpense(expense.id)}
-                                className={`p-2 rounded-lg transition ${
-                                  isDark ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' : 'text-slate-400 hover:text-red-500 hover:bg-red-50'
-                                }`}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+  onClick={() => deleteExpense(expense.id)}
+  disabled={deletingExpense === expense.id}
+  className={`p-2 rounded-lg transition ${
+    deletingExpense === expense.id ? 'opacity-50 cursor-not-allowed' : ''
+  } ${
+    isDark ? 'text-slate-600 hover:text-red-400 hover:bg-red-900/20' : 'text-slate-400 hover:text-red-500 hover:bg-red-50'
+  }`}
+>
+  {deletingExpense === expense.id ? (
+    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+  ) : (
+    <Trash2 className="w-4 h-4" />
+  )}
+</button>
                             </div>
                           </div>
                           
@@ -4334,9 +10289,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                   )}
                 </div>
               </div>
-              </div>
-              {moneyView === 'monthly' && (
-  <div className="space-y-6">
+            </div>
+      {moneyView === 'monthly' && (
+       <div className="space-y-6">
     {/* Month Selector */}
     <div className="flex gap-3 items-center justify-center">
       <button
@@ -4376,6 +10331,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
       </button>
     </div>
 
+
+
+
     {/* Monthly Summary Cards */}
     <div className="grid grid-cols-3 gap-3">
       <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
@@ -4403,6 +10361,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
         </div>
       </div>
     </div>
+
+
+
 
     {/* Daily Spending Chart */}
     <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
@@ -4447,6 +10408,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
         })}
       </div>
     </div>
+
+
+
 
     {/* Category Breakdown */}
     {monthlyAnalytics.categoryTotals.length > 0 && (
@@ -4496,6 +10460,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
   </div>
 )}
 
+
+
+
 {moneyView === 'yearly' && (
   <div className="space-y-6">
     {/* Year Selector */}
@@ -4522,6 +10489,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
         →
       </button>
     </div>
+
+
+
 
     {/* Yearly Summary Cards */}
     <div className="grid grid-cols-3 gap-3">
@@ -4550,6 +10520,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
         </div>
       </div>
     </div>
+
+
+
 
     {/* Monthly Trend Chart */}
     <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
@@ -4592,6 +10565,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
         })}
       </div>
     </div>
+
+
+
 
     {/* Savings Trend */}
     <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
@@ -4649,6 +10625,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
         <X className="w-5 h-5" />
       </button>
 
+
+
+
       <div className="text-center mb-6">
         <div className={`inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-3 ${
           isDark 
@@ -4664,6 +10643,197 @@ const yearlyAnalytics = getYearlyData(selectedYear);
           How much can you spend per day?
         </p>
       </div>
+      {/* 🆕 PHASE 1: Savings Goal Modal */}
+              {showGoalsModal && (
+                <AddGoalModal
+                  isOpen={showGoalsModal}
+                  onClose={() => setShowGoalsModal(false)}
+                  onSubmit={handleAddGoal}
+                  isDark={isDark}
+                  isGreen={isGreen}
+                  isLgbt={isLgbt}
+                  currencySymbol={currencySymbol}
+                />
+              )}
+
+
+
+
+              {/* 🆕 PHASE 1: Edit Budgets Modal */}
+              {showBudgetModal && (
+                <EditBudgetsModal
+                  isOpen={showBudgetModal}
+                  onClose={() => setShowBudgetModal(false)}
+                  categoryBudgets={categoryBudgets}
+                  onUpdateBudget={handleUpdateBudget}
+                  isDark={isDark}
+                  isGreen={isGreen}
+                  isLgbt={isLgbt}
+                  currencySymbol={currencySymbol}
+                  setCategoryBudgets={setCategoryBudgets}
+                />
+              )}
+              {/* 🆕 PHASE 2: Recurring Expense Modal */}
+{showRecurringModal && (
+  <RecurringExpenseModal
+    isOpen={showRecurringModal}
+    onClose={() => {
+      setShowRecurringModal(false);
+      setEditingRecurring(null);
+    }}
+    onSubmit={(data) => {
+      if (editingRecurring) {
+        handleUpdateRecurring(editingRecurring.id, data);
+      } else {
+        handleAddRecurring(data);
+      }
+      setShowRecurringModal(false);
+      setEditingRecurring(null);
+    }}
+    editingExpense={editingRecurring}
+    isDark={isDark}
+    isGreen={isGreen}
+    isLgbt={isLgbt}
+    currencySymbol={currencySymbol}
+  />
+)}
+
+
+
+
+{/* ✅ ADD DEBT MODAL */}
+<AddDebtModal
+  isOpen={showDebtModal}
+  onClose={() => setShowDebtModal(false)}
+  onAdd={handleAddDebt}
+  currencySymbol={currencySymbol}
+/>
+{/* 💰 PHASE 3: Add Income Modal */}
+{showIncomeModal && (
+  <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+    <div className={`w-full max-w-md rounded-2xl p-6 ${
+      isDark ? 'bg-slate-800' : 'bg-white'
+    }`}>
+      <div className="flex items-center justify-between mb-6">
+        <h3 className={`font-bold text-2xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          Add Income 💰
+        </h3>
+        <button
+          onClick={() => setShowIncomeModal(false)}
+          className={`p-2 rounded-lg transition ${
+            isDark ? 'hover:bg-slate-700' : 'hover:bg-slate-100'
+          }`}
+        >
+          <X className={`w-5 h-5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`} />
+        </button>
+      </div>
+
+
+
+
+      <form onSubmit={async (e) => {
+        e.preventDefault();
+        if (!user) return;
+        
+        const formData = new FormData(e.currentTarget);
+        const amount = parseFloat(formData.get('amount') as string);
+        const source = formData.get('source') as string;
+        const description = formData.get('description') as string;
+        const date = formData.get('date') as string;
+        
+        if (isNaN(amount) || amount <= 0) {
+          setToast({ id: Date.now().toString(), message: 'Invalid amount', type: 'error' });
+          return;
+        }
+        
+        try {
+          await addDoc(collection(db, `users/${user.uid}/incomes`), {
+            amount,
+            source,
+            description: description || 'Income',
+            date,
+            createdAt: serverTimestamp()
+          });
+          
+          setShowIncomeModal(false);
+          setToast({ id: Date.now().toString(), message: 'Income added!', type: 'success' });
+        } catch (error) {
+          console.error('Error adding income:', error);
+          setToast({ id: Date.now().toString(), message: 'Failed to add income', type: 'error' });
+        }
+      }} className="space-y-4">
+        
+        <div className="grid grid-cols-2 gap-3">
+          <input
+            type="number"
+            name="amount"
+            step="0.01"
+            placeholder="Amount"
+            required
+            className={`px-4 py-3 rounded-xl border-2 outline-none transition font-bold text-lg ${
+              isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+            }`}
+          />
+          <select
+            name="source"
+            required
+            className={`px-4 py-3 rounded-xl border-2 outline-none transition font-bold ${
+              isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+            }`}
+          >
+            <option value="salary">Salary</option>
+            <option value="freelance">Freelance</option>
+            <option value="investment">Investment</option>
+            <option value="gift">Gift</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
+
+
+
+        <input
+          type="text"
+          name="description"
+          placeholder="Description (optional)"
+          className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition font-medium ${
+            isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+          }`}
+        />
+
+
+
+
+        <input
+          type="date"
+          name="date"
+          defaultValue={getTodayString()}
+          required
+          className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition font-medium ${
+            isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+          }`}
+        />
+
+
+
+
+        <button
+          type="submit"
+          className={`w-full px-4 py-3 rounded-xl font-bold text-white transition ${
+            isDark 
+              ? (isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400')
+              : (isGreen ? 'bg-green-600 hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700')
+          }`}
+        >
+          Add Income
+        </button>
+      </form>
+    </div>
+  </div>
+)}              
+
+
+
 
       <form onSubmit={(e) => {
   e.preventDefault();
@@ -4720,6 +10890,66 @@ const yearlyAnalytics = getYearlyData(selectedYear);
       required
     />
   </div>
+  {/* 💰 PHASE 3: Net Worth Card */}
+<div className={`mb-6 p-6 rounded-3xl border-2 shadow-lg ${
+  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'
+}`}>
+  <div className="text-center">
+    <h3 className={`text-sm font-bold uppercase tracking-wider mb-2 ${
+      isDark ? 'text-slate-500' : 'text-slate-400'
+    }`}>
+      Net Worth
+    </h3>
+    <div className={`text-5xl font-black mb-2 ${
+      netWorth >= 0
+        ? (isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-blue-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-blue-600' : 'text-pink-600'))
+        : 'text-red-500'
+    }`}>
+      {currencySymbol}{Math.abs(netWorth).toFixed(2)}
+    </div>
+    <p className={`text-sm font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+      {netWorth >= 0 ? '💰 Positive Balance' : '⚠️ In Debt'}
+    </p>
+  </div>
+  
+  <div className="grid grid-cols-2 gap-4 mt-6">
+    <div className={`p-4 rounded-xl ${isDark ? 'bg-slate-800' : 'bg-green-50'}`}>
+      <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${
+        isDark ? 'text-slate-500' : 'text-green-600'
+      }`}>
+        Total Income
+      </p>
+      <p className={`text-2xl font-black ${isDark ? 'text-green-400' : 'text-green-600'}`}>
+        {currencySymbol}{totalIncomeAmount.toFixed(2)}
+      </p>
+    </div>
+    
+    <div className={`p-4 rounded-xl ${isDark ? 'bg-slate-800' : 'bg-red-50'}`}>
+      <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${
+        isDark ? 'text-slate-500' : 'text-red-600'
+      }`}>
+        Total Expenses
+      </p>
+      <p className={`text-2xl font-black ${isDark ? 'text-red-400' : 'text-red-600'}`}>
+        {currencySymbol}{totalExpenseAmount.toFixed(2)}
+      </p>
+    </div>
+  </div>
+  
+  <button
+    onClick={() => setShowIncomeModal(true)}
+    className={`w-full mt-4 px-4 py-3 rounded-xl font-bold transition ${
+      isDark 
+        ? (isGreen ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : isLgbt ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30' : 'bg-pink-500/20 text-pink-400 hover:bg-pink-500/30')
+        : (isGreen ? 'bg-green-100 text-green-700 hover:bg-green-200' : isLgbt ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-pink-100 text-pink-700 hover:bg-pink-200')
+    }`}
+  >
+    + Add Income
+  </button>
+</div>
+
+
+
 
   {/* 👇 NEW: Currency Selector - ADD THIS ENTIRE BLOCK */}
   <div>
@@ -4753,6 +10983,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
   </div>
   {/* 👆 END OF NEW CURRENCY SELECTOR */}
 
+
+
+
   <button
     type="submit"
     className={`w-full text-white py-4 rounded-2xl font-bold text-lg transition shadow-lg hover:-translate-y-0.5 ${
@@ -4767,12 +11000,292 @@ const yearlyAnalytics = getYearlyData(selectedYear);
     </div>
   </div>
 )}
-   
-            </div>
-      </main>
-     </div> 
-      );
-      };
+</div>
+{/* 📱 MOBILE BOTTOM NAVIGATION */}
+<nav className={`fixed bottom-0 left-0 right-0 z-40 md:hidden border-t-2 backdrop-blur-xl ${
+  isDark 
+    ? (isGreen ? 'bg-slate-900/95 border-green-900' : isLgbt ? 'bg-slate-900/95 border-indigo-900' : 'bg-slate-900/95 border-pink-900')
+    : (isGreen ? 'bg-white/95 border-green-200' : isLgbt ? 'bg-white/95 border-indigo-200' : 'bg-white/95 border-pink-200')
+}`}>
+  <div className="flex justify-around items-center h-16 px-2">
+    <button
+      onClick={() => setCurrentPage('habits')}
+      className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition min-w-[60px] ${
+        currentPage === 'habits'
+          ? (isDark 
+              ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-indigo-500/20 text-indigo-400' : 'bg-pink-500/20 text-pink-400')
+              : (isGreen ? 'bg-green-100 text-green-700' : isLgbt ? 'bg-indigo-100 text-indigo-700' : 'bg-pink-100 text-pink-700')
+            )
+          : (isDark ? 'text-slate-500' : 'text-slate-400')
+      }`}
+    >
+      <Target className="w-6 h-6" />
+      <span className="text-[10px] font-bold">Habits</span>
+    </button>
+    
+    <button
+      onClick={() => setCurrentPage('todos')}
+      className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition min-w-[60px] ${
+        currentPage === 'todos'
+          ? (isDark 
+              ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-indigo-500/20 text-indigo-400' : 'bg-pink-500/20 text-pink-400')
+              : (isGreen ? 'bg-green-100 text-green-700' : isLgbt ? 'bg-indigo-100 text-indigo-700' : 'bg-pink-100 text-pink-700')
+            )
+          : (isDark ? 'text-slate-500' : 'text-slate-400')
+      }`}
+    >
+      <CheckCircle2 className="w-6 h-6" />
+      <span className="text-[10px] font-bold">Tasks</span>
+    </button>
+    
+    <button
+      onClick={() => setCurrentPage('money')}
+      className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition min-w-[60px] ${
+        currentPage === 'money'
+          ? (isDark 
+              ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-indigo-500/20 text-indigo-400' : 'bg-pink-500/20 text-pink-400')
+              : (isGreen ? 'bg-green-100 text-green-700' : isLgbt ? 'bg-indigo-100 text-indigo-700' : 'bg-pink-100 text-pink-700')
+            )
+          : (isDark ? 'text-slate-500' : 'text-slate-400')
+      }`}
+    >
+      <DollarSign className="w-6 h-6" />
+      <span className="text-[10px] font-bold">Money</span>
+    </button>
+    
+    <button
+      onClick={() => setShowStats(true)}
+      className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition min-w-[60px] ${
+        isDark ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-slate-600'
+      }`}
+    >
+      <PieChart className="w-6 h-6" />
+      <span className="text-[10px] font-bold">Stats</span>
+    </button>
+  </div>
+</nav>
+</main>
+      
+      {reminderHabit && (
+        <ReminderModal
+          habit={reminderHabit}
+          onClose={() => setReminderHabit(null)}
+          onSave={(enabled, time) => {
+            saveReminder(reminderHabit.id, enabled, time);
+            setReminderHabit(null);
+          }}
+        />
+      )}
+      
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
+          <Toast toast={toast} onDismiss={() => setToast(null)} />
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+
+
+// 🎓 ONBOARDING FLOW COMPONENT
+const OnboardingFlow = ({ 
+  onComplete, 
+  isDark, 
+  isGreen, 
+  isLgbt 
+}: { 
+  onComplete: () => void;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+}) => {
+  const [step, setStep] = useState(0);
+  const [budget, setBudget] = useState('');
+  const [selectedHabit, setSelectedHabit] = useState('');
+
+
+
+
+  const steps = [
+    {
+      title: "Welcome to HabitFlow! 🎉",
+      description: "Your all-in-one platform for habits, tasks, and money management",
+      emoji: "👋",
+      action: null
+    },
+    {
+      title: "Set Your Daily Budget 💰",
+      description: "How much can you spend each day?",
+      emoji: "💵",
+      action: (
+        <div className="w-full">
+          <input
+            type="number"
+            step="0.01"
+            placeholder="e.g., 50.00"
+            value={budget}
+            onChange={(e) => setBudget(e.target.value)}
+            className={`w-full px-6 py-4 rounded-2xl border-2 outline-none transition font-bold text-2xl text-center ${
+              isDark 
+                ? 'bg-slate-800 border-slate-700 text-white focus:border-green-400'
+                : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-green-500'
+            }`}
+            autoFocus
+          />
+        </div>
+      )
+    },
+    {
+      title: "Quick Start Habit 🎯",
+      description: "Choose a habit to track (or skip)",
+      emoji: "🚀",
+      action: (
+        <div className="grid grid-cols-2 gap-3 w-full">
+          {['Workout', 'Meditate', 'Read', 'Study'].map(habit => (
+            <button
+              key={habit}
+              onClick={() => setSelectedHabit(habit)}
+              className={`p-4 rounded-xl border-2 font-bold transition ${
+                selectedHabit === habit
+                  ? (isDark 
+                      ? 'bg-green-500 border-green-500 text-white'
+                      : 'bg-green-600 border-green-600 text-white'
+                    )
+                  : (isDark 
+                      ? 'bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600'
+                      : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                    )
+              }`}
+            >
+              {habit}
+            </button>
+          ))}
+        </div>
+      )
+    },
+    {
+      title: "You're All Set! ✅",
+      description: "Start building better habits today",
+      emoji: "🎊",
+      action: null
+    }
+  ];
+
+
+
+
+  const currentStep = steps[step];
+  const isLastStep = step === steps.length - 1;
+
+
+
+
+  const handleNext = () => {
+    if (isLastStep) {
+      localStorage.setItem('onboardingCompleted', 'true');
+      onComplete();
+    } else {
+      setStep(step + 1);
+    }
+  };
+
+
+
+
+  const handleSkip = () => {
+    localStorage.setItem('onboardingCompleted', 'true');
+    onComplete();
+  };
+
+
+
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+      <div className={`w-full max-w-lg rounded-3xl shadow-2xl p-8 animate-pop ${
+        isDark ? 'bg-slate-900 border-2 border-slate-800' : 'bg-white border-2 border-slate-100'
+      }`}>
+        {/* Progress Bar */}
+        <div className="flex gap-2 mb-8">
+          {steps.map((_, idx) => (
+            <div
+              key={idx}
+              className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+                idx <= step
+                  ? (isGreen ? 'bg-green-500' : isLgbt ? 'bg-indigo-500' : 'bg-pink-500')
+                  : (isDark ? 'bg-slate-700' : 'bg-slate-200')
+              }`}
+            />
+          ))}
+        </div>
+
+
+
+
+        {/* Content */}
+        <div className="text-center mb-8">
+          <div className="text-6xl mb-4 animate-bounce">{currentStep.emoji}</div>
+          <h2 className={`text-3xl font-black mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            {currentStep.title}
+          </h2>
+          <p className={`text-lg ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+            {currentStep.description}
+          </p>
+        </div>
+
+
+
+
+        {/* Action Area */}
+        {currentStep.action && (
+          <div className="mb-8 flex justify-center">
+            {currentStep.action}
+          </div>
+        )}
+
+
+
+
+        {/* Navigation */}
+        <div className="flex gap-3">
+          {step > 0 && step < steps.length - 1 && (
+            <button
+              onClick={handleSkip}
+              className={`flex-1 px-6 py-4 rounded-2xl font-bold transition ${
+                isDark ? 'bg-slate-800 text-slate-400 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Skip
+            </button>
+          )}
+          <button
+            onClick={handleNext}
+            disabled={step === 1 && !budget}
+            className={`flex-1 px-6 py-4 rounded-2xl font-bold text-white transition shadow-lg ${
+              isDark 
+                ? (isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400')
+                : (isGreen ? 'bg-green-600 hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700')
+            } ${step === 1 && !budget ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            {isLastStep ? "Let's Go!" : 'Continue'}
+          </button>
+        </div>
+
+
+
+
+        {/* Step Counter */}
+        <p className={`text-center mt-6 text-sm font-bold ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
+          Step {step + 1} of {steps.length}
+        </p>
+      </div>
+    </div>
+  );
+};
+
+
 
 
 const PWAInstallPrompt = () => {
@@ -4782,6 +11295,9 @@ const PWAInstallPrompt = () => {
   const isDark = theme === 'dark';
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
+
+
+
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -4799,12 +11315,18 @@ const PWAInstallPrompt = () => {
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
+
+
+
   useEffect(() => {
     const dismissed = localStorage.getItem('pwa-install-dismissed');
     if (dismissed && Date.now() - parseInt(dismissed) < 7 * 24 * 60 * 60 * 1000) {
       setShowInstall(false);
     }
   }, []);
+
+
+
 
   const handleInstall = async () => {
     if (!deferredPrompt) return;
@@ -4818,12 +11340,21 @@ const PWAInstallPrompt = () => {
     setDeferredPrompt(null);
   };
 
+
+
+
   const handleDismiss = () => {
     setShowInstall(false);
     localStorage.setItem('pwa-install-dismissed', Date.now().toString());
   };
 
+
+
+
   if (!showInstall) return null;
+
+
+
 
   return (
     <div className="fixed bottom-6 left-4 right-4 z-50 animate-slide-up max-w-md mx-auto">
@@ -4862,6 +11393,9 @@ const PWAInstallPrompt = () => {
   );
 };
 
+
+
+
 const App = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -4869,9 +11403,15 @@ const App = () => {
   const [theme, setTheme] = useState<Theme>('light');
   const [accent, setAccent] = useState<Accent>('pink');
 
+
+
+
   const toggleTheme = () => {
     setTheme(prev => prev === 'light' ? 'dark' : 'light');
   };
+
+
+
 
   const toggleAccent = () => {
     setAccent(prev => {
@@ -4880,6 +11420,9 @@ const App = () => {
         return 'pink';
     });
   };
+
+
+
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -4893,6 +11436,9 @@ const App = () => {
       setAuthLoading(false);
     });
 
+
+
+
     const initAuth = async () => {
         const initialToken = (window as any).__initial_auth_token;
         if (initialToken) {
@@ -4905,8 +11451,14 @@ const App = () => {
     };
     initAuth();
 
+
+
+
     return () => unsubscribe();
   }, [view]);
+
+
+
 
   const handleLogout = async () => {
     try {
@@ -4916,6 +11468,9 @@ const App = () => {
       console.error('Logout error:', error);
     }
   };
+
+
+
 
   if (authLoading) {
     return (
@@ -4928,6 +11483,9 @@ const App = () => {
     );
   }
 
+
+
+
   const renderView = () => {
     if (view === 'dashboard' && user) {
       return <Dashboard user={user} onLogout={handleLogout} />;
@@ -4938,6 +11496,9 @@ const App = () => {
     return <LandingPage onGetStarted={() => setView('welcome')} />;
   };
 
+
+
+
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme, accent, toggleAccent }}>
       <div className={theme}>
@@ -4947,5 +11508,8 @@ const App = () => {
     </ThemeContext.Provider>
   );
 };
+
+
+
 
 export default App;

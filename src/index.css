@@ -1,3 +1,28 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+@keyframes slideUp {
+  from { 
+    transform: translate(-50%, 10px); 
+    opacity: 0; 
+  }
+  to { 
+    transform: translate(-50%, 0); 
+    opacity: 1; 
+  }
+}
+
+@keyframes fadeOut {
+  0% { 
+    opacity: 1; 
+    transform: translate(-50%, 0); 
+  }
+  80% { 
+    opacity: 1; 
+    transform: translate(-50%, 0); 
+  }
+  100% { 
+    opacity: 0; 
+    transform: translate(-50%, -20px); 
+  }
+}
