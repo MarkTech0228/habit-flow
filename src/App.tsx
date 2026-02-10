@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, createContext, useContext, FormEvent, ChangeEvent } from 'react';
+import React, { useState, useEffect, useCallback, useRef, createContext, useContext, FormEvent, ChangeEvent, useMemo, Suspense } from 'react';
 import { useAppStore } from './store/useAppStore';
 import {
   CheckCircle2, 
@@ -57,7 +57,323 @@ import {
 type LucideIcon = React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
 
 
+// 🎯 ACCESSIBILITY: Touch-friendly button component
+interface TouchButtonProps {
+  children: React.ReactNode;
+  onClick: () => void;
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
+  disabled?: boolean;
+  loading?: boolean;
+  className?: string;
+  icon?: LucideIcon;
+  fullWidth?: boolean;
+  size?: 'sm' | 'md' | 'lg';
+}
 
+const TouchButton: React.FC<TouchButtonProps> = ({ 
+  children, 
+  onClick, 
+  variant = 'primary',
+  disabled = false,
+  loading = false,
+  className = '',
+  icon: Icon,
+  fullWidth = false,
+  size = 'md'
+}) => {
+  const { theme, accent, isDark } = useTheme();
+  
+  // Size classes
+  const sizeClasses = {
+    sm: 'min-h-[44px] px-4 py-2 text-sm',
+    md: 'min-h-[56px] px-6 py-3 text-base',
+    lg: 'min-h-[64px] px-8 py-4 text-lg'
+  };
+  
+  // Base classes for all buttons
+  const baseClasses = `
+    ${sizeClasses[size]}
+    ${fullWidth ? 'w-full' : 'min-w-[120px]'}
+    rounded-2xl 
+    font-bold 
+    transition-all 
+    duration-200
+    active:scale-95
+    disabled:opacity-50 
+    disabled:cursor-not-allowed
+    disabled:active:scale-100
+    touch-manipulation
+    flex items-center justify-center gap-2
+    focus:outline-none focus:ring-4 focus:ring-offset-2
+  `;
+  
+  // Variant-specific classes
+  const getVariantClasses = () => {
+    const accentColor = accent === 'green' ? 'green' : accent === 'lgbt' ? 'purple' : 'pink';
+    
+    switch (variant) {
+      case 'primary':
+        return isDark
+          ? `bg-${accentColor}-600 hover:bg-${accentColor}-500 text-white 
+             focus:ring-${accentColor}-500/50 shadow-lg shadow-${accentColor}-900/20`
+          : `bg-${accentColor}-700 hover:bg-${accentColor}-600 text-white 
+             focus:ring-${accentColor}-500/50 shadow-lg shadow-${accentColor}-200/50`;
+      
+      case 'secondary':
+        return isDark
+          ? `bg-slate-800 hover:bg-slate-700 text-white border-2 border-slate-700
+             focus:ring-slate-500/50`
+          : `bg-white hover:bg-slate-50 text-slate-900 border-2 border-slate-200
+             focus:ring-slate-400/50`;
+      
+      case 'danger':
+        return `bg-red-600 hover:bg-red-500 text-white 
+                focus:ring-red-500/50 shadow-lg shadow-red-900/20`;
+      
+      case 'ghost':
+        return isDark
+          ? `bg-transparent hover:bg-slate-800/50 text-slate-300
+             focus:ring-slate-500/30`
+          : `bg-transparent hover:bg-slate-100 text-slate-700
+             focus:ring-slate-400/30`;
+      
+      default:
+        return '';
+    }
+  };
+  
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled || loading}
+      className={`${baseClasses} ${getVariantClasses()} ${className}`}
+      aria-busy={loading}
+    >
+      {loading ? (
+        <>
+          <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+          <span>Loading...</span>
+        </>
+      ) : (
+        <>
+          {Icon && <Icon className="w-5 h-5" />}
+          {children}
+        </>
+      )}
+    </button>
+  );
+};
+
+// 🔘 Icon-only button for actions
+interface IconButtonProps {
+  icon: LucideIcon;
+  onClick: () => void;
+  label: string; // For accessibility
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
+  disabled?: boolean;
+  className?: string;
+}
+
+const IconButton: React.FC<IconButtonProps> = ({
+  icon: Icon,
+  onClick,
+  label,
+  variant = 'ghost',
+  disabled = false,
+  className = ''
+}) => {
+  const { theme, accent, isDark } = useTheme();
+  
+  const getVariantClasses = () => {
+    const accentColor = accent === 'green' ? 'green' : accent === 'lgbt' ? 'purple' : 'pink';
+    
+    switch (variant) {
+      case 'primary':
+        return isDark
+          ? `bg-${accentColor}-600 hover:bg-${accentColor}-500 text-white`
+          : `bg-${accentColor}-700 hover:bg-${accentColor}-600 text-white`;
+      
+      case 'secondary':
+        return isDark
+          ? `bg-slate-800 hover:bg-slate-700 text-white`
+          : `bg-slate-200 hover:bg-slate-300 text-slate-900`;
+      
+      case 'danger':
+        return `bg-red-600 hover:bg-red-500 text-white`;
+      
+      case 'ghost':
+        return isDark
+          ? `hover:bg-slate-800 text-slate-300`
+          : `hover:bg-slate-100 text-slate-700`;
+      
+      default:
+        return '';
+    }
+  };
+  
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className={`
+        min-w-[44px] min-h-[44px]
+        p-2
+        rounded-xl
+        transition-all
+        active:scale-95
+        disabled:opacity-50
+        disabled:cursor-not-allowed
+        touch-manipulation
+        flex items-center justify-center
+        focus:outline-none focus:ring-2 focus:ring-offset-2
+        ${getVariantClasses()}
+        ${className}
+      `}
+    >
+      <Icon className="w-6 h-6" />
+    </button>
+  );
+};
+//end of button
+// ============ ADD THIS ENTIRE SECTION HERE ============
+// 📱 PLATFORM: Safe Area Hook for iOS notch/Dynamic Island
+const useSafeArea = () => {
+  const [safeArea, setSafeArea] = useState({
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0
+  });
+  
+  useEffect(() => {
+    const updateSafeArea = () => {
+      // Get CSS env() values
+      const computedStyle = getComputedStyle(document.documentElement);
+      
+      const getEnvValue = (varName: string): number => {
+        const value = computedStyle.getPropertyValue(varName);
+        return value ? parseInt(value.replace('px', '')) : 0;
+      };
+      
+      setSafeArea({
+        top: getEnvValue('--sat'),
+        bottom: getEnvValue('--sab'),
+        left: getEnvValue('--sal'),
+        right: getEnvValue('--sar')
+      });
+    };
+    
+    updateSafeArea();
+    
+    // Update on orientation change
+    window.addEventListener('resize', updateSafeArea);
+    window.addEventListener('orientationchange', updateSafeArea);
+    
+    return () => {
+      window.removeEventListener('resize', updateSafeArea);
+      window.removeEventListener('orientationchange', updateSafeArea);
+    };
+  }, []);
+  
+  return safeArea;
+};
+
+// 📱 PLATFORM: Android back button handler
+const useAndroidBackButton = (onBack: () => void) => {
+  useEffect(() => {
+    const handleBackButton = (e: PopStateEvent) => {
+      e.preventDefault();
+      onBack();
+    };
+    
+    // Push initial state
+    window.history.pushState(null, '', window.location.pathname);
+    
+    window.addEventListener('popstate', handleBackButton);
+    
+    return () => {
+      window.removeEventListener('popstate', handleBackButton);
+    };
+  }, [onBack]);
+};
+
+// 📱 PLATFORM: Detect platform and capabilities
+const usePlatformInfo = (): PlatformInfo => {
+  const [platformInfo, setPlatformInfo] = useState<PlatformInfo>({
+    os: 'web',
+    browser: 'unknown',
+    version: '0',
+    isStandalone: false,
+    hasSafeArea: false,
+    supportsHaptics: false
+  });
+  
+  useEffect(() => {
+    const userAgent = navigator.userAgent;
+    
+    // Detect OS
+    const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
+    const isAndroid = /Android/.test(userAgent);
+    const isDesktop = /(Macintosh|Windows|Linux)/.test(userAgent) && !isIOS && !isAndroid;
+    
+    // Detect standalone mode (PWA)
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                         (window.navigator as any).standalone === true;
+    
+    // Detect safe area support
+    const hasSafeArea = CSS.supports('padding-top: env(safe-area-inset-top)');
+    
+    // Detect haptics support
+    const supportsHaptics = 'vibrate' in navigator;
+    
+    setPlatformInfo({
+      os: isIOS ? 'ios' : isAndroid ? 'android' : isDesktop ? 'desktop' : 'web',
+      browser: getBrowser(),
+      version: getVersion(),
+      isStandalone,
+      hasSafeArea,
+      supportsHaptics
+    });
+  }, []);
+  
+  const getBrowser = (): string => {
+    const userAgent = navigator.userAgent;
+    if (userAgent.includes('Chrome')) return 'chrome';
+    if (userAgent.includes('Safari')) return 'safari';
+    if (userAgent.includes('Firefox')) return 'firefox';
+    if (userAgent.includes('Edge')) return 'edge';
+    return 'unknown';
+  };
+  
+  const getVersion = (): string => {
+    const match = navigator.userAgent.match(/(?:Chrome|Safari|Firefox|Edge)\/(\d+)/);
+    return match ? match[1] : '0';
+  };
+  
+  return platformInfo;
+};
+
+// 📳 PLATFORM: Haptic feedback
+const useHaptics = () => {
+  const platformInfo = usePlatformInfo();
+  
+  const vibrate = useCallback((pattern: number | number[] = 10) => {
+    if (platformInfo.supportsHaptics && navigator.vibrate) {
+      navigator.vibrate(pattern);
+    }
+  }, [platformInfo.supportsHaptics]);
+  
+  const light = useCallback(() => vibrate(10), [vibrate]);
+  const medium = useCallback(() => vibrate(20), [vibrate]);
+  const heavy = useCallback(() => vibrate(30), [vibrate]);
+  const success = useCallback(() => vibrate([10, 50, 10]), [vibrate]);
+  const warning = useCallback(() => vibrate([20, 100, 20]), [vibrate]);
+  const error = useCallback(() => vibrate([30, 100, 30, 100, 30]), [vibrate]);
+  
+  return { light, medium, heavy, success, warning, error };
+};
+// ============ END OF PLATFORM HOOKS ============
 
 // Firebase Imports
 import { initializeApp } from "firebase/app";
@@ -176,7 +492,9 @@ if (!isMissingConfig) {
   db = getFirestore(app);
   storage = getStorage(app); // 📸 PHASE 3: Storage for receipts
   
-  // Enable offline persistence
+ 
+
+// Enable offline persistence
   import('firebase/firestore').then(({ enableIndexedDbPersistence }) => {
     enableIndexedDbPersistence(db).catch((err) => {
       if (err.code === 'failed-precondition') {
@@ -193,8 +511,145 @@ if (!isMissingConfig) {
   console.warn('Available env vars:', Object.keys(import.meta.env).filter(k => k.startsWith('VITE_')));
 }
 
+// ============ ADD THIS ENTIRE SECTION HERE ============
+// 🔒 SECURITY: Rate Limiter to prevent Firebase abuse
+class RateLimiter {
+  private callTimestamps: Map<string, number[]> = new Map();
+  private readonly windowMs: number;
+  private readonly maxCalls: number;
+
+  constructor(maxCalls: number = 10, windowMs: number = 60000) {
+    this.maxCalls = maxCalls;
+    this.windowMs = windowMs;
+  }
+
+  canProceed(key: string): boolean {
+    const now = Date.now();
+    const timestamps = this.callTimestamps.get(key) || [];
+    
+    // Remove old timestamps outside the window
+    const validTimestamps = timestamps.filter(ts => now - ts < this.windowMs);
+    
+    if (validTimestamps.length >= this.maxCalls) {
+      console.warn(`⚠️ Rate limit exceeded for ${key}. Please slow down.`);
+      return false;
+    }
+    
+    validTimestamps.push(now);
+    this.callTimestamps.set(key, validTimestamps);
+    return true;
+  }
+
+  reset(key: string): void {
+    this.callTimestamps.delete(key);
+  }
+}
+
+// Global rate limiters for different operations
+const firestoreWriteLimiter = new RateLimiter(30, 60000); // 30 writes per minute
+const firestoreReadLimiter = new RateLimiter(100, 60000); // 100 reads per minute
+const storageUploadLimiter = new RateLimiter(5, 60000); // 5 uploads per minute
+
+// Export for use in components
+export { firestoreWriteLimiter, firestoreReadLimiter, storageUploadLimiter };
+// ============ END OF ADDITION ============
 
 
+// ============ ADD ANALYTICS HELPERS HERE ============
+// 📊 Analytics Helper Functions
+import { logEvent, setUserProperties } from 'firebase/analytics';
+
+// Check if analytics is enabled
+const isAnalyticsEnabled = (): boolean => {
+  const consent = localStorage.getItem('data-consent');
+  if (!consent) return false;
+  
+  try {
+    const data = JSON.parse(consent);
+    return data.analytics === true;
+  } catch {
+    return false;
+  }
+};
+
+// Log analytics event (respects user consent)
+export const trackEvent = (eventName: string, params?: Record<string, any>) => {
+  if (!isAnalyticsEnabled() || !analytics) return;
+  
+  try {
+    logEvent(analytics, eventName, params);
+    console.log(`📊 Analytics: ${eventName}`, params);
+  } catch (error) {
+    console.error('Analytics error:', error);
+  }
+};
+
+// Set user properties
+export const setAnalyticsUserProperties = (properties: Record<string, any>) => {
+  if (!isAnalyticsEnabled() || !analytics) return;
+  
+  try {
+    setUserProperties(analytics, properties);
+  } catch (error) {
+    console.error('Analytics error:', error);
+  }
+};
+
+// Pre-defined event trackers
+export const Analytics = {
+  // User events
+  userSignedUp: () => trackEvent('sign_up', { method: 'email' }),
+  userLoggedIn: () => trackEvent('login', { method: 'email' }),
+  userLoggedOut: () => trackEvent('logout'),
+  
+  // Habit events
+  habitCreated: (habitType: string) => trackEvent('habit_created', { habit_type: habitType }),
+  habitCompleted: (habitId: string) => trackEvent('habit_completed', { habit_id: habitId }),
+  streakAchieved: (days: number) => trackEvent('streak_achieved', { days }),
+  
+  // Todo events
+  todoCreated: () => trackEvent('todo_created'),
+  todoCompleted: () => trackEvent('todo_completed'),
+  
+  // Finance events
+  expenseAdded: (amount: number, category: string) => 
+    trackEvent('expense_added', { value: amount, category }),
+  incomeAdded: (amount: number, source: string) => 
+    trackEvent('income_added', { value: amount, source }),
+  goalCreated: (targetAmount: number) => 
+    trackEvent('goal_created', { value: targetAmount }),
+  goalReached: (amount: number) => 
+    trackEvent('goal_reached', { value: amount }),
+  
+  // App events
+  themeChanged: (theme: string, accent: string) => 
+    trackEvent('theme_changed', { theme, accent }),
+  featureUsed: (featureName: string) => 
+    trackEvent('feature_used', { feature: featureName }),
+  errorOccurred: (errorMessage: string, component: string) => 
+    trackEvent('app_error', { error: errorMessage, component }),
+  
+  // Subscription events
+  subscriptionStarted: (tier: string, price: number) => 
+    trackEvent('subscription_started', { tier, value: price }),
+  subscriptionCanceled: (tier: string) => 
+    trackEvent('subscription_canceled', { tier }),
+};
+
+// Screen view tracking
+export const trackScreenView = (screenName: string) => {
+  if (!isAnalyticsEnabled() || !analytics) return;
+  
+  try {
+    logEvent(analytics, 'screen_view', {
+      firebase_screen: screenName,
+      firebase_screen_class: screenName
+    });
+  } catch (error) {
+    console.error('Analytics error:', error);
+  }
+};
+// ============ END OF ANALYTICS HELPERS ============
 
 const appId = firebaseConfig.appId;
 // --- Types & Constants ---
@@ -333,6 +788,238 @@ interface FinancialHealthScore {
   recommendations: string[];
   trend: 'improving' | 'stable' | 'declining';
 }
+interface AppState {
+  habits: Habit[];
+  todos: TodoItem[];
+  expenses: Expense[];
+  incomes: Income[];
+  recurringExpenses: RecurringExpense[];
+  debts: Debt[];
+  savingsGoals: SavingsGoal[];
+  settings: MoneySettings;
+  user: FirebaseUser | null;
+  isLoading: boolean;
+  lastSync: Date | null;
+}
+
+// 🧭 Navigation State
+interface NavigationState {
+  currentTab: 'dashboard' | 'habits' | 'todos' | 'finance' | 'analytics' | 'settings';
+  previousTab: NavigationState['currentTab'] | null;
+  history: NavigationState['currentTab'][];
+  canGoBack: boolean;
+}
+
+// 🎨 UI State Management
+interface UIState {
+  theme: Theme;
+  accent: Accent;
+  isDark: boolean;
+  isLoading: boolean;
+  error: ErrorState | null;
+  notification: NotificationState | null;
+  modal: ModalState | null;
+}
+
+interface ErrorState {
+  message: string;
+  code?: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  timestamp: Date;
+  dismissible: boolean;
+}
+
+interface NotificationState {
+  id: string;
+  message: string;
+  type: 'success' | 'error' | 'warning' | 'info';
+  duration?: number; // ms, undefined = stays until dismissed
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
+}
+
+interface ModalState {
+  type: 'confirm' | 'alert' | 'form' | 'custom';
+  title: string;
+  content: React.ReactNode;
+  onConfirm?: () => void;
+  onCancel?: () => void;
+  confirmText?: string;
+  cancelText?: string;
+}
+
+// 💳 Subscription & Monetization
+interface SubscriptionTier {
+  id: 'free' | 'pro' | 'premium';
+  name: string;
+  price: number;
+  billingPeriod: 'monthly' | 'yearly';
+  features: SubscriptionFeatures;
+  stripePriceId?: string; // For Stripe integration
+  appStoreSku?: string; // For App Store
+  playStoreSku?: string; // For Play Store
+}
+
+interface SubscriptionFeatures {
+  maxHabits: number;
+  maxGoals: number;
+  maxExpenses: number; // per month
+  analytics: boolean;
+  cloudBackup: boolean;
+  customThemes: boolean;
+  aiInsights: boolean;
+  exportData: boolean;
+  prioritySupport: boolean;
+}
+
+const SUBSCRIPTION_TIERS: Record<SubscriptionTier['id'], SubscriptionTier> = {
+  free: {
+    id: 'free',
+    name: 'Free',
+    price: 0,
+    billingPeriod: 'monthly',
+    features: {
+      maxHabits: 3,
+      maxGoals: 1,
+      maxExpenses: 50,
+      analytics: false,
+      cloudBackup: false,
+      customThemes: false,
+      aiInsights: false,
+      exportData: false,
+      prioritySupport: false,
+    }
+  },
+  pro: {
+    id: 'pro',
+    name: 'Pro',
+    price: 4.99,
+    billingPeriod: 'monthly',
+    features: {
+      maxHabits: 20,
+      maxGoals: 5,
+      maxExpenses: 500,
+      analytics: true,
+      cloudBackup: true,
+      customThemes: true,
+      aiInsights: false,
+      exportData: true,
+      prioritySupport: false,
+    },
+    stripePriceId: 'price_pro_monthly',
+    appStoreSku: 'com.habitflow.pro.monthly',
+    playStoreSku: 'pro_monthly'
+  },
+  premium: {
+    id: 'premium',
+    name: 'Premium',
+    price: 9.99,
+    billingPeriod: 'monthly',
+    features: {
+      maxHabits: Infinity,
+      maxGoals: Infinity,
+      maxExpenses: Infinity,
+      analytics: true,
+      cloudBackup: true,
+      customThemes: true,
+      aiInsights: true,
+      exportData: true,
+      prioritySupport: true,
+    },
+    stripePriceId: 'price_premium_monthly',
+    appStoreSku: 'com.habitflow.premium.monthly',
+    playStoreSku: 'premium_monthly'
+  }
+};
+
+// 🔐 Privacy & Data Consent
+interface DataPrivacyConsent {
+  analytics: boolean;
+  marketing: boolean;
+  essential: boolean; // Always true
+  timestamp: Date;
+  version: string; // Privacy policy version
+}
+
+// 📱 Platform Detection
+interface PlatformInfo {
+  os: 'ios' | 'android' | 'web' | 'desktop';
+  browser: string;
+  version: string;
+  isStandalone: boolean; // PWA installed
+  hasSafeArea: boolean; // Has notch/Dynamic Island
+  supportsHaptics: boolean;
+}
+
+// 🎯 Touch Target Constants (Apple HIG & Material Design)
+const TOUCH_TARGETS = {
+  MIN_SIZE_IOS: 44,      // Apple minimum
+  MIN_SIZE_ANDROID: 48,  // Material Design
+  RECOMMENDED: 56,       // Comfortable for all users
+  SPACING: 8,            // Minimum between touch targets
+  ICON_SIZE: 24,         // Standard icon size
+  ICON_SIZE_LARGE: 32,   // Large icons
+} as const;
+
+// 🎨 Theme System Constants
+const THEME_COLORS = {
+  pink: {
+    light: {
+      primary: '#ec4899',
+      primaryHover: '#db2777',
+      background: '#fdf2f8',
+      surface: '#ffffff',
+      text: '#1f2937',
+      textSecondary: '#6b7280',
+    },
+    dark: {
+      primary: '#ec4899',
+      primaryHover: '#f472b6',
+      background: '#18181b',
+      surface: '#27272a',
+      text: '#f9fafb',
+      textSecondary: '#9ca3af',
+    }
+  },
+  green: {
+    light: {
+      primary: '#10b981',
+      primaryHover: '#059669',
+      background: '#f0fdf4',
+      surface: '#ffffff',
+      text: '#1f2937',
+      textSecondary: '#6b7280',
+    },
+    dark: {
+      primary: '#10b981',
+      primaryHover: '#34d399',
+      background: '#18181b',
+      surface: '#27272a',
+      text: '#f9fafb',
+      textSecondary: '#9ca3af',
+    }
+  },
+  lgbt: {
+    light: {
+      primary: '#8b5cf6',
+      primaryHover: '#7c3aed',
+      background: '#faf5ff',
+      surface: '#ffffff',
+      text: '#1f2937',
+      textSecondary: '#6b7280',
+    },
+    dark: {
+      primary: '#8b5cf6',
+      primaryHover: '#a78bfa',
+      background: '#18181b',
+      surface: '#27272a',
+      text: '#f9fafb',
+      textSecondary: '#9ca3af',
+    }
+  }
+} as const;
 interface Achievement {
   id: string;
   title: string;
@@ -411,37 +1098,348 @@ interface HabitThemeData {
 
 
 
-// --- Theme Context ---
+// ============ REPLACE ENTIRE ThemeContext SECTION ============
 type Theme = 'light' | 'dark';
-type Accent = 'pink' | 'green' | 'lgbt'; // Added lgbt
+type Accent = 'pink' | 'green' | 'lgbt';
 
-
-
-
-interface ThemeContextType {
+interface ThemeContextValue {
   theme: Theme;
   toggleTheme: () => void;
   accent: Accent;
   toggleAccent: () => void;
+  isDark: boolean; // Pre-computed for performance
+  accentColor: string; // Pre-computed hex color
+  themeColors: {
+    primary: string;
+    primaryHover: string;
+    background: string;
+    surface: string;
+    text: string;
+    textSecondary: string;
+  };
 }
 
+const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
+// 🎨 Memoized Theme Provider for performance
+const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [theme, setTheme] = useState<Theme>(() => {
+    // Initialize from localStorage
+    const saved = localStorage.getItem('app-theme');
+    return (saved === 'dark' || saved === 'light') ? saved : 'light';
+  });
+  
+  const [accent, setAccent] = useState<Accent>(() => {
+    // Initialize from localStorage
+    const saved = localStorage.getItem('app-accent');
+    return (saved === 'pink' || saved === 'green' || saved === 'lgbt') ? saved : 'pink';
+  });
+  
+  // Persist theme changes
+  useEffect(() => {
+    localStorage.setItem('app-theme', theme);
+    // Update document class for Tailwind dark mode
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [theme]);
+  
+  // Persist accent changes
+  useEffect(() => {
+    localStorage.setItem('app-accent', accent);
+  }, [accent]);
+  
+  // Memoize the context value to prevent unnecessary re-renders
+  const value = useMemo<ThemeContextValue>(() => {
+    const isDark = theme === 'dark';
+    const currentColors = THEME_COLORS[accent][theme];
+    
+    return {
+      theme,
+      toggleTheme: () => setTheme(prev => prev === 'light' ? 'dark' : 'light'),
+      accent,
+      toggleAccent: () => setAccent(prev => {
+        if (prev === 'pink') return 'green';
+        if (prev === 'green') return 'lgbt';
+        return 'pink';
+      }),
+      isDark,
+      accentColor: currentColors.primary,
+      themeColors: currentColors
+    };
+  }, [theme, accent]);
+  
+  return (
+    <ThemeContext.Provider value={value}>
+      {children}
+    </ThemeContext.Provider>
+  );
+};
 
+// Custom hook with error handling
+const useTheme = (): ThemeContextValue => {
+  const context = useContext(ThemeContext);
+  if (!context) {
+    throw new Error('useTheme must be used within ThemeProvider');
+  }
+  return context;
+};
+// ============ END OF THEME CONTEXT REPLACEMENT ============
 
-const ThemeContext = createContext<ThemeContextType>({ 
-  theme: 'light', 
-  toggleTheme: () => {}, 
-  accent: 'pink', 
-  toggleAccent: () => {} 
-});
+// ============ ADD ERROR BOUNDARY HERE ============
+// 🚨 Error Boundary Component
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+  fallback?: React.ReactNode;
+}
 
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+  errorInfo: React.ErrorInfo | null;
+}
 
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = {
+      hasError: false,
+      error: null,
+      errorInfo: null
+    };
+  }
+  
+  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
+    return {
+      hasError: true,
+      error
+    };
+  }
+  
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
+    // Log to Firebase Analytics
+    console.error('💥 App Error Caught:', error);
+    console.error('Error Info:', errorInfo);
+    
+    // Log to Firebase if available
+    if (typeof analytics !== 'undefined' && analytics) {
+      try {
+        // Import logEvent from firebase/analytics
+        import('firebase/analytics').then(({ logEvent }) => {
+          logEvent(analytics, 'app_error', {
+            error_message: error.message,
+            error_stack: error.stack?.substring(0, 500),
+            component_stack: errorInfo.componentStack?.substring(0, 500)
+          });
+        });
+      } catch (e) {
+        console.error('Failed to log error to analytics:', e);
+      }
+    }
+    
+    this.setState({
+      errorInfo
+    });
+  }
+  
+  handleReset = (): void => {
+    this.setState({
+      hasError: false,
+      error: null,
+      errorInfo: null
+    });
+    
+    // Reload the page
+    window.location.reload();
+  };
+  
+  render(): React.ReactNode {
+    if (this.state.hasError) {
+      // Custom fallback UI
+      if (this.props.fallback) {
+        return this.props.fallback;
+      }
+      
+      // Default error UI
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-4">
+          <div className="max-w-md w-full bg-white dark:bg-slate-800 rounded-3xl shadow-2xl p-8 text-center">
+            <div className="w-20 h-20 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg className="w-10 h-10 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-3">
+              Oops! Something went wrong
+            </h1>
+            
+            <p className="text-slate-600 dark:text-slate-400 mb-2">
+              We encountered an unexpected error. Don't worry, your data is safe.
+            </p>
+            
+            {this.state.error && (
+              <details className="mt-4 mb-6 text-left">
+                <summary className="cursor-pointer text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+                  Technical details
+                </summary>
+                <div className="mt-2 p-3 bg-slate-100 dark:bg-slate-900 rounded-lg text-xs font-mono text-red-600 dark:text-red-400 overflow-auto max-h-32">
+                  {this.state.error.message}
+                </div>
+              </details>
+            )}
+            
+            <button
+              onClick={this.handleReset}
+              className="w-full px-6 py-4 bg-gradient-to-r from-pink-600 to-pink-700 hover:from-pink-700 hover:to-pink-800 text-white font-bold rounded-2xl transition-all active:scale-95 shadow-lg shadow-pink-500/30"
+            >
+              Reload App
+            </button>
+            
+            <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">
+              If this keeps happening, please contact support
+            </p>
+          </div>
+        </div>
+      );
+    }
+    
+    return this.props.children;
+  }
+}
+// ============ END OF ERROR BOUNDARY ============
 
+// ============ ADD DATA CONSENT BANNER HERE ============
+// 🍪 GDPR/CCPA Consent Banner Component
+interface ConsentBannerProps {
+  onAccept: () => void;
+}
 
-const useTheme = () => useContext(ThemeContext);
-
-
-
+const ConsentBanner: React.FC<ConsentBannerProps> = ({ onAccept }) => {
+  const { isDark, accent } = useTheme();
+  const [showBanner, setShowBanner] = useState(false);
+  
+  useEffect(() => {
+    // Check if user has already consented
+    const consent = localStorage.getItem('data-consent');
+    if (!consent) {
+      // Show banner after 2 seconds (better UX)
+      const timer = setTimeout(() => {
+        setShowBanner(true);
+      }, 2000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, []);
+  
+  const handleAccept = () => {
+    const consentData = {
+      analytics: true,
+      marketing: false,
+      essential: true,
+      timestamp: new Date().toISOString(),
+      version: '1.0'
+    };
+    
+    localStorage.setItem('data-consent', JSON.stringify(consentData));
+    setShowBanner(false);
+    onAccept();
+  };
+  
+  const handleDeclineAnalytics = () => {
+    const consentData = {
+      analytics: false,
+      marketing: false,
+      essential: true,
+      timestamp: new Date().toISOString(),
+      version: '1.0'
+    };
+    
+    localStorage.setItem('data-consent', JSON.stringify(consentData));
+    setShowBanner(false);
+    onAccept();
+  };
+  
+  if (!showBanner) return null;
+  
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-50 animate-slide-up">
+      <div className={`
+        p-4 md:p-6
+        ${isDark ? 'bg-slate-900 border-t-2 border-slate-800' : 'bg-white border-t-2 border-slate-200'}
+        shadow-2xl
+      `}>
+        <div className="max-w-4xl mx-auto">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            {/* Content */}
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-2xl">🍪</span>
+                <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  We Value Your Privacy
+                </h3>
+              </div>
+              <p className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'} mb-2`}>
+                We use essential cookies to make our app work, and optional analytics to improve your experience. 
+                We <strong>never</strong> sell your data.
+              </p>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <a 
+                  href="/privacy-policy.html" 
+                  target="_blank"
+                  className={`underline ${isDark ? 'text-pink-400 hover:text-pink-300' : 'text-pink-600 hover:text-pink-700'}`}
+                >
+                  Privacy Policy
+                </a>
+                <span className={isDark ? 'text-slate-600' : 'text-slate-400'}>•</span>
+                <a 
+                  href="/terms-of-service.html" 
+                  target="_blank"
+                  className={`underline ${isDark ? 'text-pink-400 hover:text-pink-300' : 'text-pink-600 hover:text-pink-700'}`}
+                >
+                  Terms of Service
+                </a>
+              </div>
+            </div>
+            
+            {/* Actions */}
+            <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+              <button
+                onClick={handleDeclineAnalytics}
+                className={`
+                  px-6 py-3 rounded-xl font-semibold transition-all
+                  ${isDark 
+                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' 
+                    : 'bg-slate-200 hover:bg-slate-300 text-slate-700'}
+                  active:scale-95
+                `}
+              >
+                Essential Only
+              </button>
+              <button
+                onClick={handleAccept}
+                className={`
+                  px-6 py-3 rounded-xl font-semibold text-white transition-all shadow-lg
+                  ${accent === 'green'
+                    ? 'bg-green-600 hover:bg-green-700 shadow-green-500/30'
+                    : accent === 'lgbt'
+                    ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-500/30'
+                    : 'bg-pink-600 hover:bg-pink-700 shadow-pink-500/30'}
+                  active:scale-95
+                `}
+              >
+                Accept All
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+// ============ END OF CONSENT BANNER ============
 
 // Icon Options
 const HABIT_ICONS: HabitIcon[] = [
@@ -6187,28 +7185,32 @@ const [addingHabit, setAddingHabit] = useState(false);
 
 
   const handleUpdateBudget = async (category: string, limit: number) => {
-    if (!user) return;
+  if (!user) return;
+  
+  try {
+    const updatedBudgets = { ...categoryBudgets, [category]: limit };
+    setCategoryBudgets(updatedBudgets);
     
-    try {
-      const updatedBudgets = { ...categoryBudgets, [category]: limit };
-      setCategoryBudgets(updatedBudgets);
-      
-      await setDoc(doc(db, `users/${user.uid}/settings/budgets`), updatedBudgets);
-      
-      setToast({ 
-        id: Date.now().toString(), 
-        message: 'Budget updated!', 
-        type: 'success' 
-      });
-    } catch (error) {
-      console.error("Error updating budget:", error);
-      setToast({ 
-        id: Date.now().toString(), 
-        message: 'Failed to update budget.', 
-        type: 'error' 
-      });
-    }
-  };
+    // ✅ FIX: Wrap budgets in 'categories' object
+    await setDoc(doc(db, `users/${user.uid}/settings/budgets`), {
+      categories: updatedBudgets,  // ← ADD THIS LINE
+      updatedAt: serverTimestamp()
+    });
+    
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Budget updated!', 
+      type: 'success' 
+    });
+  } catch (error) {
+    console.error("Error updating budget:", error);
+    setToast({ 
+      id: Date.now().toString(), 
+      message: 'Failed to update budget.', 
+      type: 'error' 
+    });
+  }
+};
   
   // 👇 ADD FROM HERE
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -6313,9 +7315,10 @@ useEffect(() => {
     const budgetRef = doc(db, `users/${user.uid}/settings/budgets`);
     const budgetSnap = await getDoc(budgetRef);
     
-    if (budgetSnap.exists()) {
-      setCategoryBudgets(budgetSnap.data() as Record<string, number>);
-    }
+   if (budgetSnap.exists()) {
+  const data = budgetSnap.data();
+  setCategoryBudgets(data.categories || data); // Handle both formats
+}
   };
   
   loadBudgets();
@@ -11291,10 +12294,13 @@ const OnboardingFlow = ({
 const PWAInstallPrompt = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstall, setShowInstall] = useState(false);
-  const { theme, accent } = useTheme();
-  const isDark = theme === 'dark';
+  const { theme, accent, isDark } = useTheme(); // Use isDark from context
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
+  
+  // Add platform detection hooks
+  const platformInfo = usePlatformInfo();
+  const safeArea = useSafeArea();
 
 
 
@@ -11351,165 +12357,265 @@ const PWAInstallPrompt = () => {
 
 
 
+ 
+
+
+
+
+ // ============ REPLACE PWA PROMPT RETURN STATEMENT ============
   if (!showInstall) return null;
 
-
-
-
   return (
-    <div className="fixed bottom-6 left-4 right-4 z-50 animate-slide-up max-w-md mx-auto">
-      <div className={`p-4 rounded-2xl shadow-2xl flex items-center justify-between backdrop-blur-xl border-2 ${
-        isDark 
-          ? (isGreen ? 'bg-green-900/90 border-green-700' : isLgbt ? 'bg-gradient-to-r from-red-900/90 to-blue-900/90 border-indigo-700' : 'bg-pink-900/90 border-pink-700')
-          : (isGreen ? 'bg-green-600 border-green-500' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-600 border-indigo-400' : 'bg-pink-600 border-pink-500')
-      } text-white`}>
+    <div 
+      className="fixed bottom-6 left-4 right-4 z-50 animate-slide-up max-w-md mx-auto"
+      style={{
+        bottom: `${24 + (platformInfo?.hasSafeArea ? safeArea?.bottom || 0 : 0)}px`
+      }}
+    >
+      <div className={`
+        p-4 rounded-2xl shadow-2xl 
+        flex items-center justify-between 
+        backdrop-blur-xl border-2 
+        ${isDark 
+          ? isGreen 
+            ? 'bg-green-900/95 border-green-600' 
+            : isLgbt 
+              ? 'bg-slate-900/95 border-purple-600'
+              : 'bg-pink-900/95 border-pink-600'
+          : isGreen 
+            ? 'bg-green-700 border-green-500' 
+            : isLgbt 
+              ? 'bg-purple-700 border-purple-500'
+              : 'bg-pink-700 border-pink-500'
+        }
+        text-white
+      `}>
         <div className="flex items-center gap-3 flex-1">
-          <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
-            <TrendingUp className="w-6 h-6" />
+          <div className={`
+            w-12 h-12 rounded-xl flex items-center justify-center
+            ${isDark ? 'bg-white/20' : 'bg-white/30'}
+          `}>
+            <Download className="w-6 h-6" />
           </div>
           <div>
             <p className="font-bold text-lg">Install HabitFlow</p>
             <p className="text-sm opacity-90">Quick access from your home screen!</p>
           </div>
         </div>
+        
         <div className="flex gap-2">
-          <button
+          <TouchButton
             onClick={handleInstall}
-            className={`px-4 py-2 rounded-xl font-bold transition ${
-              isDark ? 'bg-white text-slate-900 hover:bg-slate-100' : 'bg-white/90 text-slate-900 hover:bg-white'
-            }`}
+            variant="secondary"
+            size="sm"
+            className="!bg-white !text-slate-900 hover:!bg-slate-100"
           >
             Install
-          </button>
-          <button
+          </TouchButton>
+          
+          <IconButton
+            icon={X}
             onClick={handleDismiss}
-            className="p-2 hover:bg-white/20 rounded-lg transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+            label="Dismiss install prompt"
+            variant="ghost"
+            className="!text-white hover:!bg-white/20"
+          />
         </div>
       </div>
     </div>
   );
 };
+// ============ END OF PWA PROMPT REPLACEMENT ============
 
 
 
+// ============ REPLACE ENTIRE APP COMPONENT ============
 
-const App = () => {
+
+// 📊 Loading Screen Component
+const LoadingScreen: React.FC = () => {
+  const { accent, isDark } = useTheme();
+  
+  const bgClass = isDark
+    ? 'bg-slate-900'
+    : accent === 'green' 
+      ? 'bg-green-50' 
+      : accent === 'lgbt' 
+        ? 'bg-gradient-to-br from-purple-50 to-pink-50' 
+        : 'bg-pink-50';
+  
+  const spinnerClass = isDark
+    ? accent === 'green'
+      ? 'bg-green-500'
+      : accent === 'lgbt'
+        ? 'bg-gradient-to-br from-purple-500 to-pink-500'
+        : 'bg-pink-500'
+    : accent === 'green'
+      ? 'bg-green-600'
+      : accent === 'lgbt'
+        ? 'bg-gradient-to-br from-purple-600 to-pink-600'
+        : 'bg-pink-600';
+  
+  return (
+    <div className={`min-h-screen flex items-center justify-center ${bgClass}`}>
+      <div className="flex flex-col items-center">
+        <div className={`w-16 h-16 rounded-2xl animate-spin mb-4 shadow-lg ${spinnerClass}`} />
+        <p className={`font-bold text-lg animate-pulse ${
+          isDark ? 'text-slate-100' : 
+          accent === 'green' ? 'text-green-900' : 
+          accent === 'lgbt' ? 'text-purple-900' : 
+          'text-pink-900'
+        }`}>
+          Loading HabitFlow...
+        </p>
+        <p className={`text-sm mt-2 ${
+          isDark ? 'text-slate-400' : 'text-slate-600'
+        }`}>
+          Please wait while we prepare your experience
+        </p>
+      </div>
+    </div>
+  );
+};
+
+// 🎯 Main App Component
+const App: React.FC = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<'landing' | 'welcome' | 'dashboard'>('landing');
-  const [theme, setTheme] = useState<Theme>('light');
-  const [accent, setAccent] = useState<Accent>('pink');
-
-
-
-
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'light' ? 'dark' : 'light');
-  };
-
-
-
-
-  const toggleAccent = () => {
-    setAccent(prev => {
-        if (prev === 'pink') return 'green';
-        if (prev === 'green') return 'lgbt';
-        return 'pink';
-    });
-  };
-
-
-
-
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(false); // ADD THIS LINE
+  
+  // Platform detection
+  const platformInfo = usePlatformInfo();
+  const safeArea = useSafeArea();
+  const haptics = useHaptics();
+  
+  // Memoize logout callback
+  const handleLogout = useCallback(async () => {
+    try {
+      haptics.medium(); // Haptic feedback
+      await signOut(auth);
+      setView('landing');
+      setUser(null);
+    } catch (error) {
+      console.error('❌ Logout error:', error);
+      haptics.error();
+    }
+  }, [haptics]);
+  
+  // Auth state management
   useEffect(() => {
+    if (!auth) {
+      console.warn('⚠️ Firebase Auth not initialized');
+      setAuthLoading(false);
+      return;
+    }
+    
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      console.log('🔐 Auth state changed:', currentUser ? 'Logged in' : 'Logged out');
+      
       if (currentUser) {
         setUser(currentUser);
         setView('dashboard');
       } else {
         setUser(null);
-        if (view === 'dashboard') setView('landing');
+        if (view === 'dashboard') {
+          setView('landing');
+        }
       }
+      
       setAuthLoading(false);
     });
-
-
-
-
+    
+    // Custom token sign-in (for SSO or special auth flows)
     const initAuth = async () => {
-        const initialToken = (window as any).__initial_auth_token;
-        if (initialToken) {
-          try {
-            await signInWithCustomToken(auth, initialToken);
-          } catch (e) {
-            console.error("Custom token failed", e);
-          }
+      const initialToken = (window as any).__initial_auth_token;
+      if (initialToken) {
+        try {
+          console.log('🎫 Attempting custom token sign-in...');
+          await signInWithCustomToken(auth, initialToken);
+          console.log('✅ Custom token sign-in successful');
+        } catch (e) {
+          console.error('❌ Custom token sign-in failed:', e);
         }
+      }
     };
+    
     initAuth();
-
-
-
-
+    
     return () => unsubscribe();
   }, [view]);
-
-
-
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
+  
+  // Android back button handler
+  useAndroidBackButton(() => {
+    if (view === 'welcome') {
       setView('landing');
-    } catch (error) {
-      console.error('Logout error:', error);
+    } else if (view === 'dashboard') {
+      // Show confirmation before exiting
+      if (window.confirm('Are you sure you want to exit?')) {
+        handleLogout();
+      }
     }
-  };
-
-
-
-
-  if (authLoading) {
-    return (
-      <div className={`min-h-screen flex items-center justify-center ${accent === 'green' ? 'bg-green-50' : accent === 'lgbt' ? 'bg-rainbow-light' : 'bg-pink-50'}`}>
-        <div className="flex flex-col items-center">
-          <div className={`w-16 h-16 rounded-2xl animate-spin mb-4 shadow-lg ${accent === 'green' ? 'bg-green-600 shadow-green-200' : accent === 'lgbt' ? 'bg-gradient-to-br from-red-500 to-blue-500 shadow-indigo-200' : 'bg-pink-600 shadow-pink-200'}`}></div>
-          <p className={`font-bold animate-pulse ${accent === 'green' ? 'text-green-900' : accent === 'lgbt' ? 'text-indigo-900' : 'text-pink-900'}`}>Loading HabitFlow...</p>
-        </div>
-      </div>
-    );
-  }
-
-
-
-
-  const renderView = () => {
+  });
+  
+  // Memoize view rendering to prevent unnecessary re-renders
+  const renderedView = useMemo(() => {
+    if (authLoading) {
+      return <LoadingScreen />;
+    }
+    
     if (view === 'dashboard' && user) {
       return <Dashboard user={user} onLogout={handleLogout} />;
     }
+    
     if (view === 'welcome') {
       return <WelcomePage onSuccess={() => setView('dashboard')} />;
     }
+    
     return <LandingPage onGetStarted={() => setView('welcome')} />;
+  }, [authLoading, view, user, handleLogout]);
+  
+  // Apply safe area padding for iOS devices
+  const containerStyle: React.CSSProperties = platformInfo.hasSafeArea ? {
+    paddingTop: `${safeArea.top}px`,
+    paddingBottom: `${safeArea.bottom}px`,
+    paddingLeft: `${safeArea.left}px`,
+    paddingRight: `${safeArea.right}px`,
+  } : {};
+
+  // Handle consent acceptance
+  const handleConsent = () => {
+    const consent = localStorage.getItem('data-consent');
+    if (consent) {
+      const data = JSON.parse(consent);
+      setAnalyticsEnabled(data.analytics);
+      
+      // Initialize analytics if consented
+      if (data.analytics && analytics) {
+        import('firebase/analytics').then(({ setAnalyticsCollectionEnabled }) => {
+          setAnalyticsCollectionEnabled(analytics, true);
+          console.log('✅ Analytics enabled');
+        });
+      }
+    }
   };
-
-
-
-
+  
+  
+  
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, accent, toggleAccent }}>
-      <div className={theme}>
-        <PWAInstallPrompt />
-        {renderView()}
-      </div>
-    </ThemeContext.Provider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <div style={containerStyle} className="min-h-screen">
+          <Suspense fallback={<LoadingScreen />}>
+            <ConsentBanner onAccept={handleConsent} />
+            <PWAInstallPrompt />
+            {renderedView}
+          </Suspense>
+        </div>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 };
 
-
-
-
 export default App;
+// ============ END OF APP COMPONENT REPLACEMENT ============

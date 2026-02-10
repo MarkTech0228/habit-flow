@@ -1,5 +1,5 @@
 import React from 'react';
-import HabitCard from './HabitCard1';
+import HabitCard from './HabitCard';
 
 interface Habit {
   id: string;
