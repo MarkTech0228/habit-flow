@@ -1,36 +1,16 @@
-import { useState, useEffect } from 'react';
+// src/hooks/useTheme.ts
+// Moved from App.tsx lines 1221–1243
+// Exports the context object and the useTheme hook.
+// The ThemeProvider lives in src/components/ui/ThemeProvider.tsx.
+import { createContext, useContext } from 'react';
+import type { ThemeContextValue } from '../types';
 
-type Theme = 'light' | 'dark';
-type Accent = 'pink' | 'green' | 'lgbt';
+export const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 
-export const useTheme = () => {
-  const [theme, setTheme] = useState<Theme>('light');
-  const [accent, setAccent] = useState<Accent>('pink');
-
-  useEffect(() => {
-    // Load theme from localStorage
-    const savedTheme = localStorage.getItem('theme') as Theme;
-    const savedAccent = localStorage.getItem('accent') as Accent;
-    
-    if (savedTheme) setTheme(savedTheme);
-    if (savedAccent) setAccent(savedAccent);
-
-    // Check system preference if no saved theme
-    if (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      setTheme('dark');
-    }
-  }, []);
-
-  const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light';
-    setTheme(newTheme);
-    localStorage.setItem('theme', newTheme);
-  };
-
-  const changeAccent = (newAccent: Accent) => {
-    setAccent(newAccent);
-    localStorage.setItem('accent', newAccent);
-  };
-
-  return { theme, accent, toggleTheme, changeAccent };
+export const useTheme = (): ThemeContextValue => {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) {
+    throw new Error('useTheme must be used inside <ThemeProvider>');
+  }
+  return ctx;
 };

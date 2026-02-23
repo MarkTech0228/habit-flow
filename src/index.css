@@ -149,3 +149,64 @@ body {
     transform: translate(-50%, -20px); 
   }
 }
+/* Skeleton shimmer animation */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #e2e8f0 25%,
+    #f1f5f9 50%,
+    #e2e8f0 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.dark .skeleton {
+  background: linear-gradient(
+    90deg,
+    #1e293b 25%,
+    #334155 50%,
+    #1e293b 75%
+  );
+  background-size: 200% 100%;
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+@keyframes firework {
+  0% {
+    transform: translate(0, 0) scale(0);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(var(--x, 0), var(--y, 0)) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--x, 0), var(--y, 0)) scale(0);
+    opacity: 0;
+  }
+}
+
+.animate-firework {
+  --x: calc((random() - 0.5) * 200px);
+  --y: calc((random() - 0.5) * 200px);
+  animation: firework 2s ease-out forwards;
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.4s ease-out;
+}

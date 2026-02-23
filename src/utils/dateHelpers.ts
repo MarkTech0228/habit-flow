@@ -1,138 +1,131 @@
-/**
- * Get today's date in YYYY-MM-DD format
- */
+// src/utils/dateHelpers.ts
+// Moved from App.tsx lines 2311–2499
+
+// ── Date string helpers ────────────────────────────────────
 export const getTodayString = (): string => {
-  return new Date().toISOString().split('T')[0];
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+export const getYesterdayString = (): string => {
+  const d = new Date(Date.now() - 86_400_000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
-/**
- * Format date to readable string
- */
-export const formatDate = (date: string | Date): string => {
-  const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
+// ── Streak calculator ──────────────────────────────────────
+export const calculateStreak = (completedDates: string[]): number => {
+  if (!completedDates || completedDates.length === 0) return 0;
+
+  const sortedDates = [...completedDates]
+    .map(dateStr => {
+      const [year, month, day] = dateStr.split('-');
+      return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    })
+    .sort((a, b) => b.getTime() - a.getTime());
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const mostRecent = sortedDates[0];
+  mostRecent.setHours(0, 0, 0, 0);
+
+  if (
+    mostRecent.getTime() !== today.getTime() &&
+    mostRecent.getTime() !== yesterday.getTime()
+  ) {
+    return 0;
+  }
+
+  let streak = 1;
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+
+  for (let i = 1; i < sortedDates.length; i++) {
+    const curr = new Date(sortedDates[i]);
+    curr.setHours(0, 0, 0, 0);
+    const prev = new Date(sortedDates[i - 1]);
+    prev.setHours(0, 0, 0, 0);
+    if (Math.round((prev.getTime() - curr.getTime()) / ONE_DAY) === 1) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+};
+
+// ── Last 7 days ────────────────────────────────────────────
+export const getLast7Days = (): Array<{ date: string; label: string }> => {
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const date = new Date(Date.now() - i * 86_400_000);
+    days.push({
+      date: date.toISOString().split('T')[0],
+      label:
+        i === 0
+          ? 'Today'
+          : i === 1
+          ? 'Yesterday'
+          : date.toLocaleDateString('en-US', { weekday: 'short' }),
+    });
+  }
+  return days;
+};
+
+// ── Current week (Sun–Sat) ─────────────────────────────────
+export const getCurrentWeekDays = (): Array<{
+  date: string;
+  label: string;
+  isToday: boolean;
+}> => {
+  const now      = new Date();
+  const todayStr = getTodayString();
+  const startOfWeek = new Date(now);
+  startOfWeek.setUTCDate(now.getUTCDate() - now.getDay());
+
+  const labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(startOfWeek);
+    d.setUTCDate(startOfWeek.getUTCDate() + i);
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { date: dateStr, label: labels[i], isToday: dateStr === todayStr };
   });
 };
 
+// ── Notification scheduler ─────────────────────────────────
+import type { Habit } from '../types';
 
-/**
- * Format date to relative string (e.g., "Today", "Yesterday", "2 days ago")
- */
-export const formatRelativeDate = (date: string | Date): string => {
-  const d = typeof date === 'string' ? new Date(date) : date;
-  const today = new Date();
-  const diffTime = today.getTime() - d.getTime();
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+export const scheduleNotification = (
+  habit: Habit
+): ReturnType<typeof setTimeout> | null => {
+  if (!habit.reminderEnabled || !habit.reminderTime) return null;
+  if (!('Notification' in window) || Notification.permission !== 'granted') return null;
 
+  const [hours, minutes] = habit.reminderTime.split(':');
+  const now           = new Date();
+  const scheduledTime = new Date();
+  scheduledTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
 
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays} days ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
-  return `${Math.floor(diffDays / 365)} years ago`;
-};
-
-
-/**
- * Get start of week (Monday)
- */
-export const getStartOfWeek = (date: Date = new Date()): Date => {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(d.setDate(diff));
-};
-
-
-/**
- * Get end of week (Sunday)
- */
-export const getEndOfWeek = (date: Date = new Date()): Date => {
-  const start = getStartOfWeek(date);
-  return new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000);
-};
-
-
-/**
- * Get start of month
- */
-export const getStartOfMonth = (date: Date = new Date()): Date => {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-};
-
-
-/**
- * Get end of month
- */
-export const getEndOfMonth = (date: Date = new Date()): Date => {
-  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
-};
-
-
-/**
- * Check if two dates are the same day
- */
-export const isSameDay = (date1: Date | string, date2: Date | string): boolean => {
-  const d1 = typeof date1 === 'string' ? new Date(date1) : date1;
-  const d2 = typeof date2 === 'string' ? new Date(date2) : date2;
- 
-  return (
-    d1.getFullYear() === d2.getFullYear() &&
-    d1.getMonth() === d2.getMonth() &&
-    d1.getDate() === d2.getDate()
-  );
-};
-
-
-/**
- * Get days between two dates
- */
-export const getDaysBetween = (date1: Date | string, date2: Date | string): number => {
-  const d1 = typeof date1 === 'string' ? new Date(date1) : date1;
-  const d2 = typeof date2 === 'string' ? new Date(date2) : date2;
- 
-  const diffTime = Math.abs(d2.getTime() - d1.getTime());
-  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-};
-
-
-/**
- * Get array of dates between two dates
- */
-export const getDateRange = (start: Date | string, end: Date | string): string[] => {
-  const startDate = typeof start === 'string' ? new Date(start) : start;
-  const endDate = typeof end === 'string' ? new Date(end) : end;
-  const dates: string[] = [];
- 
-  const currentDate = new Date(startDate);
- 
-  while (currentDate <= endDate) {
-    dates.push(currentDate.toISOString().split('T')[0]);
-    currentDate.setDate(currentDate.getDate() + 1);
+  if (scheduledTime <= now) {
+    scheduledTime.setDate(scheduledTime.getDate() + 1);
   }
- 
-  return dates;
+
+  return setTimeout(() => {
+    const today       = getTodayString();
+    const isCompleted = habit.completedDates?.includes(today);
+    if (!isCompleted) {
+      new Notification(`⏰ Time for: ${habit.title}`, {
+        body: habit.streak > 0
+          ? `You're on a ${habit.streak}-day streak! Don't break it today!`
+          : "Let's build this habit together!",
+        icon:             '/icon-192.png',
+        badge:            '/icon-192.png',
+        tag:              habit.id,
+        requireInteraction: false,
+      });
+    }
+  }, scheduledTime.getTime() - now.getTime());
 };
-
-
-/**
- * Get last N days as array of date strings
- */
-export const getLastNDays = (n: number): string[] => {
-  const dates: string[] = [];
-  const today = new Date();
- 
-  for (let i = n - 1; i >= 0; i--) {
-    const date = new Date(today);
-    date.setDate(date.getDate() - i);
-    dates.push(date.toISOString().split('T')[0]);
-  }
- 
-  return dates;
-};
-

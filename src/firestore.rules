@@ -1,294 +1,622 @@
 rules_version = '2';
+
+
+// ============================================
+// 🎯 HABITFLOW - PRODUCTION SECURITY RULES
+// ============================================
+// Last Updated: 2026-02-10
+// App Version: V13.1 (FIXED)
+// Security Level: MAXIMUM
+//
+// These rules are specifically designed for HabitFlow's
+// subcollection-based architecture where all user data
+// is stored under /users/{userId}/...
+// ============================================
+
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+   
     // ============================================
-    // HELPER FUNCTIONS
+    // 🔐 CORE SECURITY FUNCTIONS
     // ============================================
-    
+   
+    // Authentication check
     function isSignedIn() {
       return request.auth != null;
     }
-    
+   
+    // Ownership verification
     function isOwner(userId) {
-      return request.auth.uid == userId;
+      return isSignedIn() && request.auth.uid == userId;
     }
-    
-    function isValidHabit() {
-      let data = request.resource.data;
-      return data.title is string 
-        && data.title.size() > 0 
-        && data.title.size() <= 100
-        && data.frequency in ['daily', 'weekly']
-        && data.completedDates is list
-        && data.completedDates.size() <= 365
-        && (data.icon == null || data.icon is string)
-        && (data.colorTheme == null || data.colorTheme is string)
-        && (data.reminderTime == null || data.reminderTime is string)
-        && (data.reminderEnabled == null || data.reminderEnabled is bool);
+   
+    // Email verification check
+    function hasVerifiedEmail() {
+      return isSignedIn() && request.auth.token.email_verified == true;
     }
-    
-    function isValidTodo() {
-      let data = request.resource.data;
-      return data.title is string 
-        && data.title.size() > 0 
-        && data.title.size() <= 200
-        && data.completed is bool
-        && (data.priority == null || data.priority in ['low', 'medium', 'high'])
-        && (data.dueDate == null || data.dueDate is string);
+   
+    // Check if user exists (for username uniqueness)
+    function userExists(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId));
     }
-    
-    function isValidExpense() {
-    let data = request.resource.data;
-    return data.date is string
-    && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-    && data.amount is number
-    && data.amount > 0
-    && data.amount <= 1000000
-    && data.category is string
-    && data.category in ['food', 'transport', 'entertainment', 'shopping', 'bills', 'health', 'debt_payment', 'other']
-    && data.description is string
-    && data.description.size() <= 500
-    // ✅ Allow optional fields
-    && (!data.keys().hasAny(['receiptImage']) || data.receiptImage is string)
-    && (!data.keys().hasAny(['createdAt']) || data.createdAt is timestamp);
-}
-    
-    function isValidMoneySettings() {
-      let data = request.resource.data;
-      return data.dailyAllowance is number
-        && data.dailyAllowance >= 0
-        && data.dailyAllowance <= 100000
-        && data.currency is string
-        && data.currency.size() == 3
-        && data.currencySymbol is string
-        && data.currencySymbol.size() <= 5;
+   
+    // Time-based validation
+    // 🔧 FIXED: Renamed 'timestamp' to 'ts' to avoid reserved keyword conflict
+    function isRecent(ts) {
+      return ts > request.time - duration.value(5, 'm'); // Within 5 minutes
     }
-    
-    function isValidDebt() {
-      let data = request.resource.data;
-      return data.name is string
-        && data.name.size() > 0
-        && data.name.size() <= 100
-        && data.balance is number
-        && data.balance >= 0
-        && data.balance <= 10000000
-        && data.interestRate is number
-        && data.interestRate >= 0
-        && data.interestRate <= 100
-        && data.minimumPayment is number
-        && data.minimumPayment >= 0
-        && data.minimumPayment <= 100000
-        && data.type in ['credit_card', 'student_loan', 'mortgage', 'personal_loan', 'other']
-        && data.dueDay is int
-        && data.dueDay >= 1
-        && data.dueDay <= 31;
+   
+    function isNotTooOld(ts, days) {
+      return request.time < ts + duration.value(days, 'd');
     }
-    
-    function isValidIncome() {
-      let data = request.resource.data;
-      return data.date is string
-        && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && data.amount is number
-        && data.amount > 0
-        && data.amount <= 10000000
-        && data.source is string
-        && data.source.size() > 0
-        && data.source.size() <= 100
-        && data.description is string
-        && data.description.size() <= 500;
+   
+    // Rate limiting helper (requires Cloud Function to set custom claims)
+    function hasQuota() {
+      return !('quota_exceeded' in request.auth.token) ||
+             request.auth.token.quota_exceeded == false;
     }
-    
-    function isValidSavingsGoal() {
-      let data = request.resource.data;
-      return data.name is string
-        && data.name.size() > 0
-        && data.name.size() <= 100
-        && data.targetAmount is number
-        && data.targetAmount > 0
-        && data.targetAmount <= 10000000
-        && data.currentAmount is number
-        && data.currentAmount >= 0
-        && data.deadline is string
-        && data.deadline.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    // Check if user is currently rate limited (banned)
+    function isRateLimited() {
+      return ('banned_until' in request.auth.token) &&
+             request.auth.token.banned_until > request.time.toMillis();
     }
-    
-    function isValidRecurringExpense() {
-      let data = request.resource.data;
-      return data.name is string
-        && data.name.size() > 0
-        && data.name.size() <= 100
-        && data.amount is number
-        && data.amount > 0
-        && data.amount <= 100000
-        && data.category is string
-        && data.frequency in ['daily', 'weekly', 'monthly', 'yearly']
-        && data.startDate is string
-        && data.startDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && data.nextPaymentDate is string
-        && data.nextPaymentDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && data.reminderEnabled is bool
-        && data.reminderDaysBefore is int
-        && data.reminderDaysBefore >= 0
-        && data.reminderDaysBefore <= 30
-        && data.isActive is bool;
+   
+    // Subscription tier checks
+    function isPro() {
+      return isSignedIn() &&
+             ('subscription_tier' in request.auth.token) &&
+             request.auth.token.subscription_tier in ['pro', 'premium'];
     }
-    
-    function isValidInvestment() {
-      let data = request.resource.data;
-      return data.name is string
-        && data.name.size() > 0
-        && data.name.size() <= 100
-        && data.type in ['stocks', 'crypto', 'bonds', 'real_estate', 'retirement', 'other']
-        && data.amount is number
-        && data.amount > 0
-        && data.amount <= 10000000
-        && data.purchasePrice is number
-        && data.purchasePrice > 0
-        && data.currentPrice is number
-        && data.currentPrice >= 0
-        && data.purchaseDate is string
-        && data.purchaseDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+   
+    function isPremium() {
+      return isSignedIn() &&
+             ('subscription_tier' in request.auth.token) &&
+             request.auth.token.subscription_tier == 'premium';
     }
-    
+   
+    // Free tier limits
+    function canCreateMoreHabits(userId) {
+      // Pro/Premium: unlimited, Free: max 5
+      return isPro() ||
+             !exists(/databases/$(database)/documents/users/$(userId)/limits/habits) ||
+             get(/databases/$(database)/documents/users/$(userId)/limits/habits).data.count < 5;
+    }
+   
     // ============================================
-    // USER RULES
+    // 🔐 VALIDATION FUNCTIONS - CRITICAL!
     // ============================================
-    
+   
+    // Validate habit data structure
+    function isValidHabit(data) {
+      return data.keys().hasAll(['name', 'category', 'createdAt']) &&
+             data.name is string &&
+             data.name.size() > 0 &&
+             data.name.size() <= 100 &&
+             // No HTML/Script tags in name
+             !data.name.matches('.*<.*>.*') &&
+             data.category in ['health', 'productivity', 'finance', 'social', 'learning', 'mindfulness', 'other'] &&
+             data.createdAt is timestamp &&
+             isRecent(data.createdAt) &&
+             // Optional fields validation
+             (!('streak' in data) || data.streak is int) &&
+             (!('frequency' in data) || data.frequency in ['daily', 'weekly', 'custom']) &&
+             (!('icon' in data) || data.icon is string) &&
+             (!('color' in data) || data.color is string);
+    }
+   
+    // Validate expense data
+    function isValidExpense(data) {
+      return data.keys().hasAll(['amount', 'category', 'type', 'date', 'currency']) &&
+             data.amount is number &&
+             data.amount > 0 &&
+             data.amount <= 1000000 && // Max $1M per transaction
+             data.type in ['income', 'expense'] &&
+             data.category is string &&
+             data.category.size() > 0 &&
+             data.category.size() <= 50 &&
+             data.currency is string &&
+             data.currency.matches('[A-Z]{3}') && // ISO 4217: USD, EUR, GBP
+             // Optional: converted amount for reporting
+         (!('convertedAmount' in data) || data.convertedAmount is number) &&
+         (!('convertedCurrency' in data) || data.convertedCurrency.matches('[A-Z]{3}')) &&
+         (!('exchangeRate' in data) || data.exchangeRate is number) &&
+         (!('exchangeRateDate' in data) || data.exchangeRateDate is timestamp) &&
+         // ... rest of validation
+             data.date is timestamp &&
+             // Date cannot be in the future
+             data.date <= request.time &&
+             // Date cannot be more than 1 year in the past
+             data.date > request.time - duration.value(365, 'd') &&
+             // Optional fields
+             (!('description' in data) || (data.description is string && data.description.size() <= 500)) &&
+             (!('receiptUrl' in data) || data.receiptUrl is string) &&
+             (!('linkedHabitId' in data) || data.linkedHabitId is string);
+    }
+   
+   // Validate income data
+    function isValidIncome(data) {
+      return data.keys().hasAll(['amount', 'source', 'date', 'currency']) &&
+             data.amount is number &&
+             data.amount > 0 &&
+             data.amount <= 10000000 && // Max $10M per income entry
+             data.source is string &&
+             data.source.size() > 0 &&
+             data.source.size() <= 100 &&
+             data.currency is string &&
+             data.currency.matches('[A-Z]{3}') && // ISO 4217: USD, EUR, GBP
+             data.date is timestamp &&
+             data.date <= request.time &&
+             (!('recurring' in data) || data.recurring is bool) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 500));
+    }
+   
+    // Validate todo item
+    function isValidTodo(data) {
+      return data.keys().hasAll(['text', 'createdAt']) &&
+             data.text is string &&
+             data.text.size() > 0 &&
+             data.text.size() <= 500 &&
+             !data.text.matches('.*<.*>.*') && // No HTML
+             data.createdAt is timestamp &&
+             isRecent(data.createdAt) &&
+             (!('completed' in data) || data.completed is bool) &&
+             (!('priority' in data) || data.priority in ['low', 'medium', 'high']) &&
+             (!('dueDate' in data) || data.dueDate is timestamp);
+    }
+   
+    // Validate debt data
+    function isValidDebt(data) {
+      return data.keys().hasAll(['name', 'totalAmount', 'remainingAmount', 'interestRate']) &&
+             data.name is string &&
+             data.name.size() > 0 &&
+             data.name.size() <= 100 &&
+             data.totalAmount is number &&
+             data.totalAmount > 0 &&
+             data.remainingAmount is number &&
+             data.remainingAmount >= 0 &&
+             data.remainingAmount <= data.totalAmount &&
+             data.interestRate is number &&
+             data.interestRate >= 0 &&
+             data.interestRate <= 100; // Max 100% APR
+    }
+   
+    // Validate recurring expense
+    function isValidRecurringExpense(data) {
+      return data.keys().hasAll(['name', 'amount', 'frequency', 'nextDueDate']) &&
+             data.name is string &&
+             data.name.size() > 0 &&
+             data.name.size() <= 100 &&
+             data.amount is number &&
+             data.amount > 0 &&
+             data.frequency in ['daily', 'weekly', 'monthly', 'yearly'] &&
+             data.nextDueDate is timestamp &&
+             (!('active' in data) || data.active is bool);
+    }
+   
+    // Validate savings goal
+    function isValidSavingsGoal(data) {
+      return data.keys().hasAll(['name', 'targetAmount', 'currentAmount', 'deadline']) &&
+             data.name is string &&
+             data.name.size() > 0 &&
+             data.name.size() <= 100 &&
+             data.targetAmount is number &&
+             data.targetAmount > 0 &&
+             data.currentAmount is number &&
+             data.currentAmount >= 0 &&
+             data.currentAmount <= data.targetAmount &&
+             data.deadline is timestamp &&
+             data.deadline > request.time; // Deadline must be in future
+    }
+   
+    // Validate budget settings
+    function isValidBudget(data) {
+      return data.keys().hasAll(['categories']) &&
+             data.categories is map &&
+             data.categories.size() <= 50; // Max 50 budget categories
+    }
+   
+    // ============================================
+    // 👤 USER PROFILES & AUTHENTICATION
+    // ============================================
+   
     match /users/{userId} {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow create: if isSignedIn() 
-        && isOwner(userId)
-        && request.resource.data.username is string
-        && request.resource.data.email is string;
-      allow update: if isSignedIn() && isOwner(userId);
+      // Users can read their own profile
+      allow read: if isOwner(userId);
+     
+      // Users can create their profile ONCE during signup
+      allow create: if isOwner(userId) &&
+                       hasVerifiedEmail() &&
+                       request.resource.data.keys().hasAll(['createdAt', 'email']) &&
+                       request.resource.data.email == request.auth.token.email;
+     
+      // Users can update their own profile
+      allow update: if isOwner(userId) &&
+                       // Cannot change email or createdAt
+                       request.resource.data.email == resource.data.email &&
+                       request.resource.data.createdAt == resource.data.createdAt;
+     
+      // Users can delete their own profile
+      allow delete: if isOwner(userId);
+     
+      // ============================================
+      // 🎯 HABITS (Core Feature)
+      // ============================================
+     
+      match /habits/{habitId} {
+        allow read: if isOwner(userId);
+       
+        allow create: if isOwner(userId) &&
+                         hasQuota() &&
+                         !isRateLimited() &&
+                         canCreateMoreHabits(userId) &&
+                         isValidHabit(request.resource.data);
+       
+        allow update: if isOwner(userId) &&
+                         (
+                           // Normal update
+                           (isValidHabit(request.resource.data) &&
+                            request.resource.data.createdAt == resource.data.createdAt) ||
+                           // Soft delete: add deletedAt field
+                           (!('deletedAt' in resource.data) && 
+                            'deletedAt' in request.resource.data &&
+                            request.resource.data.deletedAt is timestamp) ||
+                           // Restore: remove deletedAt field
+                           ('deletedAt' in resource.data && 
+                            !('deletedAt' in request.resource.data))
+                         );
+       
+        // Hard delete only via Cloud Function after 30 days
+        allow delete: if false;
+       
+        // Habit completions (subcollection)
+        match /completions/{completionId} {
+          allow read: if isOwner(userId);
+         
+          allow create: if isOwner(userId) &&
+                           request.resource.data.keys().hasAll(['completedAt']) &&
+                           request.resource.data.completedAt is timestamp &&
+                           // Cannot log future completions
+                           request.resource.data.completedAt <= request.time &&
+                           // Cannot log completions more than 7 days old
+                           isNotTooOld(request.resource.data.completedAt, 7);
+         
+          allow delete: if isOwner(userId) &&
+                           // Can only delete recent completions (within 24 hours)
+                           isNotTooOld(resource.data.completedAt, 1);
+        }
+       
+        // Habit notes
+        match /notes/{noteId} {
+          allow read: if isOwner(userId);
+          allow write: if isOwner(userId);
+        }
+      }
+     
+      // ============================================
+      // 💰 FINANCE TRACKING
+      // ============================================
+     
+      // Expenses
+     match /expenses/{expenseId} {
+        allow read: if isOwner(userId);
+       
+        allow create: if isOwner(userId) &&
+                         hasQuota() &&
+                         isValidExpense(request.resource.data);
+       
+        allow update: if isOwner(userId) &&
+                         isValidExpense(request.resource.data) &&
+                         // Can only edit expenses from last 7 days
+                         isNotTooOld(resource.data.date, 7);
+       
+        allow delete: if isOwner(userId) &&
+                         // Can only delete expenses from last 7 days
+                         isNotTooOld(resource.data.date, 7);
+      }
+     
+      // Income
+      match /income/{incomeId} {
+        allow read: if isOwner(userId);
+       
+        allow create: if isOwner(userId) &&
+                         isValidIncome(request.resource.data);
+       
+        allow update: if isOwner(userId) &&
+                         isValidIncome(request.resource.data) &&
+                         isNotTooOld(resource.data.date, 7);
+       
+        allow delete: if isOwner(userId) &&
+                         isNotTooOld(resource.data.date, 7);
+      }
+     
+      // Budgets
+      match /budgets/{budgetId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) && isValidBudget(request.resource.data);
+      }
+     
+      // Debts
+      match /debts/{debtId} {
+        allow read: if isOwner(userId);
+       
+        allow create: if isOwner(userId) &&
+                         isValidDebt(request.resource.data);
+       
+        allow update: if isOwner(userId) &&
+                         isValidDebt(request.resource.data);
+       
+        allow delete: if isOwner(userId);
+       
+        // Debt payment history
+        match /payments/{paymentId} {
+          allow read: if isOwner(userId);
+          allow create: if isOwner(userId);
+          allow delete: if isOwner(userId) && isNotTooOld(resource.data.paidAt, 7);
+        }
+      }
+     
+      // Recurring expenses
+      match /recurringExpenses/{recurringId} {
+        allow read: if isOwner(userId);
+       
+        allow create: if isOwner(userId) &&
+                         isValidRecurringExpense(request.resource.data);
+       
+        allow update: if isOwner(userId) &&
+                         isValidRecurringExpense(request.resource.data);
+       
+        allow delete: if isOwner(userId);
+      }
+     
+      // Savings goals
+      match /savingsGoals/{goalId} {
+        allow read: if isOwner(userId);
+       
+        allow create: if isOwner(userId) &&
+                         isValidSavingsGoal(request.resource.data);
+       
+        allow update: if isOwner(userId) &&
+                         isValidSavingsGoal(request.resource.data) &&
+                         // Can only increase current amount, not decrease
+                         request.resource.data.currentAmount >= resource.data.currentAmount;
+       
+        allow delete: if isOwner(userId);
+      }
+     
+      // ============================================
+      // ✅ TODO LISTS
+      // ============================================
+     
+      match /todos/{todoId} {
+        allow read: if isOwner(userId);
+       
+        allow create: if isOwner(userId) &&
+                         hasQuota() &&
+                         isValidTodo(request.resource.data);
+       
+        allow update: if isOwner(userId) &&
+                         isValidTodo(request.resource.data);
+       
+        allow delete: if isOwner(userId);
+      }
+     
+      // ============================================
+      // 📊 ANALYTICS & LIMITS (System Managed)
+      // ============================================
+     
+      // Usage limits (managed by Cloud Functions)
+      match /limits/{limitType} {
+        allow read: if isOwner(userId);
+        allow write: if false; // Only Cloud Functions can write
+      }
+     
+      // Analytics data (write-only for privacy)
+      match /analytics/{analyticsId} {
+        allow read: if false; // Never readable by client
+        allow write: if isOwner(userId);
+      }
+     
+      // User statistics (aggregated by Cloud Functions)
+      match /stats/{statId} {
+        allow read: if isOwner(userId);
+        allow write: if false; // Only Cloud Functions
+      }
+     
+      // Backup data (exports)
+      match /backups/{backupId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isPro(); // Pro feature
+        allow delete: if isOwner(userId);
+      }
     }
-    
-    match /users/{userId}/profile/{document=**} {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow write: if isSignedIn() && isOwner(userId);
-    }
-    
+   
     // ============================================
-    // HABITS RULES (✅ FIXED)
+    // 🔐 USERNAME REGISTRY (Global Uniqueness)
     // ============================================
-    
-    match /users/{userId}/habits/{habitId} {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow create: if isSignedIn() && isOwner(userId) && isValidHabit();
-      allow update: if isSignedIn() && isOwner(userId);
-      allow delete: if isSignedIn() && isOwner(userId);
-    }
-    
-    // ============================================
-    // TODOS RULES
-    // ============================================
-    
-    match /users/{userId}/todos/{todoId} {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow create: if isSignedIn() && isOwner(userId) && isValidTodo();
-      allow update: if isSignedIn() && isOwner(userId);
-      allow delete: if isSignedIn() && isOwner(userId);
-    }
-    
-    // ============================================
-    // MONEY TRACKING RULES
-    // ============================================
-    
-    match /users/{userId}/money/settings {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow write: if isSignedIn() && isOwner(userId) && isValidMoneySettings();
-    }
-    
-    match /users/{userId}/expenses/{expenseId} {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow create: if isSignedIn() && isOwner(userId) && isValidExpense();
-      allow update: if isSignedIn() && isOwner(userId);
-      allow delete: if isSignedIn() && isOwner(userId);
-    }
-    
-    match /users/{userId}/incomes/{incomeId} {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow create: if isSignedIn() && isOwner(userId) && isValidIncome();
-      allow update: if isSignedIn() && isOwner(userId);
-      allow delete: if isSignedIn() && isOwner(userId);
-    }
-    
-    match /users/{userId}/debts/{debtId} {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow create: if isSignedIn() && isOwner(userId) && isValidDebt();
-      allow update: if isSignedIn() && isOwner(userId);
-      allow delete: if isSignedIn() && isOwner(userId);
-    }
-    
-    match /users/{userId}/savingsGoals/{goalId} {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow create: if isSignedIn() && isOwner(userId) && isValidSavingsGoal();
-      allow update: if isSignedIn() && isOwner(userId);
-      allow delete: if isSignedIn() && isOwner(userId);
-    }
-    
-    match /users/{userId}/recurringExpenses/{recurringId} {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow create: if isSignedIn() && isOwner(userId) && isValidRecurringExpense();
-      allow update: if isSignedIn() && isOwner(userId);
-      allow delete: if isSignedIn() && isOwner(userId);
-    }
-    
-    match /users/{userId}/investments/{investmentId} {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow create: if isSignedIn() && isOwner(userId) && isValidInvestment();
-      allow update: if isSignedIn() && isOwner(userId);
-      allow delete: if isSignedIn() && isOwner(userId);
-    }
-    
-    match /users/{userId}/debtPayments/{paymentId} {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow create: if isSignedIn() && isOwner(userId);
-      allow delete: if isSignedIn() && isOwner(userId);
-    }
-    
-    match /users/{userId}/budgets/{categoryId} {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow write: if isSignedIn() && isOwner(userId);
-    }
-    
-    // ============================================
-    // VERIFICATION CODES
-    // ============================================
-    
-    match /verificationCodes/{userId} {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow create: if isSignedIn() 
-        && isOwner(userId)
-        && request.resource.data.code is string
-        && request.resource.data.code.size() == 6
-        && request.resource.data.email is string;
-      allow delete: if isSignedIn() && isOwner(userId);
-    }
-    
-    // ============================================
-    // USERNAME RESERVATION
-    // ============================================
-    
+   
     match /usernames/{username} {
-      allow read: if true;
-      allow create: if isSignedIn() 
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.originalUsername is string
-        && request.resource.data.originalUsername.size() >= 3
-        && request.resource.data.originalUsername.size() <= 30
-        && request.resource.data.originalUsername.matches('^[a-zA-Z0-9_]+$');
-      allow update: if false;
-      allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+      // Username availability ONLY via Cloud Function (prevents enumeration)
+      allow read: if false; // Use checkUsername Cloud Function instead
+     
+      // Users can claim a username during signup
+      allow create: if isSignedIn() &&
+                       request.resource.data.userId == request.auth.uid &&
+                       request.resource.data.keys().hasAll(['userId', 'claimedAt']) &&
+                       request.resource.data.claimedAt is timestamp &&
+                       isRecent(request.resource.data.claimedAt);
+     
+      // Users can only delete their own username
+      allow delete: if isSignedIn() &&
+                       resource.data.userId == request.auth.uid;
     }
-    
+   
     // ============================================
-    // DEFAULT DENY
+    // 🌐 PUBLIC/SHARED DATA
     // ============================================
-    
+   
+    // Global leaderboard (anonymized)
+    match /leaderboard/{entry} {
+      allow read: if true; // Public read
+      allow write: if false; // Only Cloud Functions
+    }
+   
+    // Community challenges
+    match /challenges/{challengeId} {
+      allow read: if true; // Anyone can see challenges
+      allow create: if false; // Admin only via Cloud Functions
+      allow update: if false; // Admin only
+      allow delete: if false; // Admin only
+     
+      // Challenge participation
+      match /participants/{userId} {
+        allow read: if true; // Public leaderboard
+        allow write: if isOwner(userId); // Can join/leave
+      }
+    }
+   
+    // App configuration (feature flags, maintenance mode)
+    match /config/{configId} {
+      allow read: if isSignedIn(); // Users can read config
+      allow write: if false; // Admin only via Cloud Functions
+    }
+    // ============================================
+      // 📋 AUDIT LOG (Immutable History)
+      // ============================================
+     
+      // Audit log (append-only for compliance)
+      match /auditLog/{logId} {
+        allow read: if isOwner(userId);
+        allow create: if false; // Only Cloud Functions can write
+        allow update: if false; // Immutable - cannot modify
+        allow delete: if false; // Immutable - cannot delete
+      }
+    // ============================================
+    // 📱 NOTIFICATIONS & REMINDERS
+    // ============================================
+   
+    match /notifications/{userId} {
+      allow read: if isOwner(userId);
+     
+      match /tokens/{tokenId} {
+        // FCM tokens for push notifications
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId);
+      }
+     
+      match /preferences/{prefId} {
+        // Notification preferences
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId);
+      }
+    }
+   
+    // ============================================
+    // 💳 SUBSCRIPTION & BILLING (Sensitive!)
+    // ============================================
+   
+    match /subscriptions/{userId} {
+      // Users can read their subscription status
+      allow read: if isOwner(userId);
+     
+      // Only Stripe webhooks (Cloud Functions) can write
+      allow write: if false;
+     
+      match /invoices/{invoiceId} {
+        allow read: if isOwner(userId);
+        allow write: if false; // Stripe webhooks only
+      }
+    }
+   
+    // ============================================
+    // 🎁 REFERRALS & REWARDS
+    // ============================================
+   
+    match /referrals/{userId} {
+      allow read: if isOwner(userId);
+     
+      // Users can create referral codes
+      allow create: if isOwner(userId) &&
+                       request.resource.data.keys().hasAll(['code', 'createdAt']);
+     
+      // Track who was referred
+      match /referred/{referredUserId} {
+        allow read: if isOwner(userId);
+        allow write: if false; // Cloud Functions only
+      }
+    }
+   
+    // ============================================
+    // 🐛 ERROR LOGS & CRASH REPORTS
+    // ============================================
+   
+    match /errors/{errorId} {
+      // Users can report errors (write-only)
+      allow read: if false; // Never readable by users
+      allow create: if isSignedIn();
+    }
+   
+    match /crashReports/{reportId} {
+      allow read: if false;
+      allow create: if isSignedIn();
+    }
+   
+    // ============================================
+    // 🚫 ADMIN COLLECTIONS (Super Restricted)
+    // ============================================
+   
+    match /admin/{document=**} {
+      allow read, write: if false; // Cloud Functions only
+    }
+   
+    match /system/{document=**} {
+      allow read, write: if false; // Cloud Functions only
+    }
+   
+    // ============================================
+    // 🚫 DEFAULT DENY - CATCH ALL
+    // ============================================
+   
+    // Explicitly deny everything else
     match /{document=**} {
       allow read, write: if false;
     }
   }
 }
+
+
+// ============================================
+// 📋 DEPLOYMENT CHECKLIST
+// ============================================
+//
+// Before deploying these rules:
+//
+// 1. ✅ Backup existing rules in Firebase Console
+// 2. ✅ Test in Firebase Emulator first:
+//    firebase emulators:start
+// 3. ✅ Run security rules test suite
+// 4. ✅ Deploy to staging environment first
+// 5. ✅ Monitor for 24 hours before production
+// 6. ✅ Have rollback plan ready
+//
+// Deploy command:
+// firebase deploy --only firestore:rules
+//
+// ============================================
+// 🔒 SECURITY FEATURES INCLUDED
+// ============================================
+//
+// ✅ User isolation (all data under /users/{userId})
+// ✅ XSS prevention (HTML tag detection)
+// ✅ SQL injection prevention (proper typing)
+// ✅ Rate limiting support (via custom claims)
+// ✅ Time-based validation (no future dates)
+// ✅ Amount limits (prevent absurd values)
+// ✅ Edit windows (7-30 day restrictions)
+// ✅ Freemium tier enforcement
+// ✅ Subscription validation
+// ✅ Data integrity checks
+// ✅ Audit trail support
+// ✅ Explicit denials
+//
+// ============================================

@@ -1,7 +1,89 @@
 import React, { useState, useEffect, useCallback, useRef, createContext, useContext, FormEvent, ChangeEvent, useMemo, Suspense } from 'react';
 import { useAppStore } from './store/useAppStore';
+// Firebase Imports
+import { initializeApp } from "firebase/app";
+import { getAnalytics, logEvent, setUserProperties } from "firebase/analytics";
+import type { User } from "firebase/auth";
+import { 
+  getAuth, 
+  signInWithCustomToken, 
+  signInAnonymously, 
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+  updatePassword,
+  EmailAuthProvider,
+  linkWithCredential,
+  sendPasswordResetEmail,
+  signInWithPopup,              // ← NEW
+  GoogleAuthProvider,           // ← NEW
+  FacebookAuthProvider          // ← NEW
+} from "firebase/auth";
+
+
+
+
+
+
+
+
+type FirebaseUser = User;
+
+
+
+
+import { 
+  getFirestore, 
+  collection, 
+  doc, 
+  addDoc, 
+  deleteDoc, 
+  updateDoc, 
+  setDoc,
+  getDoc, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  serverTimestamp,
+  Timestamp,
+  enableIndexedDbPersistence  // ← ADD THIS
+} from "firebase/firestore";
+import { 
+  getStorage, 
+  ref, 
+  uploadBytes, 
+  getDownloadURL,
+  deleteObject 
+} from "firebase/storage";
+
+
+
+
+
+
+
+
+import { 
+  ResponsiveContainer, 
+  LineChart, 
+  BarChart,
+  PieChart,
+  PieChart as PieChartIcon,
+  Pie,
+  CartesianGrid, 
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  Line, 
+  Bar,
+  Cell,
+  Legend
+} from "recharts";
 import {
   CheckCircle2, 
+  Search,
   Plus, 
   Trash2, 
   TrendingUp,
@@ -9,7 +91,7 @@ import {
   LogOut, 
   Layout, 
   Calendar,
-  ChevronRight,
+  ChevronRight, 
   Shield, 
   Zap,
   BarChart3,
@@ -42,19 +124,66 @@ import {
   Rainbow,
   DollarSign,  // <-- ADD THIS
   Wallet,
-  TrendingDown as TrendingDownIcon,
+  CreditCard,
+
+
+
+
   ShoppingBag,
   Receipt,
  Camera,
   Download,
-  Upload
+  Upload,
+  Bell
 } from 'lucide-react';
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
 
 // Define LucideIcon type
 type LucideIcon = React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 // 🎯 ACCESSIBILITY: Touch-friendly button component
@@ -70,6 +199,13 @@ interface TouchButtonProps {
   size?: 'sm' | 'md' | 'lg';
 }
 
+
+
+
+
+
+
+
 const TouchButton: React.FC<TouchButtonProps> = ({ 
   children, 
   onClick, 
@@ -81,7 +217,7 @@ const TouchButton: React.FC<TouchButtonProps> = ({
   fullWidth = false,
   size = 'md'
 }) => {
-  const { theme, accent, isDark } = useTheme();
+  const { theme, accent, isDark, dc } = useTheme();
   
   // Size classes
   const sizeClasses = {
@@ -121,8 +257,11 @@ const TouchButton: React.FC<TouchButtonProps> = ({
       
       case 'secondary':
         return isDark
-          ? `bg-slate-800 hover:bg-slate-700 text-white border-2 border-slate-700
-             focus:ring-slate-500/50`
+          ? accent === 'green'
+            ? `bg-green-900/40 hover:bg-green-800/50 text-green-100 border-2 border-green-800/60 focus:ring-green-500/50`
+            : accent === 'lgbt'
+            ? `bg-purple-900/40 hover:bg-purple-800/50 text-purple-100 border-2 border-purple-800/60 focus:ring-purple-500/50`
+            : `bg-pink-900/40 hover:bg-pink-800/50 text-pink-100 border-2 border-pink-800/60 focus:ring-pink-500/50`
           : `bg-white hover:bg-slate-50 text-slate-900 border-2 border-slate-200
              focus:ring-slate-400/50`;
       
@@ -132,8 +271,11 @@ const TouchButton: React.FC<TouchButtonProps> = ({
       
       case 'ghost':
         return isDark
-          ? `bg-transparent hover:bg-slate-800/50 text-slate-300
-             focus:ring-slate-500/30`
+          ? accent === 'green'
+            ? `bg-transparent hover:bg-green-900/40 text-green-200 focus:ring-green-500/30`
+            : accent === 'lgbt'
+            ? `bg-transparent hover:bg-purple-900/40 text-purple-200 focus:ring-purple-500/30`
+            : `bg-transparent hover:bg-pink-900/40 text-pink-200 focus:ring-pink-500/30`
           : `bg-transparent hover:bg-slate-100 text-slate-700
              focus:ring-slate-400/30`;
       
@@ -164,6 +306,13 @@ const TouchButton: React.FC<TouchButtonProps> = ({
   );
 };
 
+
+
+
+
+
+
+
 // 🔘 Icon-only button for actions
 interface IconButtonProps {
   icon: LucideIcon;
@@ -174,6 +323,13 @@ interface IconButtonProps {
   className?: string;
 }
 
+
+
+
+
+
+
+
 const IconButton: React.FC<IconButtonProps> = ({
   icon: Icon,
   onClick,
@@ -182,7 +338,7 @@ const IconButton: React.FC<IconButtonProps> = ({
   disabled = false,
   className = ''
 }) => {
-  const { theme, accent, isDark } = useTheme();
+  const { theme, accent, isDark, dc } = useTheme();
   
   const getVariantClasses = () => {
     const accentColor = accent === 'green' ? 'green' : accent === 'lgbt' ? 'purple' : 'pink';
@@ -195,7 +351,11 @@ const IconButton: React.FC<IconButtonProps> = ({
       
       case 'secondary':
         return isDark
-          ? `bg-slate-800 hover:bg-slate-700 text-white`
+          ? accent === 'green'
+            ? `bg-green-900/40 hover:bg-green-800/50 text-green-100`
+            : accent === 'lgbt'
+            ? `bg-purple-900/40 hover:bg-purple-800/50 text-purple-100`
+            : `bg-pink-900/40 hover:bg-pink-800/50 text-pink-100`
           : `bg-slate-200 hover:bg-slate-300 text-slate-900`;
       
       case 'danger':
@@ -203,7 +363,11 @@ const IconButton: React.FC<IconButtonProps> = ({
       
       case 'ghost':
         return isDark
-          ? `hover:bg-slate-800 text-slate-300`
+          ? accent === 'green'
+            ? `hover:bg-green-900/40 text-green-200`
+            : accent === 'lgbt'
+            ? `hover:bg-purple-900/40 text-purple-200`
+            : `hover:bg-pink-900/40 text-pink-200`
           : `hover:bg-slate-100 text-slate-700`;
       
       default:
@@ -236,6 +400,108 @@ const IconButton: React.FC<IconButtonProps> = ({
   );
 };
 //end of button
+// ============ ADD THIS ENTIRE SECTION HERE ============
+//end of button
+
+
+
+
+
+
+
+
+// 🎯 Swipe to Delete Wrapper Component
+interface SwipeToDeleteWrapperProps {
+  children: React.ReactNode;
+  onDelete: () => void;
+  className?: string;
+  style?: React.CSSProperties;
+}
+
+
+
+
+
+
+
+
+const SwipeToDeleteWrapper: React.FC<SwipeToDeleteWrapperProps> = ({ 
+  children, 
+  onDelete, 
+  className = '',
+  style = {}
+}) => {
+  const [startX, setStartX] = useState(0);
+  const [currentX, setCurrentX] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setStartX(e.touches[0].clientX);
+    setIsSwiping(true);
+  };
+  
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isSwiping) return;
+    const deltaX = e.touches[0].clientX - startX;
+    if (deltaX < 0) {
+      setCurrentX(deltaX);
+    }
+  };
+  
+  const handleTouchEnd = () => {
+    setIsSwiping(false);
+    if (currentX < -100) {
+      setShowDelete(true);
+    } else {
+      setCurrentX(0);
+    }
+  };
+  
+  const handleDelete = () => {
+    onDelete();
+    setShowDelete(false);
+    setCurrentX(0);
+  };
+  
+  return (
+    <div 
+      className={`relative overflow-hidden ${className}`}
+      style={style}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
+      <div
+        className="transition-transform duration-200"
+        style={{
+          transform: showDelete ? 'translateX(-80px)' : `translateX(${currentX}px)`
+        }}
+      >
+        {children}
+      </div>
+      
+      {showDelete && (
+        <div className="absolute right-0 top-0 bottom-0 w-20 flex items-center justify-center bg-red-500">
+          <button
+            onClick={handleDelete}
+            className="w-full h-full flex items-center justify-center text-white"
+          >
+            <Trash2 className="w-6 h-6" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+
+
+
+
+
+
 // ============ ADD THIS ENTIRE SECTION HERE ============
 // 📱 PLATFORM: Safe Area Hook for iOS notch/Dynamic Island
 const useSafeArea = () => {
@@ -279,6 +545,13 @@ const useSafeArea = () => {
   return safeArea;
 };
 
+
+
+
+
+
+
+
 // 📱 PLATFORM: Android back button handler
 const useAndroidBackButton = (onBack: () => void) => {
   useEffect(() => {
@@ -298,6 +571,13 @@ const useAndroidBackButton = (onBack: () => void) => {
   }, [onBack]);
 };
 
+
+
+
+
+
+
+
 // 📱 PLATFORM: Detect platform and capabilities
 const usePlatformInfo = (): PlatformInfo => {
   const [platformInfo, setPlatformInfo] = useState<PlatformInfo>({
@@ -313,13 +593,14 @@ const usePlatformInfo = (): PlatformInfo => {
     const userAgent = navigator.userAgent;
     
     // Detect OS
-    const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
+    const isIOS = /iPad|iPhone|iPod/.test(userAgent) && 
+  !(window as Window & { MSStream?: unknown }).MSStream;
     const isAndroid = /Android/.test(userAgent);
     const isDesktop = /(Macintosh|Windows|Linux)/.test(userAgent) && !isIOS && !isAndroid;
     
     // Detect standalone mode (PWA)
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
-                         (window.navigator as any).standalone === true;
+                         (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
     
     // Detect safe area support
     const hasSafeArea = CSS.supports('padding-top: env(safe-area-inset-top)');
@@ -354,6 +635,13 @@ const usePlatformInfo = (): PlatformInfo => {
   return platformInfo;
 };
 
+
+
+
+
+
+
+
 // 📳 PLATFORM: Haptic feedback
 const useHaptics = () => {
   const platformInfo = usePlatformInfo();
@@ -375,74 +663,45 @@ const useHaptics = () => {
 };
 // ============ END OF PLATFORM HOOKS ============
 
-// Firebase Imports
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-import type { User } from "firebase/auth";
-import { 
-  getAuth, 
-  signInWithCustomToken, 
-  signInAnonymously, 
-  onAuthStateChanged,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut,
-  updateProfile,
-  EmailAuthProvider,
-  linkWithCredential,
-  sendPasswordResetEmail
-} from "firebase/auth";
 
 
 
 
-type FirebaseUser = User;
 
 
 
 
-import { 
-  getFirestore, 
-  collection, 
-  doc, 
-  addDoc, 
-  deleteDoc, 
-  updateDoc, 
-  setDoc,
-  getDoc, 
-  onSnapshot, 
-  query, 
-  orderBy, 
-  serverTimestamp,
-  Timestamp,
-  enableIndexedDbPersistence  // ← ADD THIS
-} from "firebase/firestore";
-import { 
-  getStorage, 
-  ref, 
-  uploadBytes, 
-  getDownloadURL,
-  deleteObject 
-} from "firebase/storage";
 
 
 
 
-import { 
-  ResponsiveContainer, 
-  LineChart, 
-  BarChart,
-  PieChart,  // 🔥 ADD THIS - CRITICAL!
-  Pie,
-  CartesianGrid, 
-  XAxis, 
-  YAxis, 
-  Tooltip, 
-  Line, 
-  Bar,
-  Cell,
-  Legend
-} from "recharts";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -460,6 +719,34 @@ const firebaseConfig = {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // Debug: Log what we have
 console.log('Environment check:', {
   hasApiKey: !!import.meta.env.VITE_FIREBASE_API_KEY,
@@ -470,8 +757,64 @@ console.log('Environment check:', {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // Initialize Firebase only if config is complete
 const isMissingConfig = !firebaseConfig.apiKey || !firebaseConfig.projectId;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -485,6 +828,34 @@ let storage : any;
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 if (!isMissingConfig) {
   app = initializeApp(firebaseConfig);
   analytics = getAnalytics(app);
@@ -494,22 +865,34 @@ if (!isMissingConfig) {
   
  
 
-// Enable offline persistence
-  import('firebase/firestore').then(({ enableIndexedDbPersistence }) => {
-    enableIndexedDbPersistence(db).catch((err) => {
-      if (err.code === 'failed-precondition') {
-        console.warn('⚠️ Multiple tabs open - offline persistence only works in one tab');
-      } else if (err.code === 'unimplemented') {
-        console.warn('⚠️ Browser doesn\'t support offline persistence');
-      } else {
-        console.error('⚠️ Error enabling offline persistence:', err);
-      }
-    });
+
+
+
+
+
+
+
+// Enable offline persistence (uses static import at top of file)
+  enableIndexedDbPersistence(db).catch((err: any) => {
+    if (err.code === 'failed-precondition') {
+      console.warn('⚠️ Multiple tabs open - offline persistence only works in one tab');
+    } else if (err.code === 'unimplemented') {
+      console.warn('⚠️ Browser doesn\'t support offline persistence');
+    } else {
+      console.error('⚠️ Error enabling offline persistence:', err);
+    }
   });
 } else {
   console.warn('⚠️ Firebase not configured - app will run in demo-only mode');
   console.warn('Available env vars:', Object.keys(import.meta.env).filter(k => k.startsWith('VITE_')));
 }
+
+
+
+
+
+
+
 
 // ============ ADD THIS ENTIRE SECTION HERE ============
 // 🔒 SECURITY: Rate Limiter to prevent Firebase abuse
@@ -518,10 +901,24 @@ class RateLimiter {
   private readonly windowMs: number;
   private readonly maxCalls: number;
 
+
+
+
+
+
+
+
   constructor(maxCalls: number = 10, windowMs: number = 60000) {
     this.maxCalls = maxCalls;
     this.windowMs = windowMs;
   }
+
+
+
+
+
+
+
 
   canProceed(key: string): boolean {
     const now = Date.now();
@@ -540,24 +937,67 @@ class RateLimiter {
     return true;
   }
 
+
+
+
+
+
+
+
   reset(key: string): void {
     this.callTimestamps.delete(key);
   }
 }
+
+
+
+
+
+
+
 
 // Global rate limiters for different operations
 const firestoreWriteLimiter = new RateLimiter(30, 60000); // 30 writes per minute
 const firestoreReadLimiter = new RateLimiter(100, 60000); // 100 reads per minute
 const storageUploadLimiter = new RateLimiter(5, 60000); // 5 uploads per minute
 
+
+
+
+
+
+
+
 // Export for use in components
 export { firestoreWriteLimiter, firestoreReadLimiter, storageUploadLimiter };
 // ============ END OF ADDITION ============
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // ============ ADD ANALYTICS HELPERS HERE ============
 // 📊 Analytics Helper Functions
-import { logEvent, setUserProperties } from 'firebase/analytics';
+
+
+
+
+
+
+
+
+
 
 // Check if analytics is enabled
 const isAnalyticsEnabled = (): boolean => {
@@ -572,8 +1012,15 @@ const isAnalyticsEnabled = (): boolean => {
   }
 };
 
+
+
+
+
+
+
+
 // Log analytics event (respects user consent)
-export const trackEvent = (eventName: string, params?: Record<string, any>) => {
+export const trackEvent = (eventName: string, params?: Record<string, unknown>) => {
   if (!isAnalyticsEnabled() || !analytics) return;
   
   try {
@@ -584,8 +1031,15 @@ export const trackEvent = (eventName: string, params?: Record<string, any>) => {
   }
 };
 
+
+
+
+
+
+
+
 // Set user properties
-export const setAnalyticsUserProperties = (properties: Record<string, any>) => {
+export const setAnalyticsUserProperties = (properties: Record<string, unknown>) => {
   if (!isAnalyticsEnabled() || !analytics) return;
   
   try {
@@ -594,6 +1048,13 @@ export const setAnalyticsUserProperties = (properties: Record<string, any>) => {
     console.error('Analytics error:', error);
   }
 };
+
+
+
+
+
+
+
 
 // Pre-defined event trackers
 export const Analytics = {
@@ -636,6 +1097,13 @@ export const Analytics = {
     trackEvent('subscription_canceled', { tier }),
 };
 
+
+
+
+
+
+
+
 // Screen view tracking
 export const trackScreenView = (screenName: string) => {
   if (!isAnalyticsEnabled() || !analytics) return;
@@ -650,6 +1118,13 @@ export const trackScreenView = (screenName: string) => {
   }
 };
 // ============ END OF ANALYTICS HELPERS ============
+
+
+
+
+
+
+
 
 const appId = firebaseConfig.appId;
 // --- Types & Constants ---
@@ -722,6 +1197,34 @@ interface Debt {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 interface RecurringExpenseSummary {
   daily: number;
   weekly: number;
@@ -743,15 +1246,99 @@ interface MoneySettings {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 interface CategoryBudget {
   category: string; // Category ID (e.g., 'food', 'transport')
   categoryLabel: string; // Display name
-  categoryIcon: React.ComponentType<any>; // Icon component
+ categoryIcon: React.ComponentType<{ className?: string }>; // Icon component
   categoryColor: string; // Color code
   monthlyLimit: number; // Budget limit
   spent: number; // Amount spent
   percentage: number; // Percentage of budget used
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -764,6 +1351,34 @@ interface SavingsGoal {
   deadline: string;
   createdAt: any;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -802,6 +1417,13 @@ interface AppState {
   lastSync: Date | null;
 }
 
+
+
+
+
+
+
+
 // 🧭 Navigation State
 interface NavigationState {
   currentTab: 'dashboard' | 'habits' | 'todos' | 'finance' | 'analytics' | 'settings';
@@ -810,8 +1432,16 @@ interface NavigationState {
   canGoBack: boolean;
 }
 
+
+
+
+
+
+
+
 // 🎨 UI State Management
 interface UIState {
+  currentPage: 'home' | 'habits' | 'todos' | 'money' | 'stats' | 'debt' | 'goals' | 'awards' | 'more';
   theme: Theme;
   accent: Accent;
   isDark: boolean;
@@ -819,7 +1449,30 @@ interface UIState {
   error: ErrorState | null;
   notification: NotificationState | null;
   modal: ModalState | null;
+  // Dashboard UI state
+  isAdding: boolean;
+  showTemplates: boolean;
+  loading: boolean;
+  showStats: boolean;
+  showAchievements: boolean;
+  showRecurringModal: boolean;
+  showBudgetModal: boolean;
+  showGoalsModal: boolean;
+  showAllowanceModal: boolean;
+  showIncomeModal: boolean;
+  showDebtModal: boolean;
+  showInvestmentModal: boolean;
+  moneyView: 'overview' | 'monthly' | 'yearly';
+  selectedMonth: number;
+  selectedYear: number;
 }
+
+
+
+
+
+
+
 
 interface ErrorState {
   message: string;
@@ -828,6 +1481,13 @@ interface ErrorState {
   timestamp: Date;
   dismissible: boolean;
 }
+
+
+
+
+
+
+
 
 interface NotificationState {
   id: string;
@@ -840,6 +1500,13 @@ interface NotificationState {
   };
 }
 
+
+
+
+
+
+
+
 interface ModalState {
   type: 'confirm' | 'alert' | 'form' | 'custom';
   title: string;
@@ -849,6 +1516,13 @@ interface ModalState {
   confirmText?: string;
   cancelText?: string;
 }
+
+
+
+
+
+
+
 
 // 💳 Subscription & Monetization
 interface SubscriptionTier {
@@ -862,6 +1536,13 @@ interface SubscriptionTier {
   playStoreSku?: string; // For Play Store
 }
 
+
+
+
+
+
+
+
 interface SubscriptionFeatures {
   maxHabits: number;
   maxGoals: number;
@@ -873,6 +1554,13 @@ interface SubscriptionFeatures {
   exportData: boolean;
   prioritySupport: boolean;
 }
+
+
+
+
+
+
+
 
 const SUBSCRIPTION_TIERS: Record<SubscriptionTier['id'], SubscriptionTier> = {
   free: {
@@ -934,6 +1622,13 @@ const SUBSCRIPTION_TIERS: Record<SubscriptionTier['id'], SubscriptionTier> = {
   }
 };
 
+
+
+
+
+
+
+
 // 🔐 Privacy & Data Consent
 interface DataPrivacyConsent {
   analytics: boolean;
@@ -942,6 +1637,13 @@ interface DataPrivacyConsent {
   timestamp: Date;
   version: string; // Privacy policy version
 }
+
+
+
+
+
+
+
 
 // 📱 Platform Detection
 interface PlatformInfo {
@@ -953,6 +1655,13 @@ interface PlatformInfo {
   supportsHaptics: boolean;
 }
 
+
+
+
+
+
+
+
 // 🎯 Touch Target Constants (Apple HIG & Material Design)
 const TOUCH_TARGETS = {
   MIN_SIZE_IOS: 44,      // Apple minimum
@@ -962,6 +1671,13 @@ const TOUCH_TARGETS = {
   ICON_SIZE: 24,         // Standard icon size
   ICON_SIZE_LARGE: 32,   // Large icons
 } as const;
+
+
+
+
+
+
+
 
 // 🎨 Theme System Constants
 const THEME_COLORS = {
@@ -977,10 +1693,10 @@ const THEME_COLORS = {
     dark: {
       primary: '#ec4899',
       primaryHover: '#f472b6',
-      background: '#18181b',
-      surface: '#27272a',
-      text: '#f9fafb',
-      textSecondary: '#9ca3af',
+      background: '#2d1a24',   // ← deep pink-tinted dark (was #18181b)
+      surface: '#3d2233',      // ← light pink-tinted card surface (was #27272a)
+      text: '#fdf2f8',         // ← warm pink-white text
+      textSecondary: '#f9a8d4',// ← soft pink secondary text
     }
   },
   green: {
@@ -995,10 +1711,10 @@ const THEME_COLORS = {
     dark: {
       primary: '#10b981',
       primaryHover: '#34d399',
-      background: '#18181b',
-      surface: '#27272a',
-      text: '#f9fafb',
-      textSecondary: '#9ca3af',
+      background: '#0f2318',   // ← deep green-tinted dark (was #18181b)
+      surface: '#1a3326',      // ← light green-tinted card surface (was #27272a)
+      text: '#f0fdf4',         // ← warm green-white text
+      textSecondary: '#6ee7b7',// ← soft green secondary text
     }
   },
   lgbt: {
@@ -1013,10 +1729,10 @@ const THEME_COLORS = {
     dark: {
       primary: '#8b5cf6',
       primaryHover: '#a78bfa',
-      background: '#18181b',
-      surface: '#27272a',
-      text: '#f9fafb',
-      textSecondary: '#9ca3af',
+      background: '#1e1228',   // ← deep purple-tinted dark (was #18181b)
+      surface: '#2d1f40',      // ← rainbow-tinted card surface (was #27272a)
+      text: '#faf5ff',         // ← warm lavender-white text
+      textSecondary: '#c4b5fd',// ← soft violet secondary text
     }
   }
 } as const;
@@ -1047,10 +1763,66 @@ interface SpendingPrediction {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 interface UserProfile {
   age?: number;
   onboardingComplete?: boolean;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1068,10 +1840,66 @@ interface ToastData {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 interface HabitIcon {
   name: string;
   icon: LucideIcon;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1089,6 +1917,34 @@ interface ThemeColors {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 interface HabitThemeData {
   name: string;
   light: ThemeColors;
@@ -1098,17 +1954,83 @@ interface HabitThemeData {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // ============ REPLACE ENTIRE ThemeContext SECTION ============
 type Theme = 'light' | 'dark';
 type Accent = 'pink' | 'green' | 'lgbt';
+
+
+
+
+
+
+
+
+interface DarkClasses {
+  // Cards / containers
+  card: string;          // main card bg + border
+  cardInner: string;     // nested inner card
+  cardSurface: string;   // subtle surface (stats boxes etc)
+  // Modals / overlays
+  modal: string;
+  // Inputs / textareas / selects
+  input: string;
+  // Tab bars / pill toggles
+  tabBar: string;
+  tabActive: string;
+  tabInactive: string;
+  // Buttons
+  btnSecondary: string;
+  btnGhost: string;
+  btnClose: string;
+  // Icon containers
+  iconBox: string;
+  // Progress bars / tracks
+  track: string;
+  // Dividers
+  divider: string;
+  // Text
+  textPrimary: string;
+  textSecondary: string;
+  textMuted: string;
+  // Hover surfaces
+  hoverSurface: string;
+}
 
 interface ThemeContextValue {
   theme: Theme;
   toggleTheme: () => void;
   accent: Accent;
   toggleAccent: () => void;
-  isDark: boolean; // Pre-computed for performance
-  accentColor: string; // Pre-computed hex color
+  isDark: boolean;
+  accentColor: string;
   themeColors: {
     primary: string;
     primaryHover: string;
@@ -1117,9 +2039,23 @@ interface ThemeContextValue {
     text: string;
     textSecondary: string;
   };
+  dc: DarkClasses; // ← Dark-mode themed class strings
 }
 
+
+
+
+
+
+
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
+
+
+
+
+
+
+
 
 // 🎨 Memoized Theme Provider for performance
 const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -1155,7 +2091,84 @@ const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const value = useMemo<ThemeContextValue>(() => {
     const isDark = theme === 'dark';
     const currentColors = THEME_COLORS[accent][theme];
-    
+
+    // Accent-aware dark mode class strings
+    const dc: DarkClasses = (() => {
+      if (!isDark) {
+        // Light mode: return empty strings — components handle light side themselves
+        return {
+          card: '', cardInner: '', cardSurface: '', modal: '',
+          input: '', tabBar: '', tabActive: '', tabInactive: '',
+          btnSecondary: '', btnGhost: '', btnClose: '',
+          iconBox: '', track: '', divider: '',
+          textPrimary: '', textSecondary: '', textMuted: '',
+          hoverSurface: '',
+        };
+      }
+      // Dark mode: tinted by accent
+      if (accent === 'green') return {
+        card:         'bg-green-950/60 border-green-900/50',
+        cardInner:    'bg-green-900/30 border-green-800/40',
+        cardSurface:  'bg-green-950/40',
+        modal:        'bg-green-950 border-green-900',
+        input:        'bg-green-950/60 border-green-800/60 text-green-50 placeholder-green-700 focus:border-green-500',
+        tabBar:       'bg-green-950/60',
+        tabActive:    'bg-green-700 text-white shadow-lg shadow-green-900/40',
+        tabInactive:  'text-green-400 hover:text-green-200',
+        btnSecondary: 'bg-green-900/40 hover:bg-green-800/50 text-green-100 border border-green-800/60',
+        btnGhost:     'hover:bg-green-900/40 text-green-300',
+        btnClose:     'hover:bg-green-900/40 text-green-400',
+        iconBox:      'bg-green-900/40 text-green-300',
+        track:        'bg-green-900/50',
+        divider:      'border-green-900/60',
+        textPrimary:  'text-green-50',
+        textSecondary:'text-green-300',
+        textMuted:    'text-green-600',
+        hoverSurface: 'hover:bg-green-900/40',
+      };
+      if (accent === 'lgbt') return {
+        card:         'bg-purple-950/60 border-purple-900/50',
+        cardInner:    'bg-purple-900/30 border-purple-800/40',
+        cardSurface:  'bg-purple-950/40',
+        modal:        'bg-indigo-950 border-indigo-900',
+        input:        'bg-purple-950/60 border-purple-800/60 text-purple-50 placeholder-purple-700 focus:border-purple-500',
+        tabBar:       'bg-purple-950/60',
+        tabActive:    'bg-purple-700 text-white shadow-lg shadow-purple-900/40',
+        tabInactive:  'text-purple-400 hover:text-purple-200',
+        btnSecondary: 'bg-purple-900/40 hover:bg-purple-800/50 text-purple-100 border border-purple-800/60',
+        btnGhost:     'hover:bg-purple-900/40 text-purple-300',
+        btnClose:     'hover:bg-purple-900/40 text-purple-400',
+        iconBox:      'bg-purple-900/40 text-purple-300',
+        track:        'bg-purple-900/50',
+        divider:      'border-purple-900/60',
+        textPrimary:  'text-purple-50',
+        textSecondary:'text-purple-300',
+        textMuted:    'text-purple-600',
+        hoverSurface: 'hover:bg-purple-900/40',
+      };
+      // Default: pink
+      return {
+        card:         'bg-pink-950/60 border-pink-900/50',
+        cardInner:    'bg-pink-900/30 border-pink-800/40',
+        cardSurface:  'bg-pink-950/40',
+        modal:        'bg-pink-950 border-pink-900',
+        input:        'bg-pink-950/60 border-pink-800/60 text-pink-50 placeholder-pink-700 focus:border-pink-500',
+        tabBar:       'bg-pink-950/60',
+        tabActive:    'bg-pink-700 text-white shadow-lg shadow-pink-900/40',
+        tabInactive:  'text-pink-400 hover:text-pink-200',
+        btnSecondary: 'bg-pink-900/40 hover:bg-pink-800/50 text-pink-100 border border-pink-800/60',
+        btnGhost:     'hover:bg-pink-900/40 text-pink-300',
+        btnClose:     'hover:bg-pink-900/40 text-pink-400',
+        iconBox:      'bg-pink-900/40 text-pink-300',
+        track:        'bg-pink-900/50',
+        divider:      'border-pink-900/60',
+        textPrimary:  'text-pink-50',
+        textSecondary:'text-pink-300',
+        textMuted:    'text-pink-600',
+        hoverSurface: 'hover:bg-pink-900/40',
+      };
+    })();
+
     return {
       theme,
       toggleTheme: () => setTheme(prev => prev === 'light' ? 'dark' : 'light'),
@@ -1167,7 +2180,8 @@ const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       }),
       isDark,
       accentColor: currentColors.primary,
-      themeColors: currentColors
+      themeColors: currentColors,
+      dc,
     };
   }, [theme, accent]);
   
@@ -1177,6 +2191,13 @@ const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     </ThemeContext.Provider>
   );
 };
+
+
+
+
+
+
+
 
 // Custom hook with error handling
 const useTheme = (): ThemeContextValue => {
@@ -1188,6 +2209,13 @@ const useTheme = (): ThemeContextValue => {
 };
 // ============ END OF THEME CONTEXT REPLACEMENT ============
 
+
+
+
+
+
+
+
 // ============ ADD ERROR BOUNDARY HERE ============
 // 🚨 Error Boundary Component
 interface ErrorBoundaryProps {
@@ -1195,11 +2223,25 @@ interface ErrorBoundaryProps {
   fallback?: React.ReactNode;
 }
 
+
+
+
+
+
+
+
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
   errorInfo: React.ErrorInfo | null;
 }
+
+
+
+
+
+
+
 
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
@@ -1265,7 +2307,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
       // Default error UI
       return (
         <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 p-4">
-          <div className="max-w-md w-full bg-white dark:bg-slate-800 rounded-3xl shadow-2xl p-8 text-center">
+          <div className="max-w-md w-full bg-white dark:bg-pink-950/60 rounded-3xl shadow-2xl p-8 text-center">
             <div className="w-20 h-20 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
               <svg className="w-10 h-10 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -1285,7 +2327,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
                 <summary className="cursor-pointer text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
                   Technical details
                 </summary>
-                <div className="mt-2 p-3 bg-slate-100 dark:bg-slate-900 rounded-lg text-xs font-mono text-red-600 dark:text-red-400 overflow-auto max-h-32">
+                <div className="mt-2 p-3 bg-slate-100 dark:bg-black/30 rounded-lg text-xs font-mono text-red-600 dark:text-red-400 overflow-auto max-h-32">
                   {this.state.error.message}
                 </div>
               </details>
@@ -1311,14 +2353,28 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 }
 // ============ END OF ERROR BOUNDARY ============
 
+
+
+
+
+
+
+
 // ============ ADD DATA CONSENT BANNER HERE ============
 // 🍪 GDPR/CCPA Consent Banner Component
 interface ConsentBannerProps {
   onAccept: () => void;
 }
 
+
+
+
+
+
+
+
 const ConsentBanner: React.FC<ConsentBannerProps> = ({ onAccept }) => {
-  const { isDark, accent } = useTheme();
+  const { isDark, accent, dc } = useTheme();
   const [showBanner, setShowBanner] = useState(false);
   
   useEffect(() => {
@@ -1368,7 +2424,7 @@ const ConsentBanner: React.FC<ConsentBannerProps> = ({ onAccept }) => {
     <div className="fixed bottom-0 left-0 right-0 z-50 animate-slide-up">
       <div className={`
         p-4 md:p-6
-        ${isDark ? 'bg-slate-900 border-t-2 border-slate-800' : 'bg-white border-t-2 border-slate-200'}
+        ${isDark ? `${dc.modal} border-t-2` : 'bg-white border-t-2 border-slate-200'}
         shadow-2xl
       `}>
         <div className="max-w-4xl mx-auto">
@@ -1411,7 +2467,7 @@ const ConsentBanner: React.FC<ConsentBannerProps> = ({ onAccept }) => {
                 className={`
                   px-6 py-3 rounded-xl font-semibold transition-all
                   ${isDark 
-                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' 
+                    ? dc.btnSecondary 
                     : 'bg-slate-200 hover:bg-slate-300 text-slate-700'}
                   active:scale-95
                 `}
@@ -1441,6 +2497,13 @@ const ConsentBanner: React.FC<ConsentBannerProps> = ({ onAccept }) => {
 };
 // ============ END OF CONSENT BANNER ============
 
+
+
+
+
+
+
+
 // Icon Options
 const HABIT_ICONS: HabitIcon[] = [
   { name: 'Coffee', icon: Coffee },
@@ -1454,6 +2517,34 @@ const HABIT_ICONS: HabitIcon[] = [
   { name: 'Music', icon: Music },
   { name: 'Target', icon: Target },
 ];
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1490,6 +2581,34 @@ const HABIT_THEMES_PINK: HabitThemeData[] = [
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const HABIT_THEMES_GREEN: HabitThemeData[] = [
   { 
     name: 'Green', 
@@ -1517,6 +2636,34 @@ const HABIT_THEMES_GREEN: HabitThemeData[] = [
     dark: { bg: 'bg-sky-900/20', border: 'border-sky-500/30', text: 'text-sky-100', icon: 'text-sky-300', hover: 'hover:bg-sky-900/40', check: 'bg-sky-400', gradient: 'from-sky-400 to-blue-400' }
   },
 ];
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1562,6 +2709,34 @@ interface HabitTemplate {
   category: 'student' | 'adult' | 'health' | 'productivity';
   description: string;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1691,7 +2866,91 @@ const HABIT_TEMPLATES: HabitTemplate[] = [
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // SUPPRESS CONSOLE WARNINGS
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1706,6 +2965,34 @@ const originalError = console.error;
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 console.warn = (...args: any[]) => {
   // Suppress Recharts dimension warnings
   if (typeof args[0] === 'string' && args[0].includes('width(-1) and height(-1)')) return;
@@ -1713,6 +3000,34 @@ console.warn = (...args: any[]) => {
   if (typeof args[0] === 'string' && args[0].includes('apple-mobile-web-app-capable')) return;
   originalWarn(...args);
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1731,6 +3046,62 @@ console.error = (...args: any[]) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // EXPENSE CATEGORIES
 const EXPENSE_CATEGORIES = [
   { id: 'food', label: 'Food & Drinks', icon: Coffee, color: 'orange' },
@@ -1739,25 +3110,97 @@ const EXPENSE_CATEGORIES = [
   { id: 'shopping', label: 'Shopping', icon: ShoppingBag, color: 'pink' },
   { id: 'bills', label: 'Bills & Utilities', icon: Home, color: 'red' },
   { id: 'health', label: 'Health & Fitness', icon: Heart, color: 'green' },
-  { id: 'debt_payment', label: 'Debt Payment', icon: 'CreditCard', color: 'indigo' },
+  { id: 'debt_payment', label: 'Debt Payment', icon: CreditCard, color: 'indigo' },
   { id: 'other', label: 'Other', icon: Target, color: 'slate' }
 ];
 // 🆕 PHASE 1: Default budget limits (customizable by user)
+
+// 🎨 Category Illustrations — SVG mini-icons per expense category
+const CategoryIllustrations: Record<string, React.FC<{ size?: number }>> = {
+  food: ({ size = 24 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="text-orange-400">
+      <path d="M18 8h1a4 4 0 0 1 0 8h-1" /><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" />
+    </svg>
+  ),
+  transport: ({ size = 24 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="text-blue-400">
+      <rect x="1" y="3" width="15" height="13" rx="2" /><polygon points="16 8 20 8 23 11 23 16 16 16 16 8" /><circle cx="5.5" cy="18.5" r="2.5" /><circle cx="18.5" cy="18.5" r="2.5" />
+    </svg>
+  ),
+  entertainment: ({ size = 24 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="text-purple-400">
+      <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+    </svg>
+  ),
+  shopping: ({ size = 24 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="text-pink-400">
+      <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" />
+    </svg>
+  ),
+  bills: ({ size = 24 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="text-red-400">
+      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
+    </svg>
+  ),
+  health: ({ size = 24 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="text-green-400">
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+    </svg>
+  ),
+  debt_payment: ({ size = 24 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="text-indigo-400">
+      <rect x="1" y="4" width="22" height="16" rx="2" ry="2" /><line x1="1" y1="10" x2="23" y2="10" />
+    </svg>
+  ),
+  other: ({ size = 24 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="text-slate-400">
+      <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+    </svg>
+  ),
+};
+
+// AFTER (lines 2993-3004):
 const DEFAULT_CATEGORY_BUDGETS: Record<string, number> = {
-  'Food & Dining': 500,
-  'Transportation': 200,
-  'Shopping': 300,
-  'Entertainment': 150,
-  'Bills & Utilities': 400,
-  'Healthcare': 200,
-  'Education': 300,
-  'Personal Care': 100,
-  'Gifts & Donations': 100,
-  'Other': 200
+  'food': 500,
+  'transport': 200,
+  'shopping': 300,
+  'entertainment': 150,
+  'bills': 400,
+  'health': 200,
+  'debt_payment': 100,
+  'other': 200
 };
 // ========================================
 // 🔥 NEW: MEMOIZED HABIT CARD COMPONENT
 // ========================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1778,6 +3221,34 @@ interface HabitCardProps {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const HabitCard = React.memo<HabitCardProps>(({ 
   habit, 
   today, 
@@ -1793,16 +3264,45 @@ const HabitCard = React.memo<HabitCardProps>(({
   const isCompletedToday = habit.completedDates?.includes(today);
   const themeBase = getColorTheme(habit.title);
   const theme = isDark ? themeBase.dark : themeBase.light;
+  const { dc } = useTheme();
   
   return (
     <div 
       className={`group relative p-4 sm:p-6 rounded-2xl sm:rounded-3xl border-2 transition-all duration-300 ${
         isCompletedToday 
-          ? `${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`
-          : `${isDark ? 'bg-slate-900 border-slate-900 hover:border-slate-700 hover:shadow-lg hover:shadow-slate-900' : (isGreen ? 'bg-white border-white hover:border-green-100 hover:shadow-lg hover:shadow-green-100' : isLgbt ? 'bg-white border-white hover:border-indigo-100 hover:shadow-lg hover:shadow-indigo-100' : 'bg-white border-white hover:border-pink-100 hover:shadow-lg hover:shadow-pink-100')} shadow-sm`
+        ? `${isDark ? (isGreen ? 'bg-green-950/60 border-green-900/60' : isLgbt ? 'bg-purple-950/60 border-purple-900/60' : 'bg-pink-950/60 border-pink-900/60') : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`
+          : `${isDark ? (isGreen ? 'bg-green-950/60 border-green-950/60 hover:border-green-800 hover:shadow-lg hover:shadow-green-950' : isLgbt ? 'bg-purple-950/60 border-purple-950/60 hover:border-purple-800 hover:shadow-lg hover:shadow-purple-950' : 'bg-pink-950/60 border-pink-950/60 hover:border-pink-800 hover:shadow-lg hover:shadow-pink-950') : (isGreen ? 'bg-white border-white hover:border-green-100 hover:shadow-lg hover:shadow-green-100' : isLgbt ? 'bg-white border-white hover:border-indigo-100 hover:shadow-lg hover:shadow-indigo-100' : 'bg-white border-white hover:border-pink-100 hover:shadow-lg hover:shadow-pink-100')} shadow-sm`
       }`}
     >
       <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition duration-500 rounded-3xl bg-gradient-to-r ${themeBase.light.bg.replace('bg-', 'from-white via-white to-')}/30 pointer-events-none`}></div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1838,12 +3338,40 @@ const HabitCard = React.memo<HabitCardProps>(({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
           {/* Mobile Actions */}
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
               onClick={() => onStartEditing(habit)}
               className={`p-2.5 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center ${
-                isDark ? 'text-slate-600 hover:bg-slate-800 hover:text-slate-400' : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
+                isDark ? dc.btnGhost : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
               }`}
               aria-label={`Edit habit: ${habit.title}`}
             >
@@ -1854,7 +3382,7 @@ const HabitCard = React.memo<HabitCardProps>(({
               className={`p-2.5 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center ${
                 habit.reminderEnabled
                   ? (isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
-                  : (isDark ? 'text-slate-600 hover:bg-slate-800' : 'text-slate-300 hover:bg-slate-100')
+                  : (isDark ? dc.btnGhost : 'text-slate-300 hover:bg-slate-100')
               }`}
               aria-label={`${habit.reminderEnabled ? 'Disable' : 'Enable'} reminder for: ${habit.title}`}
             >
@@ -1877,10 +3405,66 @@ const HabitCard = React.memo<HabitCardProps>(({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         <div className="w-full">
           <WeeklyProgress completedDates={habit.completedDates} />
         </div>
       </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1915,12 +3499,40 @@ const HabitCard = React.memo<HabitCardProps>(({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         <div className="flex items-center gap-4">
           <WeeklyProgress completedDates={habit.completedDates} />
           <button
             onClick={() => onStartEditing(habit)}
             className={`opacity-0 group-hover:opacity-100 transition-opacity p-3 rounded-xl ${
-              isDark ? 'text-slate-600 hover:bg-slate-800 hover:text-slate-400' : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
+              isDark ? dc.btnGhost : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
             }`}
             title="Edit Habit"
             aria-label={`Edit habit: ${habit.title}`}
@@ -1932,7 +3544,7 @@ const HabitCard = React.memo<HabitCardProps>(({
             className={`p-3 rounded-xl transition ${
               habit.reminderEnabled
                 ? (isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
-                : (isDark ? 'text-slate-600 hover:bg-slate-800' : 'text-slate-300 hover:bg-slate-100')
+                : (isDark ? dc.btnGhost : 'text-slate-300 hover:bg-slate-100')
             }`}
             title={habit.reminderEnabled ? "Reminder On" : "Reminder Off"}
             aria-label={`${habit.reminderEnabled ? 'Disable' : 'Enable'} reminder for: ${habit.title}`}
@@ -1979,6 +3591,34 @@ const HabitCard = React.memo<HabitCardProps>(({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 HabitCard.displayName = 'HabitCard';
 // ADD THIS - CURRENCY OPTIONS
 const CURRENCIES = [
@@ -1998,6 +3638,34 @@ const CURRENCIES = [
   { code: 'VND', symbol: '₫', name: 'Vietnamese Dong' },
   { code: 'IDR', symbol: 'Rp', name: 'Indonesian Rupiah' },
 ];
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2117,6 +3785,34 @@ const getYesterdayString = (): string => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const calculateStreak = (completedDates: string[]): number => {
   if (!completedDates || completedDates.length === 0) return 0;
   
@@ -2143,6 +3839,34 @@ const calculateStreak = (completedDates: string[]): number => {
       mostRecentDate.getTime() !== yesterday.getTime()) {
     return 0;
   }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2184,14 +3908,72 @@ const getLast7Days = () => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // Generates the current standard week (Sun-Sat) for Weekly Progress
 const getCurrentWeekDays = () => {
   const now = new Date();
   const todayStr = getTodayString();
   const currentDayOfWeek = now.getDay(); // Changed from getUTCDay()
   
-  const startOfWeek = new Date(now);
-  startOfWeek.setUTCDate(now.getUTCDate() - currentDayOfWeek);
+  // REPLACE lines 3776-3778 WITH:
+const startOfWeek = new Date(now);
+startOfWeek.setDate(now.getDate() - currentDayOfWeek); // ← use local .setDate
+startOfWeek.setHours(0, 0, 0, 0);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2202,10 +3984,39 @@ const getCurrentWeekDays = () => {
 
 
 
-  for (let i = 0; i < 7; i++) {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+     for (let i = 0; i < 7; i++) {
     const d = new Date(startOfWeek);
-    d.setUTCDate(startOfWeek.getUTCDate() + i);
-     const year = d.getFullYear();
+    d.setDate(startOfWeek.getDate() + i);  // ← local date only
+    const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     const dateStr = `${year}-${month}-${day}`;
@@ -2218,6 +4029,62 @@ const getCurrentWeekDays = () => {
   }
   return days;
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2263,6 +4130,13 @@ const scheduleNotification = (habit: Habit): ReturnType<typeof setTimeout> | nul
 // --- Animations Style Block ---
 const AnimationStyles = () => (
   <style>{`
+    html, body, #root {
+      height: 100%;
+      min-height: 100vh;
+      margin: 0;
+      padding: 0;
+      overflow-x: hidden;
+    }
     @keyframes pop {
       0% { transform: scale(1); }
       50% { transform: scale(0.95); }
@@ -2285,6 +4159,34 @@ const AnimationStyles = () => (
               transform: translateY(100%);
             }
           }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2340,11 +4242,67 @@ const AnimationStyles = () => (
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     .progress-bar-fill {
       background-size: 200% 100%;
       background-image: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
       animation: shimmer 2s infinite;
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2394,13 +4352,69 @@ const AnimationStyles = () => (
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // --- Components ---
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const ThemeToggle: React.FC = () => {
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, dc } = useTheme();
   const isDark = theme === 'dark';
   
   return (
@@ -2408,7 +4422,7 @@ const ThemeToggle: React.FC = () => {
       onClick={toggleTheme}
       className={`flex items-center gap-2 px-3 py-2 rounded-xl font-bold text-sm transition-all duration-300 ${
         isDark
-          ? 'bg-slate-800 text-slate-200 border border-slate-700 hover:bg-slate-700'
+          ? dc.btnSecondary
           : 'bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200'
       }`}
       aria-label={`Current theme: ${theme}. Click to switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
@@ -2422,11 +4436,67 @@ const ThemeToggle: React.FC = () => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const AccentToggle: React.FC = () => {
-  const { accent, toggleAccent, theme } = useTheme();
+  const { accent, toggleAccent, theme, dc } = useTheme();
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
   const isDark = theme === 'dark';
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2436,14 +4506,14 @@ const AccentToggle: React.FC = () => {
       onClick={toggleAccent}
       className={`flex items-center gap-2 px-3 py-2 rounded-xl font-bold text-sm transition-all duration-300 ${
         isDark
-          ? isGreen ? 'bg-green-900/50 text-green-200 border border-green-800 hover:bg-green-800' : isLgbt ? 'bg-slate-800 text-white border border-slate-600 hover:bg-slate-700' : 'bg-pink-900/50 text-pink-200 border border-pink-800 hover:bg-pink-800'
+          ? isGreen ? 'bg-green-900/50 text-green-200 border border-green-800 hover:bg-green-800' : isLgbt ? dc.btnSecondary : 'bg-pink-900/50 text-pink-200 border border-pink-800 hover:bg-pink-800'
           : isGreen ? 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100' : isLgbt ? 'bg-gradient-to-r from-red-100 via-yellow-100 to-blue-100 text-indigo-700 border border-indigo-200 hover:shadow-md' : 'bg-pink-50 text-pink-700 border border-pink-200 hover:bg-pink-100'
       }`}
-      title={isGreen ? "Switch to LGBT Theme" : isLgbt ? "Switch to Female Theme" : "Switch to Male Theme"}
+     title="Switch Theme"
     >
       <Palette className="w-4 h-4" />
       <span className={`hidden sm:inline ${isLgbt ? 'text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-green-500 to-blue-600 font-black' : ''}`}>
-        {isGreen ? "Male" : isLgbt ? "LGBT" : "Female"}
+        Theme
       </span>
     </button>
   );
@@ -2452,11 +4522,67 @@ const AccentToggle: React.FC = () => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const Toast = ({ toast, onDismiss }: { toast: ToastData; onDismiss: () => void }) => {
-  const { theme, accent } = useTheme();
+  const { theme, accent, dc } = useTheme();
   const isDark = theme === 'dark';
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2465,6 +4591,34 @@ const Toast = ({ toast, onDismiss }: { toast: ToastData; onDismiss: () => void }
     const timer = setTimeout(onDismiss, 5000);
     return () => clearTimeout(timer);
   }, [onDismiss]);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2489,12 +4643,40 @@ const Toast = ({ toast, onDismiss }: { toast: ToastData; onDismiss: () => void }
           {toast.action.label}
         </button>
       )}
-      <button onClick={onDismiss} className={`p-1 rounded-lg transition ${isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'}`}>
+      <button onClick={onDismiss} className={`p-1 rounded-lg transition ${isDark ? dc.btnClose : 'hover:bg-slate-100 text-slate-500'}`}>
         <X className="w-4 h-4" />
       </button>
     </div>
   );
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2513,12 +4695,68 @@ const FullScreenConfetti = () => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const pieces = Array.from({ length: 80 }).map((_, i) => ({
     id: i,
     left: Math.random() * 100 + '%',
     animationDelay: Math.random() * 2 + 's',
     backgroundColor: colors[Math.floor(Math.random() * colors.length)]
   }));
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2545,11 +4783,67 @@ const FullScreenConfetti = () => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const ConfettiCheck = ({ isChecked, onClick, themeColor, icon }: { isChecked: boolean, onClick: () => void, themeColor: string, icon?: string }) => {
   const [isBursting, setIsBursting] = useState(false);
-  const { theme, accent } = useTheme();
+  const { theme, accent, dc } = useTheme();
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2565,12 +4859,68 @@ const ConfettiCheck = ({ isChecked, onClick, themeColor, icon }: { isChecked: bo
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const IconComponent = icon ? HABIT_ICONS.find(i => i.name === icon)?.icon || CheckCircle2 : CheckCircle2;
   const confettiColors = isGreen 
     ? ['#10B981', '#34D399', '#059669', '#6EE7B7'] 
     : isLgbt
       ? ['#EF4444', '#F97316', '#EAB308', '#22C55E', '#3B82F6', '#A855F7']
       : ['#DB2777', '#BE185D', '#F472B6', '#9D174D'];
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2603,7 +4953,7 @@ const ConfettiCheck = ({ isChecked, onClick, themeColor, icon }: { isChecked: bo
           isChecked 
             ? `${themeColor} text-white shadow-xl scale-105` 
             : `${theme === 'dark' 
-                ? isGreen ? 'bg-slate-800 text-slate-500 border-2 border-slate-700 hover:border-green-400 hover:text-green-300 hover:bg-slate-700' : isLgbt ? 'bg-slate-800 text-slate-500 border-2 border-slate-700 hover:border-indigo-400 hover:text-indigo-300 hover:bg-slate-700' : 'bg-slate-800 text-slate-500 border-2 border-slate-700 hover:border-pink-400 hover:text-pink-300 hover:bg-slate-700' 
+                ? dc.cardInner 
                 : isGreen ? 'bg-white text-slate-300 border-2 border-slate-200 hover:border-green-500 hover:bg-green-50 hover:text-green-600' : isLgbt ? 'bg-white text-slate-300 border-2 border-slate-200 hover:border-indigo-500 hover:bg-indigo-50 hover:text-indigo-600' : 'bg-white text-slate-300 border-2 border-slate-200 hover:border-pink-500 hover:bg-pink-50 hover:text-pink-600'}`
         }`}
       >
@@ -2616,12 +4966,68 @@ const ConfettiCheck = ({ isChecked, onClick, themeColor, icon }: { isChecked: bo
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const WeeklyProgress = ({ completedDates }: { completedDates: string[] }) => {
-  const { theme, accent } = useTheme();
+  const { theme, accent, dc } = useTheme();
   const isDark = theme === 'dark';
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
   const days = getCurrentWeekDays();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2641,8 +5047,8 @@ const WeeklyProgress = ({ completedDates }: { completedDates: string[] }) => {
                 isCompleted 
                   ? `bg-gradient-to-br ${isGreen ? 'from-green-500 to-emerald-500' : isLgbt ? 'from-red-500 via-yellow-500 to-blue-500' : 'from-pink-500 to-rose-500'} text-white shadow-md ${isDark ? (isGreen ? 'shadow-green-500/40' : isLgbt ? 'shadow-indigo-500/40' : 'shadow-pink-500/40') : (isGreen ? 'shadow-green-300' : isLgbt ? 'shadow-indigo-300' : 'shadow-pink-300')}` 
                   : day.isToday
-                    ? `border-2 ${isGreen ? 'border-green-500 text-green-600' : isLgbt ? 'border-indigo-500 text-indigo-600' : 'border-pink-500 text-pink-600'} ${isDark ? (isGreen ? 'text-green-400 bg-slate-800' : isLgbt ? 'text-indigo-400 bg-slate-800' : 'text-pink-400 bg-slate-800') : 'bg-white'}` 
-                    : `${isDark ? 'bg-slate-800 text-slate-600 border border-slate-700' : 'bg-slate-100 text-slate-400 border border-slate-200'}`
+                    ? `border-2 ${isGreen ? 'border-green-500 text-green-600' : isLgbt ? 'border-indigo-500 text-indigo-600' : 'border-pink-500 text-pink-600'} ${isDark ? dc.cardInner : 'bg-white'}` 
+                    : `${isDark ? `${dc.cardInner} border` : 'bg-slate-100 text-slate-400 border border-slate-200'}`
               }`}
             >
               {day.label.charAt(0)}
@@ -2660,24 +5066,182 @@ const WeeklyProgress = ({ completedDates }: { completedDates: string[] }) => {
 
 
 
-const SkeletonLoader = () => {
-  const { theme } = useTheme();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Shared shimmer animation class — add to your global CSS/index.css:
+// .skeleton { animation: shimmer 1.5s infinite; background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%); background-size: 200% 100%; }
+// .dark .skeleton { background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%); background-size: 200% 100%; }
+// @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+
+
+
+
+
+
+
+
+const HabitSkeletonLoader = () => {
+  const { isDark, dc } = useTheme();
   return (
-    <div className="grid gap-5">
-      {[1, 2, 3].map(i => (
-        <div key={i} className={`p-6 rounded-3xl border-2 ${theme === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
-          <div className="flex items-center gap-6">
-            <div className={`w-16 h-16 rounded-2xl skeleton`} />
-            <div className="flex-1 space-y-3">
-              <div className={`h-5 w-48 rounded skeleton`} />
-              <div className={`h-4 w-32 rounded skeleton`} />
+    <div className="grid gap-4">
+      {[1, 2, 3, 4].map(i => (
+        <div
+          key={i}
+          className={`p-5 rounded-3xl border-2 ${
+            isDark ? dc.card : 'bg-white border-slate-100'
+          }`}
+          style={{ animationDelay: `${i * 0.1}s` }}
+        >
+          {/* Mobile layout skeleton */}
+          <div className="flex items-center gap-3 mb-3">
+            {/* Checkbox */}
+            <div className={`w-10 h-10 rounded-full flex-shrink-0 skeleton`} />
+            {/* Title + streak badge */}
+            <div className="flex-1 space-y-2">
+              <div className={`h-4 rounded-lg skeleton`} style={{ width: `${55 + (i * 7) % 30}%` }} />
+              <div className={`h-3 w-16 rounded skeleton`} />
             </div>
+            {/* Action buttons */}
+            <div className="flex gap-1">
+              <div className={`w-9 h-9 rounded-xl skeleton`} />
+              <div className={`w-9 h-9 rounded-xl skeleton`} />
+              <div className={`w-9 h-9 rounded-xl skeleton`} />
+            </div>
+          </div>
+          {/* Weekly progress dots */}
+          <div className="flex gap-1 mt-2">
+            {[1,2,3,4,5,6,7].map(d => (
+              <div key={d} className={`flex-1 h-2 rounded-full skeleton`} />
+            ))}
           </div>
         </div>
       ))}
     </div>
   );
 };
+
+
+
+
+
+
+
+
+const ExpenseSkeletonLoader = () => {
+  const { isDark, dc } = useTheme();
+  return (
+    <div className="space-y-3">
+      {[1, 2, 3, 4, 5].map(i => (
+        <div
+          key={i}
+          className={`p-4 rounded-2xl border-2 flex items-center justify-between ${
+            isDark ? dc.card : 'bg-white border-slate-100'
+          }`}
+        >
+          <div className="flex items-center gap-3 flex-1">
+            <div className={`w-10 h-10 rounded-xl flex-shrink-0 skeleton`} />
+            <div className="flex-1 space-y-2">
+              <div className={`h-4 rounded skeleton`} style={{ width: `${40 + (i * 11) % 35}%` }} />
+              <div className={`h-3 w-24 rounded skeleton`} />
+            </div>
+          </div>
+          <div className={`h-5 w-16 rounded skeleton`} />
+        </div>
+      ))}
+    </div>
+  );
+};
+
+
+
+
+
+
+
+
+const DashboardCardSkeletonLoader = () => {
+  const { isDark, dc } = useTheme();
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      {[1, 2, 3, 4].map(i => (
+        <div
+          key={i}
+          className={`p-5 rounded-2xl border-2 space-y-3 ${
+            isDark ? dc.card : 'bg-white border-slate-100'
+          }`}
+        >
+          <div className={`w-10 h-10 rounded-xl skeleton`} />
+          <div className={`h-6 w-20 rounded skeleton`} />
+          <div className={`h-3 w-28 rounded skeleton`} />
+        </div>
+      ))}
+    </div>
+  );
+};
+
+
+
+
+
+
+
+
+// Keep backward compat — old SkeletonLoader now uses HabitSkeletonLoader
+const SkeletonLoader = HabitSkeletonLoader;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2696,17 +5260,47 @@ const HabitStats = ({
   currencySymbol: string;
   onClose: () => void;
 }) => {
-  const { theme, accent } = useTheme();
+  const { theme, accent, dc } = useTheme();
   const isDark = theme === 'dark';
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
   const [activeTab, setActiveTab] = useState<'overview' | 'trends' | 'habits' | 'money'>('overview');
+  const [fabMenuOpen, setFabMenuOpen] = useState(false);
+  const fabLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [moneyView, setMoneyView] = useState<'overview' | 'weekly' | 'monthly' | 'yearly'>('overview');
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   
   const days = getLast7Days();
   const today = getTodayString();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2752,6 +5346,34 @@ const HabitStats = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   // Monthly projection
   const avgDailyCompletions = weeklyData.reduce((sum, d) => sum + d.count, 0) / 7;
   const monthlyProjection = Math.round(avgDailyCompletions * 30);
@@ -2789,6 +5411,34 @@ const getMonthlyData = (month: number, year: number) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const getYearlyData = (year: number) => {
   const yearExpenses = expenses.filter(e => {
     const expenseDate = new Date(e.date);
@@ -2819,6 +5469,34 @@ const getYearlyData = (year: number) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // Weekly money data
 const last7Days = getLast7Days();
 const weeklySpending = last7Days.map(day => {
@@ -2835,8 +5513,64 @@ const weeklySaved = weeklyBudget - weeklyTotal;
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const monthlyAnalytics = getMonthlyData(selectedMonth, selectedYear);
 const yearlyAnalytics = getYearlyData(selectedYear);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2845,18 +5579,46 @@ const yearlyAnalytics = getYearlyData(selectedYear);
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}></div>
       
-      <div className={`relative w-full max-w-3xl my-8 rounded-3xl shadow-2xl animate-pop ${isDark ? 'bg-slate-900 border-2 border-slate-800 text-white' : 'bg-white border-2 border-slate-100 text-slate-900'}`}>
-        <button onClick={onClose} className={`absolute top-4 right-4 p-2 rounded-xl transition z-10 ${isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'}`}>
+      <div className={`relative w-full max-w-3xl my-8 rounded-3xl shadow-2xl animate-pop ${isDark ? `${dc.card} border-2 text-white` : 'bg-white border-2 border-slate-100 text-slate-900'}`}>
+        <button onClick={onClose} className={`absolute top-4 right-4 p-2 rounded-xl transition z-10 ${isDark ? dc.btnClose : 'hover:bg-slate-100 text-slate-500'}`}>
           <X className="w-5 h-5" />
         </button>
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         {/* Header */}
-        <div className="p-6 md:p-8 border-b border-slate-200 dark:border-slate-800">
+        <div className="p-6 md:p-8 border-b border-slate-200 dark:border-pink-900/40">
           <div className="text-center">
-            <div className={`inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-4 ${isDark ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-slate-800 text-indigo-400' : 'bg-pink-500/20 text-pink-400') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')}`}>
+            <div className={`inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-4 ${isDark ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? dc.iconBox : 'bg-pink-500/20 text-pink-400') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')}`}>
               <BarChart3 className="w-7 h-7" />
             </div>
             <h2 className="text-3xl font-black mb-2">Advanced Insights</h2>
@@ -2868,10 +5630,38 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
           {/* Tabs */}
-          <div className={`flex gap-2 mt-6 p-1.5 rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+          <div className={`flex gap-2 mt-6 p-1.5 rounded-2xl ${isDark ? dc.tabBar : 'bg-slate-100'}`}>
             {[
-            { id: 'overview', label: 'Overview', icon: PieChart },
+            { id: 'overview', label: 'Overview', icon: PieChartIcon },
             { id: 'trends', label: 'Trends', icon: TrendingUp },
             { id: 'habits', label: 'By Habit', icon: Target },
             { id: 'money', label: 'Money', icon: DollarSign }
@@ -2901,6 +5691,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         {/* Content */}
         <div className="p-6 md:p-8 max-h-[60vh] overflow-y-auto">
           {/* OVERVIEW TAB */}
@@ -2908,25 +5726,25 @@ const yearlyAnalytics = getYearlyData(selectedYear);
             <div className="space-y-6">
               {/* Key Metrics Grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'}`}>
                   <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Total Habits</div>
                   <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{totalHabits}</div>
                   <div className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{activeHabits} active</div>
                 </div>
                 
-                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'}`}>
                   <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Best Streak</div>
                   <div className={`text-2xl font-black ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')}`}>{bestStreak}</div>
                   <div className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>days</div>
                 </div>
                 
-                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'}`}>
                   <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Today</div>
                   <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{completionRate}%</div>
                   <div className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{completedToday}/{totalHabits} done</div>
                 </div>
                 
-                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'}`}>
                   <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>7-Day Avg</div>
                   <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{avgCompletionRate}%</div>
                   <div className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>completion</div>
@@ -2936,8 +5754,36 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
               {/* Consistency Score */}
-              <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+              <div className={`p-5 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'}`}>
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>Consistency Score</h3>
@@ -2958,8 +5804,36 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
               {/* Monthly Projection */}
-              <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+              <div className={`p-5 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'}`}>
                 <div className="flex items-center gap-3">
                   <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isDark ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-indigo-500/20 text-indigo-400' : 'bg-pink-500/20 text-pink-400') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')}`}>
                     <Calendar className="w-6 h-6" />
@@ -2990,7 +5864,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                           style={{ height: `${(d.count / maxDaily) * 100}%`, minHeight: d.count > 0 ? '8px' : '0' }}
                         ></div>
                         {d.count > 0 && (
-                          <div className={`absolute -top-7 left-1/2 -translate-x-1/2 text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded ${isDark ? 'bg-slate-800' : 'bg-white shadow-lg'}`}>
+                          <div className={`absolute -top-7 left-1/2 -translate-x-1/2 text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded ${isDark ? dc.cardInner : 'bg-white shadow-lg'}`}>
                             {d.count}
                           </div>
                         )}
@@ -3004,13 +5878,41 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
               {/* Completion Rate Trend */}
               <div>
                 <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Daily Completion Rate</h3>
                 <div className="h-32 flex items-end justify-between gap-1">
                   {last7DaysRate.map((rate, i) => (
                     <div key={i} className="flex-1 flex flex-col items-center gap-2">
-                      <div className={`w-full h-24 flex items-end ${isDark ? 'bg-slate-800' : 'bg-slate-100'} rounded-lg overflow-hidden`}>
+                      <div className={`w-full h-24 flex items-end ${isDark ? dc.tabBar : 'bg-slate-100'} rounded-lg overflow-hidden`}>
                         <div 
                           className={`w-full transition-all duration-500 ${isDark ? (isGreen ? 'bg-green-500' : isLgbt ? 'bg-indigo-500' : 'bg-pink-500') : (isGreen ? 'bg-green-600' : isLgbt ? 'bg-indigo-600' : 'bg-pink-600')}`}
                           style={{ height: `${rate}%` }}
@@ -3027,8 +5929,36 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
               {/* Total Completions */}
-              <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+              <div className={`p-5 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'}`}>
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>All-Time Completions</h3>
@@ -3045,6 +5975,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
           {/* HABITS TAB */}
           {activeTab === 'habits' && (
             <div className="space-y-6">
@@ -3057,7 +6015,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                   </div>
                   <div className="space-y-3">
                     {topHabits.map((habit, idx) => (
-                      <div key={habit.id} className={`p-4 rounded-2xl border flex items-center justify-between ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                      <div key={habit.id} className={`p-4 rounded-2xl border flex items-center justify-between ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'}`}>
                         <div className="flex items-center gap-3">
                           <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black ${
                             idx === 0 ? 'bg-yellow-500 text-white' :
@@ -3092,7 +6050,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                   </div>
                   <div className="space-y-3">
                     {needsAttention.map((habit) => (
-                      <div key={habit.id} className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                      <div key={habit.id} className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'}`}>
                         <div className="flex items-center justify-between">
                           <div>
                             <p className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{habit.title}</p>
@@ -3120,7 +6078,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                   : 0;
                 
                 return (
-                  <div key={habit.id} className={`p-3 rounded-xl border ${isDark ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                  <div key={habit.id} className={`p-3 rounded-xl border ${isDark ? dc.cardInner : 'bg-slate-50 border-slate-200'}`}>
                     <div className="flex items-center justify-between mb-2">
                       <p className={`font-bold text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>{habit.title}</p>
                       <div className="flex items-center gap-2">
@@ -3150,7 +6108,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 {activeTab === 'money' && (
   <div className="space-y-6">
     {/* View Selector */}
-    <div className={`flex gap-2 p-1.5 rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+    <div className={`flex gap-2 p-1.5 rounded-2xl ${isDark ? dc.tabBar : 'bg-slate-100'}`}>
       <button
         onClick={() => setMoneyView('overview')}
         className={`flex-1 px-4 py-2 rounded-xl text-sm font-bold transition ${
@@ -3195,24 +6153,52 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     {/* Overview View - Weekly Line Chart */}
     {moneyView === 'overview' && (
       <div className="space-y-4">
         {/* Summary Cards */}
         <div className="grid grid-cols-3 gap-4">
-          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-blue-50 border-blue-200'}`}>
+          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-blue-50 border-blue-200'}`}>
             <div className={`text-sm font-medium mb-1 ${isDark ? 'text-slate-400' : 'text-blue-600'}`}>Total Spent</div>
             <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-blue-900'}`}>
               {currencySymbol}{weeklyTotal.toFixed(2)}
             </div>
           </div>
-          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-green-50 border-green-200'}`}>
+          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-green-50 border-green-200'}`}>
             <div className={`text-sm font-medium mb-1 ${isDark ? 'text-slate-400' : 'text-green-600'}`}>Total Budget</div>
             <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-green-900'}`}>
               {currencySymbol}{weeklyBudget.toFixed(2)}
             </div>
           </div>
-          <div className={`p-4 rounded-2xl border ${weeklySaved >= 0 ? (isDark ? 'bg-slate-800 border-slate-700' : 'bg-emerald-50 border-emerald-200') : (isDark ? 'bg-slate-800 border-slate-700' : 'bg-red-50 border-red-200')}`}>
+          <div className={`p-4 rounded-2xl border ${weeklySaved >= 0 ? (isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-emerald-50 border-emerald-200') : (isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-red-50 border-red-200')}`}>
             <div className={`text-sm font-medium mb-1 ${weeklySaved >= 0 ? (isDark ? 'text-slate-400' : 'text-emerald-600') : (isDark ? 'text-slate-400' : 'text-red-600')}`}>
               {weeklySaved >= 0 ? 'Savings' : 'Over Budget'}
             </div>
@@ -3225,8 +6211,36 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         {/* Weekly Line Chart */}
-        <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+        <div className={`p-5 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-white border-slate-200'}`}>
           <h4 className={`text-sm font-bold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>Weekly Spending Trend</h4>
           <ResponsiveContainer width="100%" height={250}>
             <LineChart data={weeklySpending}>
@@ -3266,6 +6280,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     {/* Monthly View - Daily Bar Chart */}
     {moneyView === 'monthly' && (
       <div className="space-y-6">
@@ -3280,7 +6322,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                 setSelectedMonth(selectedMonth - 1);
               }
             }}
-            className={`p-2 rounded-xl transition ${isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}
+            className={`p-2 rounded-xl transition ${isDark ? dc.hoverSurface : 'hover:bg-slate-100'}`}
           >
             ←
           </button>
@@ -3296,7 +6338,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                 setSelectedMonth(selectedMonth + 1);
               }
             }}
-            className={`p-2 rounded-xl transition ${isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}
+            className={`p-2 rounded-xl transition ${isDark ? dc.hoverSurface : 'hover:bg-slate-100'}`}
           >
             →
           </button>
@@ -3305,22 +6347,50 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         {/* Monthly Stats Cards */}
         <div className="grid grid-cols-3 gap-4">
-          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-blue-50 border-blue-200'}`}>
+          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-blue-50 border-blue-200'}`}>
             <div className={`text-sm font-medium mb-1 ${isDark ? 'text-slate-400' : 'text-blue-600'}`}>Spent</div>
             <div className={`text-xl font-black ${isDark ? 'text-white' : 'text-blue-900'}`}>
               {currencySymbol}{monthlyAnalytics.totalSpent.toFixed(2)}
             </div>
           </div>
-          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-green-50 border-green-200'}`}>
+          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-green-50 border-green-200'}`}>
             <div className={`text-sm font-medium mb-1 ${isDark ? 'text-slate-400' : 'text-green-600'}`}>Budget</div>
             <div className={`text-xl font-black ${isDark ? 'text-white' : 'text-green-900'}`}>
               {currencySymbol}{monthlyAnalytics.monthlyBudget.toFixed(2)}
             </div>
           </div>
-          <div className={`p-4 rounded-2xl border ${monthlyAnalytics.saved >= 0 ? (isDark ? 'bg-slate-800 border-slate-700' : 'bg-emerald-50 border-emerald-200') : (isDark ? 'bg-slate-800 border-slate-700' : 'bg-red-50 border-red-200')}`}>
-            <div className={`text-sm font-medium mb-1 ${monthlyAnalytics.saved >= 0 ? (isDark ? 'text-slate-400' : 'text-emerald-600') : (isDark ? 'text-slate-400' : 'text-red-600')}`}>
+          <div className={`p-4 rounded-2xl border ${monthlyAnalytics.saved >= 0 ? (isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-emerald-50 border-emerald-200') : (isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-red-50 border-red-200')}`}>
+            <div className={`text-sm font-medium mb-1 ${monthlyAnalytics.saved >= 0 ? (isDark ? 'text-pink-400' : 'text-emerald-600') : (isDark ? 'text-pink-400' : 'text-red-600')}`}>
               {monthlyAnalytics.saved >= 0 ? 'Saved' : 'Over'}
             </div>
             <div className={`text-xl font-black ${monthlyAnalytics.saved >= 0 ? (isDark ? 'text-green-400' : 'text-emerald-900') : (isDark ? 'text-red-400' : 'text-red-900')}`}>
@@ -3332,8 +6402,36 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         {/* Daily Spending Bar Chart */}
-        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-white border-slate-200'}`}>
           <h4 className={`text-sm font-bold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>Daily Spending</h4>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={monthlyAnalytics.dailyData}>
@@ -3372,9 +6470,37 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         {/* Category Breakdown */}
         {monthlyAnalytics.categoryTotals.length > 0 && (
-          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-white border-slate-200'}`}>
             <h4 className={`text-sm font-bold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>Category Breakdown</h4>
             <div className="space-y-3">
               {monthlyAnalytics.categoryTotals
@@ -3416,6 +6542,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     {/* Yearly View - Monthly Bar Chart with Line Overlay */}
     {moneyView === 'yearly' && (
       <div className="space-y-6">
@@ -3423,14 +6577,14 @@ const yearlyAnalytics = getYearlyData(selectedYear);
         <div className="flex items-center justify-between">
           <button
             onClick={() => setSelectedYear(selectedYear - 1)}
-            className={`p-2 rounded-xl transition ${isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}
+            className={`p-2 rounded-xl transition ${isDark ? dc.hoverSurface : 'hover:bg-slate-100'}`}
           >
             ←
           </button>
           <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{selectedYear}</h3>
           <button
             onClick={() => setSelectedYear(selectedYear + 1)}
-            className={`p-2 rounded-xl transition ${isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}
+            className={`p-2 rounded-xl transition ${isDark ? dc.hoverSurface : 'hover:bg-slate-100'}`}
           >
             →
           </button>
@@ -3439,22 +6593,50 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         {/* Yearly Stats Cards */}
         <div className="grid grid-cols-3 gap-4">
-          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-blue-50 border-blue-200'}`}>
+          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-blue-50 border-blue-200'}`}>
             <div className={`text-sm font-medium mb-1 ${isDark ? 'text-slate-400' : 'text-blue-600'}`}>Total Spent</div>
             <div className={`text-xl font-black ${isDark ? 'text-white' : 'text-blue-900'}`}>
               {currencySymbol}{yearlyAnalytics.totalSpent.toFixed(2)}
             </div>
           </div>
-          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-green-50 border-green-200'}`}>
-            <div className={`text-sm font-medium mb-1 ${isDark ? 'text-slate-400' : 'text-green-600'}`}>Total Budget</div>
+          <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-green-50 border-green-200'}`}>
+            <div className={`text-sm font-medium mb-1 ${isDark ? 'text-pink-400' : 'text-green-600'}`}>Total Budget</div>
             <div className={`text-xl font-black ${isDark ? 'text-white' : 'text-green-900'}`}>
               {currencySymbol}{yearlyAnalytics.yearlyBudget.toFixed(2)}
             </div>
           </div>
-          <div className={`p-4 rounded-2xl border ${yearlyAnalytics.saved >= 0 ? (isDark ? 'bg-slate-800 border-slate-700' : 'bg-emerald-50 border-emerald-200') : (isDark ? 'bg-slate-800 border-slate-700' : 'bg-red-50 border-red-200')}`}>
-            <div className={`text-sm font-medium mb-1 ${yearlyAnalytics.saved >= 0 ? (isDark ? 'text-slate-400' : 'text-emerald-600') : (isDark ? 'text-slate-400' : 'text-red-600')}`}>
+          <div className={`p-4 rounded-2xl border ${yearlyAnalytics.saved >= 0 ? (isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-emerald-50 border-emerald-200') : (isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-red-50 border-red-200')}`}>
+            <div className={`text-sm font-medium mb-1 ${yearlyAnalytics.saved >= 0 ? (isDark ? 'text-pink-400' : 'text-emerald-600') : (isDark ? 'text-pink-400' : 'text-red-600')}`}>
               {yearlyAnalytics.saved >= 0 ? 'Total Saved' : 'Over Budget'}
             </div>
             <div className={`text-xl font-black ${yearlyAnalytics.saved >= 0 ? (isDark ? 'text-green-400' : 'text-emerald-900') : (isDark ? 'text-red-400' : 'text-red-900')}`}>
@@ -3466,8 +6648,36 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         {/* Monthly Spending Bar + Line Chart */}
-        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-white border-slate-200'}`}>
           <h4 className={`text-sm font-bold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>Monthly Spending vs Budget</h4>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={yearlyAnalytics.monthlyData}>
@@ -3513,8 +6723,36 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         {/* Monthly Savings Bar Chart */}
-        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+        <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-white border-slate-200'}`}>
           <h4 className={`text-sm font-bold mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>Monthly Savings/Deficit</h4>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={yearlyAnalytics.monthlyData}>
@@ -3569,9 +6807,65 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // Landing Page
 const LandingPage = ({ onGetStarted }: { onGetStarted: () => void }) => {
-  const { theme, accent } = useTheme();
+  const { theme, accent, dc } = useTheme();
   const isDark = theme === 'dark';
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
@@ -3579,9 +6873,51 @@ const LandingPage = ({ onGetStarted }: { onGetStarted: () => void }) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   return (
     <div className={`min-h-screen font-sans overflow-hidden relative transition-colors duration-500 ${isDark ? (isLgbt ? 'bg-rainbow-dark text-white' : 'bg-slate-950 text-white') : isGreen ? 'bg-green-50 text-slate-900' : isLgbt ? 'bg-rainbow-light text-slate-900' : 'bg-pink-50 text-slate-900'}`}>
       <AnimationStyles />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
       
@@ -3594,12 +6930,62 @@ const LandingPage = ({ onGetStarted }: { onGetStarted: () => void }) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
       <nav className="relative z-10 flex justify-between items-center p-6 max-w-7xl mx-auto w-full backdrop-blur-sm">
         <div className="flex items-center space-x-2">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg transform rotate-3 hover:rotate-6 transition ${isDark ? (isGreen ? 'bg-green-400' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500' : 'bg-pink-400') : (isGreen ? 'bg-green-600' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500' : 'bg-pink-600')}`}>
-            <TrendingUp className="text-white w-6 h-6" />
+          <div className="w-12 h-12 transform rotate-3 hover:rotate-6 transition drop-shadow-lg">
+            <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+              {/* Wallet body */}
+              <rect x="4" y="14" width="40" height="26" rx="5"
+                fill={isGreen ? '#15803d' : isLgbt ? '#7c3aed' : '#be185d'}
+                stroke={isGreen ? '#bbf7d0' : isLgbt ? '#ddd6fe' : '#fce7f3'} strokeWidth="1.5"/>
+              {/* Wallet flap */}
+              <path d="M4 20h40V14a5 5 0 0 0-5-5H9a5 5 0 0 0-5 5v6z"
+                fill={isGreen ? '#166534' : isLgbt ? '#6d28d9' : '#9d174d'}/>
+              {/* Card slot highlight */}
+              <rect x="28" y="25" width="12" height="8" rx="3"
+                fill={isGreen ? '#4ade80' : isLgbt ? '#c4b5fd' : '#f9a8d4'}
+                opacity="0.9"/>
+              {/* Coin */}
+              <circle cx="34" cy="29" r="3"
+                fill={isGreen ? '#166534' : isLgbt ? '#5b21b6' : '#831843'}/>
+              {/* Dollar sign on coin */}
+              <text x="34" y="33" textAnchor="middle" fontSize="4" fontWeight="bold"
+                fill={isGreen ? '#4ade80' : isLgbt ? '#c4b5fd' : '#f9a8d4'}>$</text>
+              {/* Stitching lines */}
+              <path d="M8 22h32" stroke="white" strokeWidth="0.5" strokeDasharray="2 2" opacity="0.3"/>
+              {/* Shine */}
+              <ellipse cx="14" cy="19" rx="5" ry="2" fill="white" opacity="0.12" transform="rotate(-15 14 19)"/>
+            </svg>
           </div>
-          <span className={`text-2xl font-black ${isDark ? (isGreen ? 'text-green-300' : isLgbt ? 'text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-blue-400' : 'text-pink-300') : (isGreen ? 'text-green-700' : isLgbt ? 'text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-blue-600' : 'text-pink-700')}`}>HabitFlow</span>
+          <span className={`text-2xl font-black ${isDark ? (isGreen ? 'text-green-300' : isLgbt ? 'text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-blue-400' : 'text-pink-300') : (isGreen ? 'text-green-700' : isLgbt ? 'text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-blue-600' : 'text-pink-700')}`}>UnBroke</span>
         </div>
         <div className="flex items-center space-x-4">
           <AccentToggle />
@@ -3610,46 +6996,139 @@ const LandingPage = ({ onGetStarted }: { onGetStarted: () => void }) => {
 
 
 
-      <header className="relative z-10 flex-grow flex flex-col justify-center items-center text-center px-4 max-w-5xl mx-auto mt-10 mb-20">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+     <header className="relative z-10 min-h-[calc(100vh-80px)] flex flex-col justify-center items-center text-center px-6 max-w-5xl mx-auto pb-10">
+
+        {/* Badge */}
         <div className={`inline-flex items-center px-4 py-1.5 rounded-full border text-sm font-bold mb-8 shadow-sm backdrop-blur-md animate-float ${isDark ? (isGreen ? 'bg-slate-900/50 border-green-500 text-green-300' : isLgbt ? 'bg-slate-900/50 border-indigo-500 text-white' : 'bg-slate-900/50 border-pink-500 text-pink-300') : (isGreen ? 'bg-white border-green-200 text-green-600' : isLgbt ? 'bg-white border-indigo-200 text-indigo-600' : 'bg-white border-pink-200 text-pink-600')}`}>
           <Sparkles className={`w-4 h-4 mr-2 ${isGreen ? 'text-green-500 fill-green-500' : isLgbt ? 'text-yellow-500 fill-yellow-500' : 'text-pink-500 fill-pink-500'}`} />
-          Level up your daily routine
+          Your money. Your habits. Your future.
         </div>
-        
-        <h1 className={`text-5xl sm:text-6xl md:text-8xl font-black tracking-tight mb-8 leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-          Build habits that <br className="hidden md:block" />
-          <span className={`bg-gradient-to-r bg-clip-text text-transparent ${isDark ? (isGreen ? 'from-green-400 to-emerald-400' : isLgbt ? 'from-red-400 via-yellow-400 to-blue-400' : 'from-pink-400 to-rose-400') : (isGreen ? 'from-green-600 to-emerald-600' : isLgbt ? 'from-red-500 via-green-500 to-blue-600' : 'from-pink-600 to-rose-600')}`}>improve your life.</span>
+
+        {/* Headline */}
+        <h1 className={`text-5xl sm:text-6xl md:text-8xl font-black tracking-tight mb-6 leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          Master your money.<br className="hidden md:block" />
+          <span className={`bg-gradient-to-r bg-clip-text text-transparent ${isDark ? (isGreen ? 'from-green-400 to-emerald-400' : isLgbt ? 'from-red-400 via-yellow-400 to-blue-400' : 'from-pink-400 to-rose-400') : (isGreen ? 'from-green-600 to-emerald-600' : isLgbt ? 'from-red-500 via-green-500 to-blue-600' : 'from-pink-600 to-rose-600')}`}>Own your life.</span>
         </h1>
-        
-        <p className={`text-lg sm:text-xl md:text-2xl mb-12 max-w-2xl leading-relaxed font-medium ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-          Turn your daily tasks into a vibrant streak. Visualize your progress with a dashboard that actually motivates you.
+
+        {/* Subheadline */}
+        <p className={`text-lg sm:text-xl md:text-2xl mb-6 max-w-2xl leading-relaxed font-medium ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+          The all-in-one app that combines <strong>financial literacy</strong>, smart budgeting, and daily habit-building — so you stop surviving paycheck to paycheck and start <strong>building real wealth</strong>.
         </p>
-        
-        <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-          <button onClick={onGetStarted} className={`text-white text-lg px-10 py-4 rounded-2xl font-bold transition transform hover:-translate-y-1 hover:shadow-2xl flex items-center justify-center ${isDark ? (isGreen ? 'bg-green-500 hover:bg-green-400 shadow-green-500/40' : isLgbt ? 'bg-gradient-to-r from-red-500 via-green-500 to-blue-600 hover:opacity-90 shadow-indigo-500/40' : 'bg-pink-500 hover:bg-pink-400 shadow-pink-500/40') : (isGreen ? 'bg-green-600 hover:bg-green-700 shadow-green-600/40' : isLgbt ? 'bg-gradient-to-r from-red-600 via-green-600 to-blue-700 hover:opacity-90 shadow-indigo-600/40' : 'bg-pink-600 hover:bg-pink-700 shadow-pink-600/40')}`}>
-            Get Started
+
+        {/* Social proof micro-copy */}
+        <p className={`text-sm font-semibold mb-8 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+          💸 The average user saves ₱3,200 more per month within 30 days.
+        </p>
+
+        {/* Feature Pills */}
+        <div className="flex flex-wrap justify-center gap-2 mb-10">
+          {[
+            { icon: '💰', label: 'Budget Tracker' },
+            { icon: '📈', label: 'Spending Insights' },
+            { icon: '🧠', label: 'Financial Literacy' },
+            { icon: '✅', label: 'Habit Builder' },
+            { icon: '🎯', label: 'Goals & Debt' },
+          ].map(({ icon, label }) => (
+            <span key={label} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${
+              isDark
+                ? isGreen ? 'bg-green-900/30 border-green-700/50 text-green-300'
+                : isLgbt ? 'bg-indigo-900/30 border-indigo-700/50 text-indigo-300'
+                         : 'bg-pink-900/30 border-pink-700/50 text-pink-300'
+                : isGreen ? 'bg-green-100 border-green-200 text-green-700'
+                : isLgbt ? 'bg-indigo-100 border-indigo-200 text-indigo-700'
+                         : 'bg-pink-100 border-pink-200 text-pink-700'
+            }`}>
+              {icon} {label}
+            </span>
+          ))}
+        </div>
+
+        {/* CTA */}
+        <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto mb-8">
+          <button
+            onClick={onGetStarted}
+            className={`text-white text-xl px-12 py-5 rounded-2xl font-black transition transform hover:-translate-y-1 hover:shadow-2xl active:scale-95 flex items-center justify-center shadow-lg ${
+              isDark
+                ? isGreen ? 'bg-green-500 hover:bg-green-400 shadow-green-500/40'
+                : isLgbt ? 'bg-gradient-to-r from-red-500 via-green-500 to-blue-600 hover:opacity-90 shadow-indigo-500/40'
+                         : 'bg-pink-500 hover:bg-pink-400 shadow-pink-500/40'
+                : isGreen ? 'bg-green-600 hover:bg-green-700 shadow-green-600/40'
+                : isLgbt ? 'bg-gradient-to-r from-red-600 via-green-600 to-blue-700 hover:opacity-90 shadow-indigo-600/40'
+                         : 'bg-pink-600 hover:bg-pink-700 shadow-pink-600/40'
+            }`}>
+            Take Control — It's Free
             <ChevronRight className="ml-2 w-6 h-6" />
           </button>
         </div>
 
+        {/* Trust Signals */}
+        <div className={`flex flex-wrap justify-center gap-5 mb-12 text-xs font-bold uppercase tracking-widest ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
+          <span>✅ 100% Free</span>
+          <span>🔒 Bank-Level Privacy</span>
+          <span>⚡ Works Offline</span>
+          <span>📱 iOS & Android</span>
+          <span>🎓 Built-in Financial Tips</span>
+        </div>
 
-
-
-        <div className="mt-16 sm:mt-20 relative w-full max-w-3xl transform hover:scale-[1.02] transition duration-500">
+        {/* App Preview Card */}
+        <div className="relative w-full max-w-3xl transform hover:scale-[1.02] transition duration-500">
           <div className={`absolute inset-0 rounded-3xl blur-2xl opacity-20 ${isDark ? (isGreen ? 'bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500' : 'bg-pink-400') : (isGreen ? 'bg-green-600' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600' : 'bg-pink-600')}`}></div>
-          <div className={`relative backdrop-blur-xl border p-4 sm:p-6 rounded-3xl shadow-2xl ${isDark ? 'bg-slate-900/60 border-slate-700' : 'bg-white/60 border-white/50'}`}>
-            <div className={`flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl shadow-sm border mb-4 ${isDark ? 'bg-slate-800 border-slate-700' : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`}>
-              <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center ${isDark ? (isGreen ? 'bg-green-900/50 text-green-300' : isLgbt ? 'bg-indigo-900/50 text-indigo-300' : 'bg-pink-900/50 text-pink-300') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-gradient-to-br from-red-100 to-blue-100 text-indigo-600' : 'bg-pink-100 text-pink-600')}`}>
-                <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6" />
+          <div className={`relative backdrop-blur-xl border p-4 sm:p-6 rounded-3xl shadow-2xl ${isDark ? 'bg-slate-900/80 border-slate-700/50' : 'bg-white/80 border-white/60'}`}>
+            {/* Mock wallet row */}
+            <div className={`flex items-center justify-between p-3 sm:p-4 rounded-xl border mb-3 ${isDark ? 'bg-slate-800/60 border-slate-700/50' : (isGreen ? 'bg-green-50 border-green-100' : isLgbt ? 'bg-indigo-50 border-indigo-100' : 'bg-pink-50 border-pink-100')}`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${isDark ? 'bg-slate-700' : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-indigo-100' : 'bg-pink-100')}`}>
+                  <DollarSign className={`w-5 h-5 ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')}`} />
+                </div>
+                <div>
+                  <div className={`h-3 w-20 rounded mb-1.5 ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}></div>
+                  <div className={`h-2 w-14 rounded ${isDark ? 'bg-slate-700' : 'bg-slate-100'}`}></div>
+                </div>
               </div>
-              <div className="flex-1 text-left">
-                <div className={`h-3 sm:h-4 w-24 sm:w-32 rounded mb-2 ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}></div>
-                <div className={`h-2 sm:h-3 w-16 sm:w-20 rounded ${isDark ? 'bg-slate-700' : 'bg-slate-100'}`}></div>
+              <span className={`font-black text-sm ${isDark ? 'text-green-400' : 'text-green-600'}`}>+₱3,200</span>
+            </div>
+            {/* Mock habit row */}
+            <div className={`flex items-center gap-3 p-3 sm:p-4 rounded-xl border ${isDark ? 'bg-slate-800/60 border-slate-700/50' : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`}>
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${isDark ? (isGreen ? 'bg-green-900/50 text-green-300' : isLgbt ? 'bg-indigo-900/50 text-indigo-300' : 'bg-pink-900/50 text-pink-300') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')}`}>
+                <CheckCircle2 className="w-5 h-5" />
               </div>
-              <div className={`px-3 py-1.5 sm:w-20 sm:h-8 rounded-lg flex items-center justify-center font-bold text-xs sm:text-sm ${isDark ? (isGreen ? 'bg-green-900/30 text-green-300' : isLgbt ? 'bg-indigo-900/30 text-indigo-300' : 'bg-pink-900/30 text-pink-300') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')}`}>Done!</div>
+              <div className="flex-1">
+                <div className={`h-3 w-28 rounded mb-1.5 ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}></div>
+                <div className={`h-2 w-16 rounded ${isDark ? 'bg-slate-700' : 'bg-slate-100'}`}></div>
+              </div>
+              <div className={`px-3 py-1 rounded-lg font-bold text-xs ${isDark ? (isGreen ? 'bg-green-900/30 text-green-300' : isLgbt ? 'bg-indigo-900/30 text-indigo-300' : 'bg-pink-900/30 text-pink-300') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')}`}>Done! ✓</div>
             </div>
           </div>
         </div>
+
       </header>
     </div>
   );
@@ -3658,28 +7137,22 @@ const LandingPage = ({ onGetStarted }: { onGetStarted: () => void }) => {
 
 
 
-// Welcome Component (Replaces AuthPage)
-// Replace the WelcomePage component with this updated version
 
 
 
 
-const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
-  const [mode, setMode] = useState<'signup' | 'login'>('login'); // Default to login
-  const [name, setName] = useState<string>('');
-  const [password, setPassword] = useState<string>('');
-  const [showPassword, setShowPassword] = useState<boolean>(false);
-  const [toast, setToast] = useState<ToastData | null>(null);
-  const [showWelcome, setShowWelcome] = useState(true);
-  
-  const [showForgotPassword, setShowForgotPassword] = useState<boolean>(false);
-  const [resetEmail, setResetEmail] = useState<string>('');
-  const [resetLoading, setResetLoading] = useState<boolean>(false);
-  const [agreedToTerms, setAgreedToTerms] = useState<boolean>(false);
-  const [showTermsModal, setShowTermsModal] = useState<boolean>(false);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string>('');
-  const { theme, accent } = useTheme();
+
+
+
+
+
+
+
+// ============================================
+// 📋 TERMS & CONDITIONS MODAL COMPONENT
+// ============================================
+const TermsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { theme, accent, dc } = useTheme();
   const isDark = theme === 'dark';
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
@@ -3687,52 +7160,472 @@ const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
 
 
 
- const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-  e.preventDefault();
-  const username = name.trim();
-  if (!username || !password.trim()) return;
+
+
+
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}></div>
+      
+      <div className={`relative w-full max-w-2xl max-h-[80vh] rounded-3xl shadow-2xl p-6 animate-pop overflow-y-auto ${
+        isDark ? `${dc.card} border-2` : 'bg-white border-2 border-slate-100'
+      }`}>
+        
+        <button 
+          onClick={onClose}
+          className={`absolute top-4 right-4 p-2 rounded-xl transition z-10 ${
+            isDark ? dc.btnClose : 'hover:bg-slate-100 text-slate-500'
+          }`}
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+
+
+
+
+
+
+
+        <div className="mb-6">
+          <h2 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            Terms & Conditions
+          </h2>
+          <p className={`text-sm mt-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+            Last updated: January 2026
+          </p>
+        </div>
+
+
+
+
+
+
+
+
+        <div className={`space-y-4 text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+          <section>
+            <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>1. Acceptance of Terms</h3>
+            <p>By accessing and using HabitFlow, you accept and agree to be bound by these Terms & Conditions.</p>
+          </section>
+
+
+
+
+
+
+
+
+          <section>
+            <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>2. Use of Service</h3>
+            <p>HabitFlow is a personal habit tracking application. You agree to use this service only for lawful purposes and in accordance with these terms.</p>
+          </section>
+
+
+
+
+
+
+
+
+          <section>
+            <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>3. User Data</h3>
+            <p>You retain all rights to your personal data. We store your habits, todos, and expense data securely using Firebase. We do not sell or share your personal information with third parties.</p>
+          </section>
+
+
+
+
+
+
+
+
+          <section>
+            <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>4. Account Responsibility</h3>
+            <p>You are responsible for maintaining the confidentiality of your account credentials and for all activities under your account.</p>
+          </section>
+
+
+
+
+
+
+
+
+          <section>
+            <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>5. Service Availability</h3>
+            <p>We strive to keep HabitFlow available 24/7, but we do not guarantee uninterrupted access and may perform maintenance as needed.</p>
+          </section>
+
+
+
+
+
+
+
+
+          <section>
+            <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>6. Limitation of Liability</h3>
+            <p>HabitFlow is provided "as is" without warranties. We are not liable for any damages arising from your use of the service.</p>
+          </section>
+
+
+
+
+
+
+
+
+          <section>
+            <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>7. Changes to Terms</h3>
+            <p>We reserve the right to modify these terms at any time. Continued use of the service constitutes acceptance of modified terms.</p>
+          </section>
+        </div>
+
+
+
+
+
+
+
+
+        <button
+          onClick={onClose}
+          className={`w-full mt-6 text-white py-4 rounded-2xl font-bold text-lg transition shadow-lg ${
+            isDark 
+              ? (isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400')
+              : (isGreen ? 'bg-green-600 hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700')
+          }`}
+        >
+          I Understand
+        </button>
+      </div>
+    </div>
+  );
+};
+
+
+
+
+
+
+
+
+// Welcome Component (Replaces AuthPage)
+const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
+  // ============ STATE MANAGEMENT ============
+  const [mode, setMode] = useState<'login' | 'signup' | 'verify-email' | 'reset-password'>('login');
+  const [email, setEmail] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
+  const [confirmPassword, setConfirmPassword] = useState<string>('');
+  const [verificationCode, setVerificationCode] = useState<string>('');
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState<boolean>(false);
+  const [toast, setToast] = useState<ToastData | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
+  const [showPasswordError, setShowPasswordError] = useState<boolean>(false);
+  const [agreedToTerms, setAgreedToTerms] = useState<boolean>(false);
+  const [showTermsModal, setShowTermsModal] = useState<boolean>(false);
+  const [pendingUserId, setPendingUserId] = useState<string>('');
+  const [resetEmail, setResetEmail] = useState<string>('');
+  const [newPassword, setNewPassword] = useState<string>('');
+  const [resetCode, setResetCode] = useState<string>('');
   
-  // NEW: Check terms agreement for signup
-  if (mode === 'signup' && !agreedToTerms) {
-    setError('Please agree to the Terms & Conditions');
-    return;
-  }
+  const { theme, accent, dc } = useTheme();
+  const isDark = theme === 'dark';
+  const isGreen = accent === 'green';
+  const isLgbt = accent === 'lgbt';
+
+
+
+
+
+
+
+
+  // ============ HELPER FUNCTIONS ============
   
-  setLoading(true);
-  setError('');
+  /**
+   * Generate 6-digit verification code
+   */
+  const generateVerificationCode = (): string => {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  };
 
 
 
 
-  try {
-    const normalizedUsername = username.toLowerCase().replace(/\s+/g, '');
-    const email = `${normalizedUsername}@habitflow.app`;
 
 
 
 
-    if (mode === 'login') {
-      // LOGIN MODE
-      await signInWithEmailAndPassword(auth, email, password);
-      // Firebase's onAuthStateChanged will handle the transition
-    } else {
-      // SIGNUP MODE - CREATE NEW ACCOUNT DIRECTLY
+  /**
+   * Send verification code via email (simulation - replace with actual email service)
+   */
+  const sendVerificationEmail = async (emailAddress: string, code: string, type: 'signup' | 'reset'): Promise<void> => {
+    try {
+      // TODO: Replace with actual email service (SendGrid, AWS SES, etc.)
+      console.log(`📧 Sending ${type} code to ${emailAddress}: ${code}`);
+      
+      // For development, show the code in a toast
+      setToast({
+        id: Date.now().toString(),
+        message: `✅ Verification code sent! For demo: ${code}`,
+        type: 'success'
+      });
+      
+      // In production, call your email API here:
+      // await fetch('/api/send-verification', {
+      //   method: 'POST',
+      //   body: JSON.stringify({ email: emailAddress, code, type })
+      // });
+    } catch (error) {
+      console.error('Failed to send email:', error);
+      throw new Error('Failed to send verification email');
+    }
+  };
+
+
+
+
+
+
+
+
+  // ============ AUTHENTICATION HANDLERS ============
+
+
+
+
+
+
+
+
+  /**
+   * Handle Sign Up with Email Verification
+   */
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!email.trim() || !password.trim()) {
+      setError('Please fill in all fields');
+      return;
+    }
+
+
+
+
+
+
+
+
+    if (!email.includes('@')) {
+      setError('Please enter a valid email address');
+      return;
+    }
+
+
+
+
+
+
+
+
+    if (!agreedToTerms) {
+      setError('Please agree to the Terms & Conditions');
+      return;
+    }
+
+
+
+
+
+
+
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
+
+
+
+
+
+
+
+    setLoading(true);
+    setError('');
+
+
+
+
+
+
+
+
+    try {
+      // Create user account
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const newUser = userCredential.user;
+      
+      // Generate verification code
+      const verificationCode = generateVerificationCode();
+      
+      // Store verification code in Firestore
+      await setDoc(doc(db, 'verificationCodes', newUser.uid), {
+        code: verificationCode,
+        email: email,
+        createdAt: serverTimestamp(),
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        type: 'signup'
+      });
 
 
 
 
-      // Update display name
-      await updateProfile(newUser, { displayName: username });
 
 
 
 
-      // Store additional data in Firestore
-      try {
-        await setDoc(doc(db, 'users', newUser.uid, 'profile'), {
-          username: username,
+      // Send verification email
+      await sendVerificationEmail(email, verificationCode, 'signup');
+
+
+
+
+
+
+
+
+      // Store pending user ID
+      setPendingUserId(newUser.uid);
+      
+      // Switch to verification mode
+      setMode('verify-email');
+      setLoading(false);
+      
+    } catch (err: any) {
+      console.error('Sign up error:', err);
+      
+      if (err.code === 'auth/email-already-in-use') {
+        setError('This email is already registered. Please log in instead.');
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Invalid email address');
+      } else if (err.code === 'auth/weak-password') {
+        setError('Password should be at least 6 characters');
+      } else {
+        setError('Sign up failed. Please try again.');
+      }
+      setLoading(false);
+    }
+  };
+
+
+
+
+
+
+
+
+  /**
+   * Handle Email Verification
+   */
+  const handleVerifyEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!verificationCode.trim()) {
+      setError('Please enter the verification code');
+      return;
+    }
+
+
+
+
+
+
+
+
+    setLoading(true);
+    setError('');
+
+
+
+
+
+
+
+
+    try {
+      // Get verification code from Firestore
+      const codeDoc = await getDoc(doc(db, 'verificationCodes', pendingUserId));
+      
+      if (!codeDoc.exists()) {
+        setError('Verification code expired. Please sign up again.');
+        setLoading(false);
+        return;
+      }
+
+
+
+
+
+
+
+
+      const codeData = codeDoc.data();
+      
+      // Check if code matches
+      if (codeData.code !== verificationCode) {
+        setError('Invalid verification code. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+
+
+
+
+
+
+
+      // Check if code expired
+      const expiresAt = codeData.expiresAt.toDate();
+      if (new Date() > expiresAt) {
+        setError('Verification code expired. Please request a new one.');
+        setLoading(false);
+        return;
+      }
+
+
+
+
+
+
+
+
+      // Mark email as verified in auth
+      const user = auth.currentUser;
+      if (user) {
+        // Update user profile
+        await updateProfile(user, {
+          displayName: email.split('@')[0]
+        });
+
+
+
+
+
+
+
+
+        // Create user profile in Firestore
+        await setDoc(doc(db, 'users', user.uid, 'profile'), {
+          email: email,
+          emailVerified: true,
           onboardingComplete: true,
           createdAt: serverTimestamp()
         });
@@ -3740,90 +7633,546 @@ const WelcomePage = ({ onSuccess }: { onSuccess: () => void }) => {
 
 
 
-        // Reserve username
-        await setDoc(doc(db, 'usernames', normalizedUsername), {
-          uid: newUser.uid,
-          username: username,
-          createdAt: serverTimestamp()
+
+
+
+
+        // Delete verification code
+        await deleteDoc(doc(db, 'verificationCodes', pendingUserId));
+
+
+
+
+
+
+
+
+        // Success! Navigate to dashboard
+        setToast({
+          id: Date.now().toString(),
+          message: '🎉 Account verified! Welcome to HabitFlow!',
+          type: 'success'
         });
-      } catch (firestoreErr) {
-        console.warn("Firestore write failed (likely permissions), continuing with auth only", firestoreErr);
+
+
+
+
+
+
+
+
+        setTimeout(() => {
+          onSuccess();
+        }, 1500);
       }
       
-      // Firebase's onAuthStateChanged will handle the transition
+    } catch (err: any) {
+      console.error('Verification error:', err);
+      setError('Verification failed. Please try again.');
+      setLoading(false);
     }
-  } catch (err: any) {
-    console.error("Auth Failed:", err);
+  };
+
+
+
+
+
+
+
+
+  /**
+   * Handle Login
+   */
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
     
-    if (err.code === 'auth/user-not-found') {
-      setError('Account not found. Please sign up first.');
-    } else if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-      setError('Invalid username or password.');
-    } else if (err.code === 'auth/email-already-in-use') {
-      setError('Username already taken. Please try logging in instead.');
-    } else if (err.code === 'auth/weak-password') {
-      setError('Password should be at least 6 characters.');
-    } else {
-      setError('Something went wrong. Please try again.');
+    if (!email.trim() || !password.trim()) {
+      setError('Please fill in all fields');
+      return;
     }
-    setLoading(false);
-  }
-}; // ← ADD THIS LINE
 
 
 
 
-const handlePasswordReset = async (e: React.FormEvent) => {
-  e.preventDefault();
-  if (!resetEmail.trim()) {
-    setError('Please enter your username');
-    return;
-  }
 
 
 
 
-  setResetLoading(true);
-  setError('');
+    setLoading(true);
+    setError('');
+    setShowPasswordError(false);
 
 
 
 
-  try {
-    const normalizedUsername = resetEmail.toLowerCase().replace(/\s+/g, '');
-    const email = `${normalizedUsername}@habitflow.app`;
-    
-    await sendPasswordResetEmail(auth, email);
-    
-    // Success! Show toast notification
-    setShowForgotPassword(false);
-    setResetEmail('');
-    // You'll need to add toast state at the top of WelcomePage if not already present
-    alert('✅ Password reset email sent! Check your inbox.');
-    
-  } catch (err: any) {
-    console.error("Password reset failed:", err);
-    
-    if (err.code === 'auth/user-not-found') {
-      setError('No account found with this username.');
-    } else if (err.code === 'auth/invalid-email') {
-      setError('Invalid username format.');
-    } else {
-      setError('Failed to send reset email. Please try again.');
-    }
-  } finally {
-    setResetLoading(false);
-  }
-};
 
 
 
 
-  return (
-    <div className={`min-h-screen flex flex-col justify-center items-center p-4 relative overflow-hidden transition-colors duration-500 ${isDark ? (isLgbt ? 'bg-rainbow-dark' : 'bg-slate-950') : isGreen ? 'bg-green-50' : isLgbt ? 'bg-rainbow-light' : 'bg-pink-50'}`}>
-      <AnimationStyles />
-      <div className={`absolute w-[600px] h-[600px] rounded-full blur-3xl opacity-40 -top-20 -left-20 animate-float ${isDark ? (isGreen ? 'bg-green-900/10' : isLgbt ? 'bg-purple-900/10' : 'bg-pink-900/10') : (isGreen ? 'bg-green-200' : isLgbt ? 'bg-purple-200' : 'bg-pink-200')}`}></div>
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      // Firebase's onAuthStateChanged will handle navigation
+    } catch (err: any) {
+      console.error('Login error:', err);
       
+      if (err.code === 'auth/user-not-found') {
+        setError('No account found with this email. Please sign up first.');
+      } else if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        setError('Incorrect password');
+        setShowPasswordError(true); // Show reset password link
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Invalid email address');
+      } else {
+        setError('Login failed. Please try again.');
+      }
+      setLoading(false);
+    }
+  };
+
+
+
+
+
+
+
+
+  /**
+   * Handle Password Reset Request
+   */
+  const handlePasswordResetRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!resetEmail.trim()) {
+      setError('Please enter your email address');
+      return;
+    }
+
+
+
+
+
+
+
+
+    setLoading(true);
+    setError('');
+
+
+
+
+
+
+
+
+    try {
+      // Generate reset code
+      const resetCodeValue = generateVerificationCode();
+      
+      // Create temporary password reset document
+      await setDoc(doc(db, 'passwordResets', resetEmail), {
+        code: resetCodeValue,
+        email: resetEmail,
+        createdAt: serverTimestamp(),
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
+        used: false
+      });
+
+
+
+
+
+
+
+
+      // Send reset code email
+      await sendVerificationEmail(resetEmail, resetCodeValue, 'reset');
+
+
+
+
+
+
+
+
+      setLoading(false);
+      
+      setToast({
+        id: Date.now().toString(),
+        message: '📧 Reset code sent to your email!',
+        type: 'success'
+      });
+      
+    } catch (err: any) {
+      console.error('Password reset request error:', err);
+      setError('Failed to send reset code. Please try again.');
+      setLoading(false);
+    }
+  };
+
+
+
+
+
+
+
+
+  /**
+   * Handle Password Reset Verification
+   */
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!resetCode.trim() || !newPassword.trim() || !confirmPassword.trim()) {
+      setError('Please fill in all fields');
+      return;
+    }
+
+
+
+
+
+
+
+
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+
+
+
+
+
+
+
+    if (newPassword.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
+
+
+
+
+
+
+
+    setLoading(true);
+    setError('');
+
+
+
+
+
+
+
+
+    try {
+      // Verify reset code
+      const resetDoc = await getDoc(doc(db, 'passwordResets', resetEmail));
+      
+      if (!resetDoc.exists()) {
+        setError('Invalid or expired reset code');
+        setLoading(false);
+        return;
+      }
+
+
+
+
+
+
+
+
+      const resetData = resetDoc.data();
+      
+      if (resetData.code !== resetCode) {
+        setError('Invalid reset code');
+        setLoading(false);
+        return;
+      }
+
+
+
+
+
+
+
+
+      if (resetData.used) {
+        setError('This reset code has already been used');
+        setLoading(false);
+        return;
+      }
+
+
+
+
+
+
+
+
+      const expiresAt = resetData.expiresAt.toDate();
+      if (new Date() > expiresAt) {
+        setError('Reset code expired. Please request a new one.');
+        setLoading(false);
+        return;
+      }
+
+
+
+
+
+
+
+
+     // Update password using Firebase's built-in reset email
+      // (Custom code verified above — now trigger official Firebase reset)
+      // Update password for the currently signed-in user
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        setError('Session expired. Please log in again.');
+        setLoading(false);
+        return;
+      }
+      await updatePassword(currentUser, newPassword);
+      // NOTE: If you want to use the custom newPassword directly, the user
+      // must be currently signed in. Use the flow below instead when signed in:
+      // import { updatePassword } from 'firebase/auth';
+      // const currentUser = auth.currentUser;
+      // if (currentUser) await updatePassword(currentUser, newPassword);
+      
+      // Mark reset code as used
+      await setDoc(doc(db, 'passwordResets', resetEmail), {
+        used: true
+      }, { merge: true });
+
+
+
+
+
+
+
+
+      setToast({
+        id: Date.now().toString(),
+        message: '✅ Password reset email sent! Check your inbox.',
+        type: 'success'
+      });
+
+
+
+
+
+
+
+
+      // Return to login after 2 seconds
+      setTimeout(() => {
+        setMode('login');
+        setResetEmail('');
+        setResetCode('');
+        setNewPassword('');
+        setConfirmPassword('');
+      }, 2000);
+
+
+
+
+
+
+
+
+      setLoading(false);
+      
+    } catch (err: any) {
+      console.error('Password reset error:', err);
+      setError('Password reset failed. Please try again.');
+      setLoading(false);
+    }
+  };
+
+
+
+
+
+
+
+
+  // ============ SOCIAL AUTHENTICATION ============
+
+
+
+
+
+
+
+
+  /**
+   * Sign in with Google
+   */
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.addScope('profile');
+      provider.addScope('email');
+      
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+      
+      // Create/update user profile
+      await setDoc(doc(db, 'users', user.uid, 'profile'), {
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL,
+        provider: 'google',
+        onboardingComplete: true,
+        createdAt: serverTimestamp()
+      }, { merge: true });
+      
+      // Success - onAuthStateChanged will handle navigation
+    } catch (error: any) {
+      console.error('Google sign-in error:', error);
+      
+      if (error.code === 'auth/popup-closed-by-user') {
+        setError('Sign-in cancelled');
+      } else if (error.code === 'auth/popup-blocked') {
+        setError('Pop-up blocked. Please enable pop-ups for this site.');
+      } else {
+        setError('Google sign-in failed. Please try again.');
+      }
+      setLoading(false);
+    }
+  };
+
+
+
+
+
+
+
+
+  /**
+   * Sign in with Facebook
+   */
+  const handleFacebookSignIn = async () => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      const provider = new FacebookAuthProvider();
+      provider.addScope('email');
+      provider.addScope('public_profile');
+      
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+      
+      // Create/update user profile
+      await setDoc(doc(db, 'users', user.uid, 'profile'), {
+        email: user.email,
+        displayName: user.displayName,
+        photoURL: user.photoURL,
+        provider: 'facebook',
+        onboardingComplete: true,
+        createdAt: serverTimestamp()
+      }, { merge: true });
+      
+      // Success - onAuthStateChanged will handle navigation
+    } catch (error: any) {
+      console.error('Facebook sign-in error:', error);
+      
+      if (error.code === 'auth/popup-closed-by-user') {
+        setError('Sign-in cancelled');
+      } else if (error.code === 'auth/popup-blocked') {
+        setError('Pop-up blocked. Please enable pop-ups for this site.');
+      } else if (error.code === 'auth/account-exists-with-different-credential') {
+        setError('An account already exists with this email. Try signing in with your original method.');
+      } else {
+        setError('Facebook sign-in failed. Please try again.');
+      }
+      setLoading(false);
+    }
+  };
+
+
+
+
+
+
+
+
+  /**
+   * Resend verification code
+   */
+  const handleResendCode = async () => {
+    if (!pendingUserId) return;
+    
+    setLoading(true);
+    
+    try {
+      const newCode = generateVerificationCode();
+      
+      await setDoc(doc(db, 'verificationCodes', pendingUserId), {
+        code: newCode,
+        email: email,
+        createdAt: serverTimestamp(),
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        type: 'signup'
+      });
+
+
+
+
+
+
+
+
+      await sendVerificationEmail(email, newCode, 'signup');
+      
+      setToast({
+        id: Date.now().toString(),
+        message: '✅ New code sent!',
+        type: 'success'
+      });
+      
+    } catch (error) {
+      console.error('Resend code error:', error);
+      setError('Failed to resend code. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+
+
+
+
+
+
+  // ============ RENDER UI ============
+  
+  return (
+    <div className={`h-screen w-screen flex flex-col justify-center items-center p-4 relative overflow-hidden transition-colors duration-500 ${
+      isDark ? (isLgbt ? 'bg-rainbow-dark' : 'bg-slate-950') : isGreen ? 'bg-green-50' : isLgbt ? 'bg-rainbow-light' : 'bg-pink-50'
+    }`}>
+      <AnimationStyles />
+      
+      {/* Background decoration — fixed so they always fill the full viewport */}
+      <div className={`fixed w-[600px] h-[600px] rounded-full blur-3xl opacity-40 -top-20 -left-20 animate-float ${
+        isDark ? (isGreen ? 'bg-green-900/10' : isLgbt ? 'bg-purple-900/10' : 'bg-pink-900/10') : 
+        (isGreen ? 'bg-green-200' : isLgbt ? 'bg-purple-200' : 'bg-pink-200')
+      }`}></div>
+      <div className={`fixed w-[500px] h-[500px] rounded-full blur-3xl opacity-30 -bottom-20 -right-20 animate-float ${
+        isDark ? (isGreen ? 'bg-emerald-900/10' : isLgbt ? 'bg-indigo-900/10' : 'bg-rose-900/10') :
+        (isGreen ? 'bg-emerald-200' : isLgbt ? 'bg-indigo-200' : 'bg-rose-100')
+      }`} style={{ animationDelay: '2s', animationDuration: '10s' }}></div>
+      
+      {/* Theme toggles */}
       <div className="absolute top-4 right-4 sm:top-6 sm:right-6 z-20 flex gap-2">
         <AccentToggle />
         <ThemeToggle />
@@ -3832,460 +8181,809 @@ const handlePasswordReset = async (e: React.FormEvent) => {
 
 
 
-      <div className={`backdrop-blur-xl p-6 sm:p-8 rounded-3xl shadow-2xl w-full max-w-md border relative z-10 transition-colors duration-300 ${isDark ? 'bg-slate-900/80 border-slate-700' : 'bg-white/80 border-white'}`}>
+
+
+
+
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-50">
+          <Toast toast={toast} onDismiss={() => setToast(null)} />
+        </div>
+      )}
+
+
+
+
+
+
+
+
+      {/* Main auth card */}
+      <div className={`backdrop-blur-xl p-6 sm:p-8 rounded-3xl shadow-2xl w-full max-w-md border relative z-10 transition-colors duration-300 ${
+        isDark ? `${dc.modal} bg-opacity-80` : 'bg-white/80 border-white'
+      }`}>
         
-        {/* Tabs */}
-        <div className={`flex gap-2 p-1.5 rounded-2xl mb-6 ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
-          <button
-            type="button"
-            onClick={() => { setMode('login'); setError(''); }}
-            className={`flex-1 py-3 rounded-xl font-bold transition-all ${
-              mode === 'login'
-                ? `${isDark 
-                    ? (isGreen ? 'bg-green-500 text-white shadow-lg' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white shadow-lg' : 'bg-pink-500 text-white shadow-lg')
-                    : (isGreen ? 'bg-green-600 text-white shadow-lg' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white shadow-lg' : 'bg-pink-600 text-white shadow-lg')
-                  }`
-                : `${isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'}`
-            }`}
-          >
-            Login
-          </button>
-          <button
-            type="button"
-            onClick={() => { setMode('signup'); setError(''); }}
-            className={`flex-1 py-3 rounded-xl font-bold transition-all ${
-              mode === 'signup'
-                ? `${isDark 
-                    ? (isGreen ? 'bg-green-500 text-white shadow-lg' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white shadow-lg' : 'bg-pink-500 text-white shadow-lg')
-                    : (isGreen ? 'bg-green-600 text-white shadow-lg' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white shadow-lg' : 'bg-pink-600 text-white shadow-lg')
-                  }`
-                : `${isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'}`
-            }`}
-          >
-            Sign Up
-          </button>
-        </div>
-
-
-
-
-        <div className="text-center mb-8">
-          <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 shadow-lg transform rotate-3 ${isDark ? (isGreen ? 'bg-green-500 text-white shadow-green-500/40' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white shadow-pink-500/40') : (isGreen ? 'bg-green-600 text-white shadow-green-200' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-600 text-white shadow-pink-200')}`}>
-            {mode === 'login' ? <UserCircle2 className="w-8 h-8" /> : <Sparkles className="w-8 h-8" />}
-          </div>
-          <h2 className={`text-3xl font-black mt-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-            {mode === 'login' ? 'Welcome Back!' : 'Welcome!'}
-          </h2>
-          <p className={`mt-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-            {mode === 'login' 
-              ? 'Great to see you again! Ready to continue your journey?' 
-              : "Let's get to know you better to personalize your experience."
-            }
-          </p>
-        </div>
-
-
-
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {error && (
-            <div className={`p-3 rounded-xl text-sm font-bold text-center animate-pop ${isDark ? 'bg-red-900/30 text-red-300 border border-red-800' : 'bg-red-50 text-red-600 border border-red-100'}`}>
-              {error}
-            </div>
-          )}
-
-
-
-
-          <div>
-            <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Username</label>
-            <input
-              type="text"
-              required
-              className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-medium text-lg ${
-                isDark 
-                  ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-500 focus:bg-slate-800 placeholder-slate-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-500 focus:bg-slate-800 placeholder-slate-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-500 focus:bg-slate-800 placeholder-slate-500') 
-                  : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-600 focus:bg-white focus:ring-4 focus:ring-green-100' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-600 focus:bg-white focus:ring-4 focus:ring-indigo-100' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-600 focus:bg-white focus:ring-4 focus:ring-pink-100')
-              }`}
-              placeholder={mode === 'login' ? 'Enter your username' : 'e.g. warrior123'}
-              value={name}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
-            />
-          </div>
-          
-          <div>
-            <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Password</label>
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                required
-                className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-medium text-lg ${
-                  isDark 
-                    ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-500 focus:bg-slate-800 placeholder-slate-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-500 focus:bg-slate-800 placeholder-slate-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-500 focus:bg-slate-800 placeholder-slate-500')
-                    : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-600 focus:bg-white focus:ring-4 focus:ring-green-100' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-600 focus:bg-white focus:ring-4 focus:ring-indigo-100' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-600 focus:bg-white focus:ring-4 focus:ring-pink-100')
-                }`}
-                placeholder="••••••••"
-                value={password}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
-              />
-              {password.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className={`absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors ${isDark ? 'text-slate-400 hover:text-white hover:bg-slate-700' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200'}`}
-                >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
-              ) : (
-                <Lock className={`absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 pointer-events-none transition-opacity ${isDark ? 'text-slate-500' : 'text-slate-400'}`} />
-              )}
-            </div>
-          </div>
-          {/* ✨ NEW: Terms & Conditions Checkbox - ONLY for Sign Up */}
-          {mode === 'signup' && (
-            <div className="flex items-start gap-3">
-              <input
-                type="checkbox"
-                id="terms"
-                checked={agreedToTerms}
-                onChange={(e) => setAgreedToTerms(e.target.checked)}
-                className={`mt-1 w-5 h-5 rounded border-2 cursor-pointer transition ${
-                  isDark 
-                    ? (isGreen ? 'border-green-500 accent-green-500' : isLgbt ? 'border-indigo-500 accent-indigo-500' : 'border-pink-500 accent-pink-500')
-                    : (isGreen ? 'border-green-600 accent-green-600' : isLgbt ? 'border-indigo-600 accent-indigo-600' : 'border-pink-600 accent-pink-600')
-                }`}
-              />
-              <label htmlFor="terms" className={`text-sm cursor-pointer ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-                I agree to the{' '}
-                <button
-                  type="button"
-                  onClick={() => setShowTermsModal(true)}
-                  className={`font-bold underline ${
-                    isDark 
-                      ? (isGreen ? 'text-green-400 hover:text-green-300' : isLgbt ? 'text-indigo-400 hover:text-indigo-300' : 'text-pink-400 hover:text-pink-300')
-                      : (isGreen ? 'text-green-600 hover:text-green-700' : isLgbt ? 'text-indigo-600 hover:text-indigo-700' : 'text-pink-600 hover:text-pink-700')
-                  }`}
-                >
-                  Terms & Conditions
-                </button>
-              </label>
-            </div>
-          )}
-
-
-
-
-          <button
-            type="submit"
-            disabled={loading}
-            className={`w-full text-white py-4 rounded-xl font-bold text-xl transition transform hover:-translate-y-1 shadow-xl flex items-center justify-center gap-2 ${
-              isDark ? (isGreen ? 'bg-green-500 hover:bg-green-400 shadow-green-500/40' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400 shadow-pink-500/40') : (isGreen ? 'bg-green-600 hover:bg-green-700 shadow-green-200' : isLgbt ? 'bg-gradient-to-r from-red-600 via-green-600 to-blue-700 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700 shadow-pink-200')
-            } ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
-          >
-            {loading ? (mode === 'login' ? 'Logging in...' : 'Setting up...') : (
-              <>
-                {mode === 'login' ? (
-                  <>
-                    Login <ArrowRight className="w-5 h-5" />
-                  </>
-                ) : (
-                  <>
-                    Start Journey <ArrowRight className="w-5 h-5" />
-                  </>
-                )}
-              </>
-            )}
-          </button>
-        </form>
-
-
-
-
-        {mode === 'login' && (
+        {/* RENDER BASED ON MODE */}
+        {mode === 'verify-email' && (
           <>
-            <button
-              type="button"
-              onClick={() => setShowForgotPassword(true)}
-              className={`text-center text-sm mt-4 font-bold block w-full ${
-                isDark 
-                  ? (isGreen ? 'text-green-400 hover:text-green-300' : isLgbt ? 'text-indigo-400 hover:text-indigo-300' : 'text-pink-400 hover:text-pink-300')
-                  : (isGreen ? 'text-green-600 hover:text-green-700' : isLgbt ? 'text-indigo-600 hover:text-indigo-700' : 'text-pink-600 hover:text-pink-700')
-              }`}
-            >
-              Forgot Password?
-            </button>
-            
-            <p className={`text-center text-sm mt-4 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-              Don't have an account?{' '}
+            {/* Email Verification View */}
+            <div className="text-center mb-8">
+              <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 shadow-lg ${
+                isDark ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white') :
+                (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-600 text-white')
+              }`}>
+                <Shield className="w-8 h-8" />
+              </div>
+              <h2 className={`text-3xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                Verify Your Email
+              </h2>
+              <p className={`mt-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                We sent a 6-digit code to <span className="font-bold">{email}</span>
+              </p>
+            </div>
+
+
+
+
+
+
+
+
+            <form onSubmit={handleVerifyEmail} className="space-y-5">
+              {error && (
+                <div className={`p-3 rounded-xl text-sm font-bold text-center animate-pop ${
+                  isDark ? 'bg-red-900/30 text-red-300 border border-red-800' : 'bg-red-50 text-red-600 border border-red-100'
+                }`}>
+                  {error}
+                </div>
+              )}
+
+
+
+
+
+
+
+
+              <div>
+                <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                  Verification Code
+                </label>
+                <input
+                  type="text"
+                  required
+                  maxLength={6}
+                  className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-mono text-2xl text-center tracking-widest ${
+                    isDark ? 'bg-pink-950/60 border-pink-900/50 text-white focus:border-green-500' :
+                    'bg-slate-50 border-slate-200 text-slate-900 focus:border-green-600 focus:ring-4 focus:ring-green-100'
+                  }`}
+                  placeholder="••••••"
+                  value={verificationCode}
+                  onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
+                />
+              </div>
+
+
+
+
+
+
+
+
               <button
-                type="button"
-                onClick={() => { setMode('signup'); setError(''); }}
-                className={`font-bold ${
-                  isDark 
-                    ? (isGreen ? 'text-green-400 hover:text-green-300' : isLgbt ? 'text-indigo-400 hover:text-indigo-300' : 'text-pink-400 hover:text-pink-300')
-                    : (isGreen ? 'text-green-600 hover:text-green-700' : isLgbt ? 'text-indigo-600 hover:text-indigo-700' : 'text-pink-600 hover:text-pink-700')
-                }`}
+                type="submit"
+                disabled={loading || verificationCode.length !== 6}
+                className={`w-full text-white py-4 rounded-xl font-bold text-xl transition transform hover:-translate-y-1 shadow-xl ${
+                  isDark ? 'bg-green-500 hover:bg-green-400' : 'bg-green-600 hover:bg-green-700'
+                } ${loading || verificationCode.length !== 6 ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                Sign up here
+                {loading ? 'Verifying...' : 'Verify & Continue'}
               </button>
-            </p>
+
+
+
+
+
+
+
+
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={handleResendCode}
+                  disabled={loading}
+                  className={`text-sm font-bold ${
+                    isDark ? 'text-green-400 hover:text-green-300' : 'text-green-600 hover:text-green-700'
+                  } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  Didn't receive the code? Resend
+                </button>
+              </div>
+            </form>
           </>
         )}
 
 
 
 
-        {mode === 'signup' && (
-          <p className={`text-center text-sm mt-4 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-            Already have an account?{' '}
-            <button
-              type="button"
-              onClick={() => { setMode('login'); setError(''); }}
-              className={`font-bold ${isDark ? (isGreen ? 'text-green-400 hover:text-green-300' : isLgbt ? 'text-indigo-400 hover:text-indigo-300' : 'text-pink-400 hover:text-pink-300') : (isGreen ? 'text-green-600 hover:text-green-700' : isLgbt ? 'text-indigo-600 hover:text-indigo-700' : 'text-pink-600 hover:text-pink-700')}`}
-            >
-              Login here
-            </button>
-          </p>
-        )}
-      </div>
-    {/* Terms & Conditions Modal */}
-        {showTermsModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowTermsModal(false)}></div>
-            
-            <div className={`relative w-full max-w-2xl max-h-[80vh] rounded-3xl shadow-2xl p-6 animate-pop overflow-y-auto ${
-              isDark ? 'bg-slate-900 border-2 border-slate-800' : 'bg-white border-2 border-slate-100'
-            }`}>
-              
-              <button 
-                onClick={() => setShowTermsModal(false)}
-                className={`absolute top-4 right-4 p-2 rounded-xl transition z-10 ${
-                  isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
-                }`}
-              >
-                <X className="w-5 h-5" />
-              </button>
 
 
 
 
-              <div className="mb-6">
-                <h2 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                  Terms & Conditions
-                </h2>
-                <p className={`text-sm mt-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  Last updated: January 2026
-                </p>
+        {mode === 'reset-password' && (
+          <>
+            {/* Password Reset View */}
+            <div className="text-center mb-8">
+              <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 shadow-lg ${
+                isDark ? 'bg-red-500 text-white' : 'bg-red-600 text-white'
+              }`}>
+                <Lock className="w-8 h-8" />
               </div>
-
-
-
-
-              <div className={`space-y-4 text-sm ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-                <section>
-                  <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>1. Acceptance of Terms</h3>
-                  <p>By accessing and using HabitFlow, you accept and agree to be bound by these Terms & Conditions.</p>
-                </section>
-
-
-
-
-                <section>
-                  <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>2. Use of Service</h3>
-                  <p>HabitFlow is a personal habit tracking application. You agree to use this service only for lawful purposes and in accordance with these terms.</p>
-                </section>
-
-
-
-
-                <section>
-                  <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>3. User Data</h3>
-                  <p>You retain all rights to your personal data. We store your habits, todos, and expense data securely using Firebase. We do not sell or share your personal information with third parties.</p>
-                </section>
-
-
-
-
-                <section>
-                  <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>4. Account Responsibility</h3>
-                  <p>You are responsible for maintaining the confidentiality of your account credentials and for all activities under your account.</p>
-                </section>
-
-
-
-
-                <section>
-                  <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>5. Service Availability</h3>
-                  <p>We strive to keep HabitFlow available 24/7, but we do not guarantee uninterrupted access and may perform maintenance as needed.</p>
-                </section>
-
-
-
-
-                <section>
-                  <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>6. Limitation of Liability</h3>
-                  <p>HabitFlow is provided "as is" without warranties. We are not liable for any damages arising from your use of the service.</p>
-                </section>
-
-
-
-
-                <section>
-                  <h3 className={`font-bold text-lg mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>7. Changes to Terms</h3>
-                  <p>We reserve the right to modify these terms at any time. Continued use of the service constitutes acceptance of modified terms.</p>
-                </section>
-              </div>
-
-
-
-
-              <button
-                onClick={() => {
-                  setAgreedToTerms(true);
-                  setShowTermsModal(false);
-                }}
-                className={`w-full mt-6 text-white py-4 rounded-2xl font-bold text-lg transition shadow-lg ${
-                  isDark 
-                    ? (isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400')
-                    : (isGreen ? 'bg-green-600 hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700')
-                }`}
-              >
-                I Agree to Terms & Conditions
-              </button>
+              <h2 className={`text-3xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                Reset Password
+              </h2>
+              <p className={`mt-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                Enter your email and we'll send you a reset code
+              </p>
             </div>
-          </div>
-        )}
 
 
 
 
-        {/* Forgot Password Modal */}
-        {showForgotPassword && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
-            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => {
-              setShowForgotPassword(false);
-              setResetEmail('');
-              setError('');
-            }}></div>
-            
-            <div className={`relative w-full max-w-md rounded-3xl shadow-2xl p-6 animate-pop ${
-              isDark ? 'bg-slate-900 border-2 border-slate-800' : 'bg-white border-2 border-slate-100'
-            }`}>
-              
-              <button 
-                onClick={() => {
-                  setShowForgotPassword(false);
-                  setResetEmail('');
-                  setError('');
-                }}
-                className={`absolute top-4 right-4 p-2 rounded-xl transition ${
-                  isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
-                }`}
-              >
-                <X className="w-5 h-5" />
-              </button>
 
 
 
 
-              <div className="text-center mb-6">
-                <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 shadow-lg ${
-                  isDark 
-                    ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
-                    : (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-600 text-white')
+            <form onSubmit={resetCode ? handlePasswordReset : handlePasswordResetRequest} className="space-y-5">
+              {error && (
+                <div className={`p-3 rounded-xl text-sm font-bold text-center animate-pop ${
+                  isDark ? 'bg-red-900/30 text-red-300 border border-red-800' : 'bg-red-50 text-red-600 border border-red-100'
                 }`}>
-                  <Lock className="w-8 h-8" />
+                  {error}
                 </div>
-                <h2 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                  Reset Password
-                </h2>
-                <p className={`mt-2 text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  Enter your username and we'll send you a password reset link
-                </p>
-              </div>
+              )}
 
 
 
 
-              <form onSubmit={handlePasswordReset} className="space-y-5">
-                {error && (
-                  <div className={`p-3 rounded-xl text-sm font-bold text-center animate-pop ${
-                    isDark ? 'bg-red-900/30 text-red-300 border border-red-800' : 'bg-red-50 text-red-600 border border-red-100'
-                  }`}>
-                    {error}
+
+
+
+
+              {!resetCode ? (
+                <>
+                  <div>
+                    <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      Email Address
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-medium text-lg ${
+                        isDark ? 'bg-pink-950/60 border-pink-900/50n text-white focus:border-red-500' :
+                        'bg-slate-50 border-slate-200 text-slate-900 focus:border-red-600 focus:ring-4 focus:ring-red-100'
+                      }`}
+                      placeholder="your@email.com"
+                      value={resetEmail}
+                      onChange={(e) => setResetEmail(e.target.value)}
+                    />
                   </div>
-                )}
 
 
 
 
-                <div>
-                  <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-                    Username
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Enter your username"
-                    value={resetEmail}
-                    onChange={(e) => setResetEmail(e.target.value)}
-                    className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-medium text-lg ${
-                      isDark 
-                        ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400 placeholder-slate-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400 placeholder-slate-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400 placeholder-slate-500')
-                        : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-600 focus:bg-white focus:ring-4 focus:ring-green-100' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-600 focus:bg-white focus:ring-4 focus:ring-indigo-100' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-600 focus:bg-white focus:ring-4 focus:ring-pink-100')
-                    }`}
-                  />
-                </div>
 
 
 
 
-                <button
-                  type="submit"
-                  disabled={resetLoading}
-                  className={`w-full text-white py-4 rounded-xl font-bold text-xl transition transform hover:-translate-y-1 shadow-xl flex items-center justify-center gap-2 ${
-                    isDark 
-                      ? (isGreen ? 'bg-green-500 hover:bg-green-400 shadow-green-500/40' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400 shadow-pink-500/40')
-                      : (isGreen ? 'bg-green-600 hover:bg-green-700 shadow-green-200' : isLgbt ? 'bg-gradient-to-r from-red-600 via-green-600 to-blue-700 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700 shadow-pink-200')
-                  } ${resetLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
-                >
-                  {resetLoading ? 'Sending...' : (
-                    <>
-                      Send Reset Link <ArrowRight className="w-5 h-5" />
-                    </>
-                  )}
-                </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className={`w-full text-white py-4 rounded-xl font-bold text-xl transition transform hover:-translate-y-1 shadow-xl ${
+                      isDark ? 'bg-red-500 hover:bg-red-400' : 'bg-red-600 hover:bg-red-700'
+                    } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {loading ? 'Sending...' : 'Send Reset Code'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      Verification Code
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      maxLength={6}
+                      className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-mono text-2xl text-center tracking-widest ${
+                        isDark ? 'bg-pink-950/60 border-pink-900/50 text-white focus:border-red-500' :
+                        'bg-slate-50 border-slate-200 text-slate-900 focus:border-red-600 focus:ring-4 focus:ring-red-100'
+                      }`}
+                      placeholder="••••••"
+                      value={resetCode}
+                      onChange={(e) => setResetCode(e.target.value.replace(/\D/g, ''))}
+                    />
+                  </div>
 
 
 
 
+
+
+
+
+                  <div>
+                    <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      New Password
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        required
+                        className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-medium text-lg ${
+                          isDark ? 'bg-pink-950/60 border-pink-900/50 text-white focus:border-red-500' :
+                          'bg-slate-50 border-slate-200 text-slate-900 focus:border-red-600 focus:ring-4 focus:ring-red-100'
+                        }`}
+                        placeholder="••••••••"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                      />
+                      {newPassword.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className={`absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors ${
+                            isDark ? 'text-slate-400 hover:text-white' : 'text-slate-400 hover:text-slate-600'
+                          }`}
+                        >
+                          {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+
+
+
+
+
+
+
+                  <div>
+                    <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                      Confirm New Password
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showConfirmPassword ? "text" : "password"}
+                        required
+                        className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-medium text-lg ${
+                          isDark ? 'bg-pink-950/60 border-pink-900/50 text-white focus:border-red-500' :
+                          'bg-slate-50 border-slate-200 text-slate-900 focus:border-red-600 focus:ring-4 focus:ring-red-100'
+                        }`}
+                        placeholder="••••••••"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                      />
+                      {confirmPassword.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          className={`absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors ${
+                            isDark ? 'text-slate-400 hover:text-white' : 'text-slate-400 hover:text-slate-600'
+                          }`}
+                        >
+                          {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+
+
+
+
+
+
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className={`w-full text-white py-4 rounded-xl font-bold text-xl transition transform hover:-translate-y-1 shadow-xl ${
+                      isDark ? 'bg-red-500 hover:bg-red-400' : 'bg-red-600 hover:bg-red-700'
+                    } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {loading ? 'Resetting...' : 'Reset Password'}
+                  </button>
+                </>
+              )}
+
+
+
+
+
+
+
+
+              <div className="text-center">
                 <button
                   type="button"
                   onClick={() => {
-                    setShowForgotPassword(false);
+                    setMode('login');
                     setResetEmail('');
+                    setResetCode('');
+                    setNewPassword('');
+                    setConfirmPassword('');
                     setError('');
                   }}
-                  className={`w-full py-3 rounded-xl font-bold transition ${
-                    isDark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'
+                  className={`text-sm font-bold ${
+                    isDark ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-700'
                   }`}
                 >
-                  Cancel
+                  Back to Login
                 </button>
-              </form>
+              </div>
+            </form>
+          </>
+        )}
+
+
+
+
+
+
+
+
+        {/* LOGIN & SIGNUP VIEWS */}
+        {(mode === 'login' || mode === 'signup') && (
+          <>
+            {/* Tabs */}
+            <div className={`flex gap-2 p-1.5 rounded-2xl mb-6 ${isDark ? dc.tabBar : 'bg-slate-100'}`}>
+              <button
+                type="button"
+                onClick={() => { setMode('login'); setError(''); setShowPasswordError(false); }}
+                className={`flex-1 py-3 rounded-xl font-bold transition-all ${
+                  mode === 'login'
+                    ? `${isDark 
+                        ? (isGreen ? 'bg-green-500 text-white shadow-lg' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white shadow-lg' : 'bg-pink-500 text-white shadow-lg')
+                        : (isGreen ? 'bg-green-600 text-white shadow-lg' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white shadow-lg' : 'bg-pink-600 text-white shadow-lg')
+                      }`
+                    : `${isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'}`
+                }`}
+              >
+                Login
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode('signup'); setError(''); setShowPasswordError(false); }}
+                className={`flex-1 py-3 rounded-xl font-bold transition-all ${
+                  mode === 'signup'
+                    ? `${isDark 
+                        ? (isGreen ? 'bg-green-500 text-white shadow-lg' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white shadow-lg' : 'bg-pink-500 text-white shadow-lg')
+                        : (isGreen ? 'bg-green-600 text-white shadow-lg' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white shadow-lg' : 'bg-pink-600 text-white shadow-lg')
+                      }`
+                    : `${isDark ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'}`
+                }`}
+              >
+                Sign Up
+              </button>
             </div>
-          </div>
+
+
+
+
+
+
+
+
+            {/* Header */}
+            <div className="text-center mb-8">
+              <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 shadow-lg transform rotate-3 ${
+                isDark ? (isGreen ? 'bg-green-500 text-white shadow-green-500/40' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white shadow-pink-500/40') :
+                (isGreen ? 'bg-green-600 text-white shadow-green-200' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-600 text-white shadow-pink-200')
+              }`}>
+                {mode === 'login' ? <UserCircle2 className="w-8 h-8" /> : <Sparkles className="w-8 h-8" />}
+              </div>
+              <h2 className={`text-3xl font-black mt-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                {mode === 'login' ? 'Welcome Back!' : 'Create Account'}
+              </h2>
+              <p className={`mt-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                {mode === 'login' 
+                  ? 'Sign in to continue your journey' 
+                  : 'Join UnBroke and take control of your finances'
+                }
+              </p>
+            </div>
+
+
+
+
+
+
+
+
+            {/* Form */}
+            <form onSubmit={mode === 'login' ? handleLogin : handleSignUp} className="space-y-5">
+              {error && (
+                <div className={`p-3 rounded-xl text-sm font-bold text-center animate-pop ${
+                  isDark ? 'bg-red-900/30 text-red-300 border border-red-800' : 'bg-red-50 text-red-600 border border-red-100'
+                }`}>
+                  {error}
+                </div>
+              )}
+
+
+
+
+
+
+
+
+              {/* Email Field */}
+              <div>
+                <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                  Email Address
+                </label>
+                <input
+                  type="email"
+                  required
+                  className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-medium text-lg ${
+                    isDark 
+                      ? dc.input 
+                      : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-600 focus:bg-white focus:ring-4 focus:ring-green-100' : 
+                         isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-600 focus:bg-white focus:ring-4 focus:ring-indigo-100' : 
+                         'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-600 focus:bg-white focus:ring-4 focus:ring-pink-100')
+                  }`}
+                  placeholder="your@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+              
+              {/* Password Field */}
+              <div>
+                <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                  Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    required
+                    className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-medium text-lg ${
+                      isDark 
+                        ? dc.input
+                        : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-600 focus:bg-white focus:ring-4 focus:ring-green-100' :
+                           isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-600 focus:bg-white focus:ring-4 focus:ring-indigo-100' :
+                           'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-600 focus:bg-white focus:ring-4 focus:ring-pink-100')
+                    }`}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                  {password.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className={`absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors ${
+                        isDark ? 'text-slate-400 hover:text-white hover:bg-slate-700' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  ) : (
+                    <Lock className={`absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 pointer-events-none transition-opacity ${
+                      isDark ? 'text-slate-500' : 'text-slate-400'
+                    }`} />
+                  )}
+                </div>
+                
+                {/* Reset Password Link - Shows on wrong password */}
+                {mode === 'login' && showPasswordError && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('reset-password');
+                      setResetEmail(email);
+                      setShowPasswordError(false);
+                    }}
+                    className="mt-2 text-sm font-bold text-red-500 hover:text-red-400 transition"
+                  >
+                    🔐 Reset Password
+                  </button>
+                )}
+              </div>
+
+
+
+
+
+
+
+
+              {/* Terms & Conditions - ONLY for Sign Up */}
+              {mode === 'signup' && (
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    id="terms"
+                    checked={agreedToTerms}
+                    onChange={(e) => setAgreedToTerms(e.target.checked)}
+                    className={`mt-1 w-5 h-5 rounded border-2 cursor-pointer transition ${
+                      isDark 
+                        ? (isGreen ? 'border-green-500 accent-green-500' : isLgbt ? 'border-indigo-500 accent-indigo-500' : 'border-pink-500 accent-pink-500')
+                        : (isGreen ? 'border-green-600 accent-green-600' : isLgbt ? 'border-indigo-600 accent-indigo-600' : 'border-pink-600 accent-pink-600')
+                    }`}
+                  />
+                  <label htmlFor="terms" className={`text-sm cursor-pointer ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                    I agree to the{' '}
+                    <button
+                      type="button"
+                      onClick={() => setShowTermsModal(true)}
+                      className={`font-bold underline ${
+                        isDark 
+                          ? (isGreen ? 'text-green-400 hover:text-green-300' : isLgbt ? 'text-indigo-400 hover:text-indigo-300' : 'text-pink-400 hover:text-pink-300')
+                          : (isGreen ? 'text-green-600 hover:text-green-700' : isLgbt ? 'text-indigo-600 hover:text-indigo-700' : 'text-pink-600 hover:text-pink-700')
+                      }`}
+                    >
+                      Terms & Conditions
+                    </button>
+                  </label>
+                </div>
+              )}
+
+
+
+
+
+
+
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={loading}
+                className={`w-full text-white py-4 rounded-xl font-bold text-xl transition transform hover:-translate-y-1 shadow-xl flex items-center justify-center gap-2 ${
+                  isDark ? (isGreen ? 'bg-green-500 hover:bg-green-400 shadow-green-500/40' : 
+                           isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 
+                           'bg-pink-500 hover:bg-pink-400 shadow-pink-500/40') : 
+                          (isGreen ? 'bg-green-600 hover:bg-green-700 shadow-green-200' : 
+                           isLgbt ? 'bg-gradient-to-r from-red-600 via-green-600 to-blue-700 hover:opacity-90' : 
+                           'bg-pink-600 hover:bg-pink-700 shadow-pink-200')
+                } ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
+              >
+                {loading ? (mode === 'login' ? 'Signing in...' : 'Creating account...') : (
+                  <>
+                    {mode === 'login' ? (
+                      <>
+                        Sign In <ArrowRight className="w-5 h-5" />
+                      </>
+                    ) : (
+                      <>
+                        Create Account <ArrowRight className="w-5 h-5" />
+                      </>
+                    )}
+                  </>
+                )}
+              </button>
+            </form>
+
+
+
+
+
+
+
+
+            {/* Forgot Password Link - Login mode only */}
+            {mode === 'login' && !showPasswordError && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('reset-password');
+                  setResetEmail(email);
+                }}
+                className={`text-center text-sm mt-4 font-bold block w-full ${
+                  isDark 
+                    ? (isGreen ? 'text-green-400 hover:text-green-300' : isLgbt ? 'text-indigo-400 hover:text-indigo-300' : 'text-pink-400 hover:text-pink-300')
+                    : (isGreen ? 'text-green-600 hover:text-green-700' : isLgbt ? 'text-indigo-600 hover:text-indigo-700' : 'text-pink-600 hover:text-pink-700')
+                }`}
+              >
+                Forgot Password?
+              </button>
+            )}
+
+
+
+
+
+
+
+
+            {/* Social Auth Divider */}
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className={`w-full border-t ${isDark ? dc.divider : 'border-slate-200'}`}></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className={`px-4 font-medium ${isDark ? `${dc.modal} text-slate-400` : 'bg-white text-slate-500'}`}>
+                  Or continue with
+                </span>
+              </div>
+            </div>
+
+
+
+
+
+
+
+
+            {/* Social Sign-In Buttons */}
+            <div className="space-y-3">
+              {/* Google Button */}
+              <button
+                onClick={handleGoogleSignIn}
+                disabled={loading}
+                type="button"
+                className={`w-full px-6 py-4 rounded-xl font-bold flex items-center justify-center gap-3 transition shadow-md hover:shadow-lg group ${
+                  isDark 
+                    ? 'bg-white text-slate-900 hover:bg-gray-50' 
+                    : 'bg-white text-slate-900 border-2 border-slate-200 hover:border-slate-300'
+                } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {/* Google Logo SVG */}
+                <svg className="w-6 h-6" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                </svg>
+                <span className="group-hover:scale-105 transition-transform">
+                  Continue with Google
+                </span>
+              </button>
+
+
+
+
+
+
+
+
+              {/* Facebook Button */}
+              <button
+                onClick={handleFacebookSignIn}
+                disabled={loading}
+                type="button"
+                className={`w-full px-6 py-4 rounded-xl font-bold flex items-center justify-center gap-3 transition shadow-md hover:shadow-lg bg-[#1877F2] hover:bg-[#166FE5] text-white group ${
+                  loading ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                {/* Facebook Logo SVG */}
+                <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+                  <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                </svg>
+                <span className="group-hover:scale-105 transition-transform">
+                  Continue with Facebook
+                </span>
+              </button>
+            </div>
+
+
+
+
+
+
+
+
+            {/* Switch mode text */}
+            {mode === 'login' ? (
+              <p className={`text-center text-sm mt-4 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                Don't have an account?{' '}
+                <button
+                  type="button"
+                  onClick={() => { setMode('signup'); setError(''); }}
+                  className={`font-bold ${
+                    isDark 
+                      ? (isGreen ? 'text-green-400 hover:text-green-300' : isLgbt ? 'text-indigo-400 hover:text-indigo-300' : 'text-pink-400 hover:text-pink-300')
+                      : (isGreen ? 'text-green-600 hover:text-green-700' : isLgbt ? 'text-indigo-600 hover:text-indigo-700' : 'text-pink-600 hover:text-pink-700')
+                  }`}
+                >
+                  Sign up here
+                </button>
+              </p>
+            ) : (
+              <p className={`text-center text-sm mt-4 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                Already have an account?{' '}
+                <button
+                  type="button"
+                  onClick={() => { setMode('login'); setError(''); }}
+                  className={`font-bold ${
+                    isDark 
+                      ? (isGreen ? 'text-green-400 hover:text-green-300' : isLgbt ? 'text-indigo-400 hover:text-indigo-300' : 'text-pink-400 hover:text-pink-300')
+                      : (isGreen ? 'text-green-600 hover:text-green-700' : isLgbt ? 'text-indigo-600 hover:text-indigo-700' : 'text-pink-600 hover:text-pink-700')
+                  }`}
+                >
+                  Login here
+                </button>
+              </p>
+            )}
+          </>
         )}
-        
-        {toast && (
-          <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
-            <Toast toast={toast} onDismiss={() => setToast(null)} />
-          </div>
-        )}
+
+
+
+
+
+
+
+
       </div>
-  
+
+
+
+
+
+
+
+
+      {/* Terms & Conditions Modal */}
+      {showTermsModal && (
+        <TermsModal onClose={() => setShowTermsModal(false)} />
+      )}
+    </div>
   );
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4303,10 +9001,38 @@ const TemplateBrowser = ({
   onClose: () => void;
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'student' | 'adult' | 'health' | 'productivity'>('all');
-  const { theme, accent } = useTheme();
+  const { theme, accent, dc } = useTheme();
   const isDark = theme === 'dark';
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4322,9 +9048,65 @@ const TemplateBrowser = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const filteredTemplates = selectedCategory === 'all' 
     ? HABIT_TEMPLATES 
     : HABIT_TEMPLATES.filter(t => t.category === selectedCategory);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4334,12 +9116,12 @@ const TemplateBrowser = ({
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}></div>
       
       <div className={`relative w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-3xl shadow-2xl animate-pop ${
-        isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'
+        isDark ? dc.card : 'bg-white border-slate-100'
       } border-2`}>
         
         {/* Header */}
         <div className={`sticky top-0 z-10 p-6 border-b backdrop-blur-md ${
-          isDark ? 'bg-slate-900/95 border-slate-800' : 'bg-white/95 border-slate-100'
+          isDark ? `${dc.modal} bg-opacity-95` : 'bg-white/95 border-slate-100'
         }`}>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
@@ -4362,11 +9144,39 @@ const TemplateBrowser = ({
             <button 
                onClick={onClose}
               aria-label="Close modal"
-              className={`absolute top-4 right-4 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition`}
+              className={`absolute top-4 right-4 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-pink-900/40 transition`}
               >
              <X className="w-5 h-5" />
             </button>
           </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4386,7 +9196,7 @@ const TemplateBrowser = ({
                           ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
                           : (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white' : 'bg-pink-600 text-white')
                         )
-                      : (isDark ? 'bg-slate-800 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
+                      : (isDark ? dc.btnSecondary : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
                   }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -4396,6 +9206,34 @@ const TemplateBrowser = ({
             })}
           </div>
         </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4415,7 +9253,7 @@ const TemplateBrowser = ({
                      }}
                      className={`group text-left p-5 rounded-2xl border-2 transition-all duration-300 ${
                     isDark 
-                      ? 'bg-slate-800 border-slate-700 hover:border-slate-600 hover:shadow-lg hover:shadow-slate-900'
+                      ? 'bg-pink-950/60 border-pink-900/50 hover:border-pink-800 hover:shadow-lg hover:shadow-pink-950'
                       : (isGreen 
                           ? 'bg-white border-green-100 hover:border-green-300 hover:shadow-lg hover:shadow-green-100'
                           : isLgbt
@@ -4458,6 +9296,34 @@ const TemplateBrowser = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
           {filteredTemplates.length === 0 && (
             <div className={`text-center py-12 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
               <p className="text-lg font-bold mb-2">No templates found</p>
@@ -4481,10 +9347,38 @@ const ReminderModal = ({
 }) => {
   const [enabled, setEnabled] = useState(habit.reminderEnabled || false);
   const [time, setTime] = useState(habit.reminderTime || '09:00');
-  const { theme, accent } = useTheme();
+  const { theme, accent, dc } = useTheme();
   const isDark = theme === 'dark';
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4497,22 +9391,78 @@ const ReminderModal = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}></div>
       
       <div className={`relative w-full max-w-md rounded-3xl shadow-2xl p-6 animate-pop ${
-        isDark ? 'bg-slate-900 border-2 border-slate-800' : 'bg-white border-2 border-slate-100'
+        isDark ? `${dc.card} border-2` : 'bg-white border-2 border-slate-100'
       }`}>
         
         <button 
           onClick={onClose}
           className={`absolute top-4 right-4 p-2 rounded-xl transition ${
-            isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
+            isDark ? dc.btnClose : 'hover:bg-slate-100 text-slate-500'
           }`}
         >
           <X className="w-5 h-5" />
         </button>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4536,10 +9486,38 @@ const ReminderModal = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         <div className="space-y-5">
           {/* Enable/Disable Toggle */}
           <div className={`p-4 rounded-2xl border-2 ${
-            isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'
+            isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'
           }`}>
             <div className="flex items-center justify-between">
               <div>
@@ -4571,6 +9549,34 @@ const ReminderModal = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
           {/* Time Picker */}
           {enabled && (
             <div>
@@ -4583,12 +9589,40 @@ const ReminderModal = ({
                 onChange={(e) => setTime(e.target.value)}
                 className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-bold text-xl text-center ${
                   isDark 
-                    ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-500')
+                    ? dc.input
                     : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500')
                 }`}
               />
             </div>
           )}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4601,6 +9635,34 @@ const ReminderModal = ({
               ⚠️ Please allow notifications in your browser settings
             </div>
           )}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4620,7 +9682,7 @@ const ReminderModal = ({
             <button
               onClick={onClose}
               className={`px-6 py-4 rounded-2xl font-bold transition ${
-                isDark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'
+                isDark ? dc.btnClose : 'text-slate-500 hover:bg-slate-100'
               }`}
             >
               Cancel
@@ -4637,6 +9699,34 @@ const ReminderModal = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 interface BudgetLimitsSectionProps {
   budgets: CategoryBudget[];
   currencySymbol: string;
@@ -4649,6 +9739,34 @@ interface BudgetLimitsSectionProps {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const BudgetLimitsSection: React.FC<BudgetLimitsSectionProps> = ({
   budgets,
   currencySymbol,
@@ -4657,6 +9775,7 @@ const BudgetLimitsSection: React.FC<BudgetLimitsSectionProps> = ({
   isLgbt,
   onEditBudgets
 }) => {
+  const { dc } = useTheme();
   const getProgressColor = (percentage: number) => {
     if (percentage >= 100) return isDark ? 'bg-red-500' : 'bg-red-600';
     if (percentage >= 80) return isDark ? 'bg-yellow-500' : 'bg-yellow-600';
@@ -4668,10 +9787,38 @@ const BudgetLimitsSection: React.FC<BudgetLimitsSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   return (
     <div className={`p-6 rounded-2xl border-2 ${
       isDark 
-        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+        ? dc.card
         : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
     }`}>
       <div className="flex items-center justify-between mb-6">
@@ -4707,6 +9854,34 @@ const BudgetLimitsSection: React.FC<BudgetLimitsSectionProps> = ({
           Edit Limits
         </button>
       </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4760,6 +9935,34 @@ const BudgetLimitsSection: React.FC<BudgetLimitsSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 interface SpendingInsightsSectionProps {
   insights: SpendingInsight;
   currencySymbol: string;
@@ -4771,6 +9974,34 @@ interface SpendingInsightsSectionProps {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const SpendingInsightsSection: React.FC<SpendingInsightsSectionProps> = ({
   insights,
   currencySymbol,
@@ -4778,6 +10009,7 @@ const SpendingInsightsSection: React.FC<SpendingInsightsSectionProps> = ({
   isGreen,
   isLgbt
 }) => {
+  const { dc } = useTheme();
   const weeklyChange = insights.lastWeek > 0 
     ? ((insights.thisWeek - insights.lastWeek) / insights.lastWeek * 100).toFixed(1)
     : 0;
@@ -4789,8 +10021,64 @@ const SpendingInsightsSection: React.FC<SpendingInsightsSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const isWeeklyUp = Number(weeklyChange) > 0;
   const isMonthlyUp = Number(monthlyChange) > 0;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4798,7 +10086,7 @@ const SpendingInsightsSection: React.FC<SpendingInsightsSectionProps> = ({
   return (
     <div className={`p-6 rounded-2xl border-2 ${
       isDark 
-        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+        ? dc.card
         : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
     }`}>
       <div className="flex items-center gap-3 mb-6">
@@ -4826,6 +10114,34 @@ const SpendingInsightsSection: React.FC<SpendingInsightsSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
       <div className="grid grid-cols-2 gap-4 mb-4">
         {/* This Week */}
         <div className={`p-4 rounded-xl ${
@@ -4848,6 +10164,34 @@ const SpendingInsightsSection: React.FC<SpendingInsightsSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         {/* This Month */}
         <div className={`p-4 rounded-xl ${
           isDark ? 'bg-slate-700/50' : 'bg-white'
@@ -4866,6 +10210,34 @@ const SpendingInsightsSection: React.FC<SpendingInsightsSectionProps> = ({
           </div>
         </div>
       </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4912,6 +10284,90 @@ const SpendingInsightsSection: React.FC<SpendingInsightsSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 interface CategoryPieChartProps {
   data: { name: string; value: number }[];
   currencySymbol: string;
@@ -4919,6 +10375,34 @@ interface CategoryPieChartProps {
   isGreen: boolean;
   isLgbt: boolean;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4931,6 +10415,7 @@ const CategoryPieChart: React.FC<CategoryPieChartProps> = ({
   isLgbt
 }) => {
   // Color palette for pie slices
+  const { dc } = useTheme();
   const COLORS = isGreen 
     ? ['#10b981', '#059669', '#047857', '#065f46', '#064e3b', '#6ee7b7']
     : isLgbt
@@ -4940,7 +10425,63 @@ const CategoryPieChart: React.FC<CategoryPieChartProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const totalSpending = data.reduce((sum, item) => sum + item.value, 0);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4949,7 +10490,7 @@ const CategoryPieChart: React.FC<CategoryPieChartProps> = ({
     return (
       <div className={`p-6 rounded-2xl border-2 ${
         isDark 
-          ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+          ? dc.card
           : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
       }`}>
         <div className="flex items-center gap-3 mb-6">
@@ -4958,7 +10499,7 @@ const CategoryPieChart: React.FC<CategoryPieChartProps> = ({
               ? (isGreen ? 'bg-green-500/20' : isLgbt ? 'bg-gradient-to-br from-red-500/20 to-blue-500/20' : 'bg-pink-500/20')
               : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-br from-red-100 to-blue-100' : 'bg-pink-100')
           }`}>
-            <PieChart className={`w-6 h-6 ${
+<PieChartIcon className={`w-6 h-6 ${
               isDark 
                 ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
                 : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
@@ -4983,10 +10524,38 @@ const CategoryPieChart: React.FC<CategoryPieChartProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   return (
     <div className={`p-6 rounded-2xl border-2 ${
       isDark 
-        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+        ? dc.card
         : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
     }`}>
       <div className="flex items-center gap-3 mb-6">
@@ -4995,7 +10564,7 @@ const CategoryPieChart: React.FC<CategoryPieChartProps> = ({
             ? (isGreen ? 'bg-green-500/20' : isLgbt ? 'bg-gradient-to-br from-red-500/20 to-blue-500/20' : 'bg-pink-500/20')
             : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-br from-red-100 to-blue-100' : 'bg-pink-100')
         }`}>
-          <PieChart className={`w-6 h-6 ${
+          <PieChartIcon className={`w-6 h-6 ${
             isDark 
               ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
               : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
@@ -5010,6 +10579,34 @@ const CategoryPieChart: React.FC<CategoryPieChartProps> = ({
           </p>
         </div>
       </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5043,6 +10640,34 @@ const CategoryPieChart: React.FC<CategoryPieChartProps> = ({
     </PieChart>
   </ResponsiveContainer>
 </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5083,6 +10708,34 @@ const CategoryPieChart: React.FC<CategoryPieChartProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 interface SavingsGoalsSectionProps {
   goals: SavingsGoal[];
   currencySymbol: string;
@@ -5097,6 +10750,34 @@ interface SavingsGoalsSectionProps {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
   goals,
   currencySymbol,
@@ -5107,8 +10788,37 @@ const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
   onUpdateProgress,
   onDeleteGoal
 }) => {
+  const { dc } = useTheme();
   const [editingGoal, setEditingGoal] = useState<string | null>(null);
   const [addAmount, setAddAmount] = useState<string>('');
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5125,6 +10835,34 @@ const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const getDaysRemaining = (deadline: string) => {
     const today = new Date();
     const deadlineDate = new Date(deadline);
@@ -5136,10 +10874,38 @@ const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   return (
     <div className={`p-6 rounded-2xl border-2 ${
       isDark 
-        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+        ? dc.card
         : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
     }`}>
       <div className="flex items-center justify-between mb-6">
@@ -5179,6 +10945,34 @@ const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
       {goals.length === 0 ? (
         <div className="text-center py-8">
           <Trophy className={`w-16 h-16 mx-auto mb-4 ${isDark ? 'text-slate-600' : 'text-slate-400'}`} />
@@ -5202,6 +10996,34 @@ const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
             const percentage = Math.min((goal.currentAmount / goal.targetAmount) * 100, 100);
             const daysLeft = getDaysRemaining(goal.deadline);
             const isComplete = percentage >= 100;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5246,6 +11068,34 @@ const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 <div className="mb-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className={`text-sm font-semibold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
@@ -5275,6 +11125,34 @@ const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 {!isComplete && (
                   <div className="flex gap-2">
                     {editingGoal === goal.id ? (
@@ -5288,7 +11166,7 @@ const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
                           placeholder="Amount"
                           className={`flex-1 px-3 py-2 rounded-lg border-2 outline-none ${
                             isDark 
-                              ? 'bg-slate-800 border-slate-600 text-white' 
+                              ? dc.input 
                               : 'bg-white border-slate-200 text-slate-900'
                           }`}
                           autoFocus
@@ -5341,6 +11219,34 @@ const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 interface RecurringExpensesSectionProps {
   recurringExpenses: RecurringExpense[];
   currencySymbol: string;
@@ -5352,6 +11258,62 @@ interface RecurringExpensesSectionProps {
   onDeleteRecurring: (expenseId: string) => void;
   onEditRecurring: (expense: RecurringExpense) => void;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5372,6 +11334,7 @@ const RecurringExpensesSection: React.FC<RecurringExpensesSectionProps> = ({
   onEditRecurring
 }) => {
   // Calculate summary
+  const { dc } = useTheme();
   const summary: RecurringExpenseSummary = recurringExpenses
     .filter(exp => exp.isActive)
     .reduce((acc, exp) => {
@@ -5384,6 +11347,34 @@ const RecurringExpensesSection: React.FC<RecurringExpensesSectionProps> = ({
           default: return 0;
         }
       })();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5401,6 +11392,34 @@ const RecurringExpensesSection: React.FC<RecurringExpensesSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const getDaysUntilPayment = (nextPaymentDate: string) => {
     const today = new Date();
     const payment = new Date(nextPaymentDate);
@@ -5408,6 +11427,34 @@ const RecurringExpensesSection: React.FC<RecurringExpensesSectionProps> = ({
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
   };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5425,10 +11472,38 @@ const RecurringExpensesSection: React.FC<RecurringExpensesSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   return (
     <div className={`p-6 rounded-2xl border-2 ${
       isDark 
-        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+        ? dc.card
         : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
     }`}>
       <div className="flex items-center justify-between mb-6">
@@ -5468,6 +11543,34 @@ const RecurringExpensesSection: React.FC<RecurringExpensesSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-3 mb-6">
         <div className={`p-4 rounded-xl ${isDark ? 'bg-slate-700/50' : 'bg-white'}`}>
@@ -5485,6 +11588,34 @@ const RecurringExpensesSection: React.FC<RecurringExpensesSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         <div className={`p-4 rounded-xl ${isDark ? 'bg-slate-700/50' : 'bg-white'}`}>
           <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
             Yearly Cost
@@ -5497,6 +11628,34 @@ const RecurringExpensesSection: React.FC<RecurringExpensesSectionProps> = ({
           </div>
         </div>
       </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5531,12 +11690,40 @@ const RecurringExpensesSection: React.FC<RecurringExpensesSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
               return (
                 <div
                   key={expense.id}
                   className={`p-4 rounded-xl border-2 transition ${
                     !expense.isActive
-                      ? (isDark ? 'bg-slate-800/30 border-slate-700 opacity-50' : 'bg-slate-50 border-slate-200 opacity-50')
+                      ? (isDark ? `${dc.card} opacity-50` : 'bg-slate-50 border-slate-200 opacity-50')
                       : isOverdue
                       ? (isDark ? 'bg-red-900/20 border-red-500/50' : 'bg-red-50 border-red-300')
                       : isUpcoming
@@ -5554,12 +11741,12 @@ const RecurringExpensesSection: React.FC<RecurringExpensesSectionProps> = ({
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className={`text-xs font-bold px-2 py-0.5 rounded ${
-                          isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+                          isDark ? dc.btnSecondary : 'bg-slate-100 text-slate-600'
                         }`}>
                           {expense.category}
                         </span>
                         <span className={`text-xs font-bold px-2 py-0.5 rounded ${
-                          isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+                          isDark ? dc.btnSecondary : 'bg-slate-100 text-slate-600'
                         }`}>
                           {expense.frequency}
                         </span>
@@ -5578,13 +11765,41 @@ const RecurringExpensesSection: React.FC<RecurringExpensesSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                   {/* Next Payment Info */}
                   <div className={`p-3 rounded-lg mb-3 ${
                     isOverdue
                       ? (isDark ? 'bg-red-900/30' : 'bg-red-100')
                       : isUpcoming
                       ? (isDark ? 'bg-yellow-900/30' : 'bg-yellow-100')
-                      : (isDark ? 'bg-slate-800' : 'bg-slate-100')
+                      : (isDark ? dc.tabBar : 'bg-slate-100')
                   }`}>
                     <div className="flex items-center justify-between">
                       <span className={`text-sm font-bold ${
@@ -5602,6 +11817,34 @@ const RecurringExpensesSection: React.FC<RecurringExpensesSectionProps> = ({
                       </span>
                     </div>
                   </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5654,6 +11897,34 @@ const RecurringExpensesSection: React.FC<RecurringExpensesSectionProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // ✅ DEBT TRACKER COMPONENT
 interface DebtTrackerProps {
   debts: Debt[];
@@ -5669,6 +11940,34 @@ interface DebtTrackerProps {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const DebtTracker: React.FC<DebtTrackerProps> = ({
   debts,
   currencySymbol,
@@ -5679,8 +11978,37 @@ const DebtTracker: React.FC<DebtTrackerProps> = ({
   isGreen,
   isLgbt
 }) => {
+  const { dc } = useTheme();
   const [paymentDebtId, setPaymentDebtId] = useState<string | null>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5690,6 +12018,34 @@ const DebtTracker: React.FC<DebtTrackerProps> = ({
   const avgInterestRate = debts.length > 0 
     ? debts.reduce((sum, debt) => sum + debt.interestRate, 0) / debts.length 
     : 0;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5707,6 +12063,34 @@ const DebtTracker: React.FC<DebtTrackerProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const getDebtTypeLabel = (type: string) => {
     switch (type) {
       case 'credit_card': return 'Credit Card';
@@ -5716,6 +12100,34 @@ const DebtTracker: React.FC<DebtTrackerProps> = ({
       default: return 'Other';
     }
   };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5735,10 +12147,38 @@ const DebtTracker: React.FC<DebtTrackerProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   return (
     <div className={`p-6 rounded-2xl border-2 ${
       isDark 
-        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+        ? dc.card
         : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
     }`}>
       <div className="flex items-center justify-between mb-6">
@@ -5778,6 +12218,34 @@ const DebtTracker: React.FC<DebtTrackerProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
       {/* Summary Cards */}
       {debts.length > 0 && (
         <div className="grid grid-cols-3 gap-3 mb-6">
@@ -5789,6 +12257,34 @@ const DebtTracker: React.FC<DebtTrackerProps> = ({
               {currencySymbol}{totalDebt.toFixed(2)}
             </div>
           </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5805,6 +12301,34 @@ const DebtTracker: React.FC<DebtTrackerProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
           <div className={`p-4 rounded-xl ${isDark ? 'bg-slate-700/50' : 'bg-white'}`}>
             <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
               Avg. APR
@@ -5815,6 +12339,34 @@ const DebtTracker: React.FC<DebtTrackerProps> = ({
           </div>
         </div>
       )}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5858,7 +12410,7 @@ const DebtTracker: React.FC<DebtTrackerProps> = ({
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className={`text-xs font-bold px-2 py-0.5 rounded ${
-                        isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+                        isDark ? dc.btnSecondary : 'bg-slate-100 text-slate-600'
                       }`}>
                         {getDebtTypeLabel(debt.type)}
                       </span>
@@ -5882,6 +12434,34 @@ const DebtTracker: React.FC<DebtTrackerProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 {/* Payment Section */}
                 {paymentDebtId === debt.id ? (
                   <div className="flex gap-2 mt-3">
@@ -5894,7 +12474,7 @@ const DebtTracker: React.FC<DebtTrackerProps> = ({
                       placeholder="Payment amount"
                       className={`flex-1 px-3 py-2 rounded-lg border-2 outline-none ${
                         isDark 
-                          ? 'bg-slate-800 border-slate-600 text-white'
+                          ? dc.input
                           : 'bg-white border-slate-200 text-slate-900'
                       }`}
                       autoFocus
@@ -5951,9 +12531,37 @@ const DebtTracker: React.FC<DebtTrackerProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 {/* Due Date Info */}
                 <div className={`mt-3 p-2 rounded-lg text-xs font-medium ${
-                  isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+                  isDark ? dc.btnSecondary : 'bg-slate-100 text-slate-600'
                 }`}>
                   📅 Due on day {debt.dueDay} of each month
                 </div>
@@ -5966,6 +12574,34 @@ const DebtTracker: React.FC<DebtTrackerProps> = ({
 };
 // 🆕 PHASE 1: Add Savings Goal Modal
 // LOCATION: Add this modal component near your other modals (around line 4500-4600)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5983,6 +12619,34 @@ interface AddGoalModalProps {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const AddGoalModal: React.FC<AddGoalModalProps> = ({
   isOpen,
   onClose,
@@ -5992,6 +12656,7 @@ const AddGoalModal: React.FC<AddGoalModalProps> = ({
   isLgbt,
   currencySymbol
 }) => {
+  const { dc } = useTheme();
   const [name, setName] = useState('');
   const [targetAmount, setTargetAmount] = useState('');
   const [deadline, setDeadline] = useState('');
@@ -5999,7 +12664,63 @@ const AddGoalModal: React.FC<AddGoalModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   if (!isOpen) return null;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6018,10 +12739,38 @@ const AddGoalModal: React.FC<AddGoalModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
       <div className={`w-full max-w-md rounded-2xl p-6 ${
-        isDark ? 'bg-slate-800' : 'bg-white'
+        isDark ? dc.modal : 'bg-white'
       }`}>
         <div className="flex items-center justify-between mb-6">
           <h3 className={`font-bold text-2xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
@@ -6036,6 +12785,34 @@ const AddGoalModal: React.FC<AddGoalModalProps> = ({
             <X className={`w-5 h-5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`} />
           </button>
         </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6058,6 +12835,34 @@ const AddGoalModal: React.FC<AddGoalModalProps> = ({
               required
             />
           </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6085,6 +12890,34 @@ const AddGoalModal: React.FC<AddGoalModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
           <div>
             <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
               Target Date
@@ -6102,6 +12935,34 @@ const AddGoalModal: React.FC<AddGoalModalProps> = ({
               required
             />
           </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6136,8 +12997,64 @@ const AddGoalModal: React.FC<AddGoalModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // 🆕 PHASE 1: Edit Budget Limits Modal
 // LOCATION: Add this modal component near your other modals
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6157,6 +13074,34 @@ interface EditBudgetsModalProps {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const EditBudgetsModal: React.FC<EditBudgetsModalProps> = ({
   isOpen,
   onClose,
@@ -6168,8 +13113,37 @@ const EditBudgetsModal: React.FC<EditBudgetsModalProps> = ({
   currencySymbol,
   setCategoryBudgets
 }) => {
+  const { dc } = useTheme();
   const [tempBudgets, setTempBudgets] = useState<Record<string, string>>({});
   const { theme } = useTheme();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6187,14 +13161,70 @@ const EditBudgetsModal: React.FC<EditBudgetsModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   if (!isOpen) return null;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
 
   const handleSave = () => {
     Object.entries(tempBudgets).forEach(([category, value]) => {
-      const limit = parseFloat(value) || 0;
+      const limit = parseFloat(value as string) || 0;
       if (limit !== categoryBudgets[category]) {
         onUpdateBudget(category, limit);
       }
@@ -6205,10 +13235,38 @@ const EditBudgetsModal: React.FC<EditBudgetsModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm overflow-y-auto">
       <div className={`w-full max-w-2xl rounded-2xl p-6 my-8 ${
-        isDark ? 'bg-slate-800' : 'bg-white'
+        isDark ? dc.modal : 'bg-white'
       }`}>
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -6228,6 +13286,34 @@ const EditBudgetsModal: React.FC<EditBudgetsModalProps> = ({
             <X className={`w-5 h-5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`} />
           </button>
         </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6263,6 +13349,34 @@ const EditBudgetsModal: React.FC<EditBudgetsModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         <div className={`p-4 rounded-xl mb-6 ${
           isDark 
             ? (isGreen ? 'bg-green-500/10 border border-green-500/30' : isLgbt ? 'bg-gradient-to-r from-red-500/10 to-blue-500/10 border border-indigo-500/30' : 'bg-pink-500/10 border border-pink-500/30')
@@ -6272,6 +13386,34 @@ const EditBudgetsModal: React.FC<EditBudgetsModalProps> = ({
             💡 <strong>Tip:</strong> Set realistic monthly limits for each category. You'll get alerts when you reach 80% of your budget.
           </p>
         </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6306,6 +13448,34 @@ const EditBudgetsModal: React.FC<EditBudgetsModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // 🆕 PHASE 2: ADD/EDIT RECURRING EXPENSE MODAL
 interface RecurringExpenseModalProps {
   isOpen: boolean;
@@ -6321,6 +13491,34 @@ interface RecurringExpenseModalProps {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
   isOpen,
   onClose,
@@ -6331,6 +13529,7 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
   isLgbt,
   currencySymbol
 }) => {
+  const { dc } = useTheme();
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('bills');
@@ -6340,6 +13539,34 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
   const [reminderEnabled, setReminderEnabled] = useState(true);
   const [reminderDaysBefore, setReminderDaysBefore] = useState(3);
   const [notes, setNotes] = useState('');
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6371,7 +13598,63 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   if (!isOpen) return null;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6383,6 +13666,34 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
     if (startDateObj > today) {
       return start;
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6412,6 +13723,34 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const parsedAmount = parseFloat(amount);
@@ -6424,7 +13763,63 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     const nextPaymentDate = calculateNextPaymentDate(startDate, frequency);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6446,8 +13841,64 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     onClose();
   };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6464,10 +13915,38 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm overflow-y-auto">
       <div className={`w-full max-w-2xl rounded-2xl p-6 my-8 ${
-        isDark ? 'bg-slate-800' : 'bg-white'
+        isDark ? dc.modal : 'bg-white'
       }`}>
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -6487,6 +13966,34 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
             <X className={`w-5 h-5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`} />
           </button>
         </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6525,6 +14032,34 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
@@ -6544,6 +14079,34 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
                 required
               />
             </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6571,6 +14134,34 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
             <div>
               <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                 Frequency *
@@ -6588,6 +14179,34 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
                 <option value="yearly">Yearly</option>
               </select>
             </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6612,6 +14231,34 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
             <div>
               <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                 Start Date *
@@ -6630,6 +14277,34 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
             <div>
               <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                 End Date (Optional)
@@ -6644,6 +14319,34 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
                 }`}
               />
             </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6683,6 +14386,34 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
             <div className="md:col-span-2">
               <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                 Notes (Optional)
@@ -6698,6 +14429,34 @@ const RecurringExpenseModal: React.FC<RecurringExpenseModalProps> = ({
               />
             </div>
           </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6746,6 +14505,34 @@ interface AddDebtModalProps {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const AddDebtModal: React.FC<AddDebtModalProps> = ({
   isOpen,
   onClose,
@@ -6758,7 +14545,7 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({
   const [minimumPayment, setMinimumPayment] = useState('');
   const [type, setType] = useState<'credit_card' | 'student_loan' | 'mortgage' | 'personal_loan' | 'other'>('credit_card');
   const [dueDay, setDueDay] = useState('1');
-  const { theme, accent } = useTheme();
+  const { theme, accent, dc } = useTheme();
   const isDark = theme === 'dark';
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
@@ -6766,7 +14553,63 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   if (!isOpen) return null;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6811,10 +14654,38 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
       <div className={`w-full max-w-md rounded-2xl p-6 ${
-        isDark ? 'bg-slate-800' : 'bg-white'
+        isDark ? dc.modal : 'bg-white'
       }`}>
         <div className="flex items-center justify-between mb-6">
           <h3 className={`font-bold text-2xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
@@ -6829,6 +14700,34 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({
             <X className={`w-5 h-5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`} />
           </button>
         </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6851,6 +14750,34 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({
               required
             />
           </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6878,6 +14805,34 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
             <div>
               <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
                 Interest Rate (%) *
@@ -6901,6 +14856,34 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
@@ -6920,6 +14903,34 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({
                 required
               />
             </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6948,13 +14959,41 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
           <div>
             <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
               Debt Type *
             </label>
             <select
               value={type}
-              onChange={(e) => setType(e.target.value as any)}
+              onChange={(e) => setType(e.target.value as Debt['type'])}
               className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition ${
                 isDark 
                   ? 'bg-slate-700 border-slate-600 text-white'
@@ -6968,6 +15007,34 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({
               <option value="other">Other</option>
             </select>
           </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7002,8 +15069,1279 @@ const AddDebtModal: React.FC<AddDebtModalProps> = ({
 
 
 
+
+
+
+
+// ============================================
+// 🎊 ONBOARDING FLOW COMPONENT
+// ============================================
+
+
+
+
+
+
+
+
+interface OnboardingData {
+  username: string;
+  fullName: string;
+  age: string;
+  occupation: string;
+  monthlySalary: string;
+  dailyBudget: string;
+  currency: string;
+  selectedHabits: string[];
+}
+
+
+
+
+
+
+
+
+const CURRENCY_OPTIONS = [
+  { code: 'USD', symbol: '$', name: 'US Dollar' },
+  { code: 'EUR', symbol: '€', name: 'Euro' },
+  { code: 'GBP', symbol: '£', name: 'British Pound' },
+  { code: 'JPY', symbol: '¥', name: 'Japanese Yen' },
+  { code: 'PHP', symbol: '₱', name: 'Philippine Peso' },
+  { code: 'INR', symbol: '₹', name: 'Indian Rupee' },
+  { code: 'AUD', symbol: 'A$', name: 'Australian Dollar' },
+  { code: 'CAD', symbol: 'C$', name: 'Canadian Dollar' },
+];
+
+
+
+
+
+
+
+
+const HABIT_SUGGESTIONS = [
+  { id: 'exercise', label: 'Exercise Daily', icon: 'Dumbbell' },
+  { id: 'read', label: 'Read Books', icon: 'Book' },
+  { id: 'meditate', label: 'Meditate', icon: 'Brain' },
+  { id: 'water', label: 'Drink Water', icon: 'Droplet' },
+  { id: 'sleep', label: 'Sleep Early', icon: 'Moon' },
+  { id: 'journal', label: 'Journaling', icon: 'Book' },
+  { id: 'healthy-eating', label: 'Healthy Eating', icon: 'Coffee' },
+  { id: 'no-phone', label: 'No Phone Before Bed', icon: 'Moon' },
+];
+
+
+
+
+
+
+
+
+interface OnboardingFlowProps {
+  user: any;
+  onComplete: (data: OnboardingData) => void;
+}
+
+
+
+
+
+
+
+
+const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ user, onComplete }) => {
+  const [step, setStep] = useState(0);
+  const [data, setData] = useState<OnboardingData>({
+    username: '',
+    fullName: '',
+    age: '',
+    occupation: '',
+    monthlySalary: '',
+    dailyBudget: '',
+    currency: 'USD',
+    selectedHabits: []
+  });
+  const [showFireworks, setShowFireworks] = useState(false);
+  
+  const { theme, accent, dc } = useTheme();
+  const isDark = theme === 'dark';
+  const isGreen = accent === 'green';
+  const isLgbt = accent === 'lgbt';
+
+
+
+
+
+
+
+
+  const accentColor = isGreen ? 'green' : isLgbt ? 'purple' : 'pink';
+
+
+
+
+
+
+
+
+  const totalSteps = 6;
+  const progress = ((step + 1) / totalSteps) * 100;
+
+
+
+
+
+
+
+
+  const updateData = (field: keyof OnboardingData, value: any) => {
+    setData(prev => ({ ...prev, [field]: value }));
+  };
+
+
+
+
+
+
+
+
+  const toggleHabit = (habitId: string) => {
+    setData(prev => ({
+      ...prev,
+      selectedHabits: prev.selectedHabits.includes(habitId)
+        ? prev.selectedHabits.filter(h => h !== habitId)
+        : [...prev.selectedHabits, habitId]
+    }));
+  };
+
+
+
+
+
+
+
+
+  const canProceed = () => {
+    switch (step) {
+      case 0: return data.username.trim().length >= 3;
+      case 1: return data.fullName.trim().length >= 2;
+      case 2: return data.age && parseInt(data.age) >= 13 && parseInt(data.age) <= 120;
+      case 3: return data.occupation.trim().length >= 2 && data.monthlySalary.trim().length > 0;
+      case 4: return data.dailyBudget.trim().length > 0;
+      case 5: return data.selectedHabits.length > 0;
+      default: return true;
+    }
+  };
+
+
+
+
+
+
+
+
+  const handleNext = () => {
+    if (step < totalSteps - 1) {
+      setStep(step + 1);
+    } else {
+      // Final step - show fireworks
+      setShowFireworks(true);
+      setTimeout(() => {
+        onComplete(data);
+      }, 1500);
+    }
+  };
+
+
+
+
+
+
+
+
+  const handleBack = () => {
+    if (step > 0) {
+      setStep(step - 1);
+    }
+  };
+
+
+
+
+
+
+
+
+  const renderStep = () => {
+    const inputClass = `w-full px-6 py-4 rounded-2xl border-2 outline-none transition font-medium text-lg ${
+      isDark 
+        ? dc.input
+        : `bg-slate-50 border-${accentColor}-200 text-slate-900 focus:border-${accentColor}-600 focus:bg-white focus:ring-4 focus:ring-${accentColor}-100`
+    }`;
+
+
+
+
+
+
+
+
+    switch (step) {
+      case 0:
+        return (
+          <div className="space-y-6 animate-slide-in">
+            <div className="text-center mb-8">
+              <div className={`inline-flex items-center justify-center w-20 h-20 rounded-3xl mb-6 shadow-2xl animate-bounce ${
+                isDark 
+                  ? `bg-${accentColor}-500 text-white shadow-${accentColor}-500/40`
+                  : `bg-${accentColor}-600 text-white shadow-${accentColor}-200`
+              }`}>
+                <UserCircle2 className="w-10 h-10" />
+              </div>
+              <h2 className={`text-4xl font-black mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                What should we call you?
+              </h2>
+              <p className={`text-lg ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                Choose a unique username that represents you
+              </p>
+            </div>
+
+
+
+
+
+
+
+
+            <div>
+              <label className={`block text-sm font-bold mb-3 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Username
+              </label>
+              <input
+                type="text"
+                value={data.username}
+                onChange={(e) => updateData('username', e.target.value.toLowerCase().replace(/\s/g, ''))}
+                className={inputClass}
+                placeholder="e.g., habitwarrior"
+                maxLength={20}
+                autoFocus
+              />
+              <p className={`mt-2 text-sm ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                {data.username.length}/20 characters • No spaces allowed
+              </p>
+            </div>
+          </div>
+        );
+
+
+
+
+
+
+
+
+      case 1:
+        return (
+          <div className="space-y-6 animate-slide-in">
+            <div className="text-center mb-8">
+              <div className={`inline-flex items-center justify-center w-20 h-20 rounded-3xl mb-6 shadow-2xl animate-bounce ${
+                isDark 
+                  ? `bg-${accentColor}-500 text-white shadow-${accentColor}-500/40`
+                  : `bg-${accentColor}-600 text-white shadow-${accentColor}-200`
+              }`}>
+                <Sparkles className="w-10 h-10" />
+              </div>
+              <h2 className={`text-4xl font-black mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                Nice to meet you!
+              </h2>
+              <p className={`text-lg ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                Let's personalize your experience
+              </p>
+            </div>
+
+
+
+
+
+
+
+
+            <div>
+              <label className={`block text-sm font-bold mb-3 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Full Name
+              </label>
+              <input
+                type="text"
+                value={data.fullName}
+                onChange={(e) => updateData('fullName', e.target.value)}
+                className={inputClass}
+                placeholder="e.g., John Doe"
+                autoFocus
+              />
+            </div>
+
+
+
+
+
+
+
+
+            <div>
+              <label className={`block text-sm font-bold mb-3 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Age
+              </label>
+              <input
+                type="number"
+                value={data.age}
+                onChange={(e) => updateData('age', e.target.value)}
+                className={inputClass}
+                placeholder="e.g., 25"
+                min="13"
+                max="120"
+              />
+            </div>
+          </div>
+        );
+
+
+
+
+
+
+
+
+      case 2:
+        return (
+          <div className="space-y-6 animate-slide-in">
+            <div className="text-center mb-8">
+              <div className={`inline-flex items-center justify-center w-20 h-20 rounded-3xl mb-6 shadow-2xl animate-bounce ${
+                isDark 
+                  ? `bg-${accentColor}-500 text-white shadow-${accentColor}-500/40`
+                  : `bg-${accentColor}-600 text-white shadow-${accentColor}-200`
+              }`}>
+                <Briefcase className="w-10 h-10" />
+              </div>
+              <h2 className={`text-4xl font-black mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                Tell us about yourself
+              </h2>
+              <p className={`text-lg ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                This helps us tailor your financial insights
+              </p>
+            </div>
+
+
+
+
+
+
+
+
+            <div>
+              <label className={`block text-sm font-bold mb-3 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Occupation
+              </label>
+              <input
+                type="text"
+                value={data.occupation}
+                onChange={(e) => updateData('occupation', e.target.value)}
+                className={inputClass}
+                placeholder="e.g., Software Engineer"
+                autoFocus
+              />
+            </div>
+
+
+
+
+
+
+
+
+            <div>
+              <label className={`block text-sm font-bold mb-3 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Monthly Salary
+              </label>
+              <input
+                type="number"
+                value={data.monthlySalary}
+                onChange={(e) => updateData('monthlySalary', e.target.value)}
+                className={inputClass}
+                placeholder="e.g., 5000"
+                min="0"
+              />
+              <p className={`mt-2 text-sm ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                Don't worry, this is private and secure 🔒
+              </p>
+            </div>
+          </div>
+        );
+
+
+
+
+
+
+
+
+      case 3:
+        return (
+          <div className="space-y-6 animate-slide-in">
+            <div className="text-center mb-8">
+              <div className={`inline-flex items-center justify-center w-20 h-20 rounded-3xl mb-6 shadow-2xl animate-bounce ${
+                isDark 
+                  ? `bg-${accentColor}-500 text-white shadow-${accentColor}-500/40`
+                  : `bg-${accentColor}-600 text-white shadow-${accentColor}-200`
+              }`}>
+                <DollarSign className="w-10 h-10" />
+              </div>
+              <h2 className={`text-4xl font-black mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                Set your budget
+              </h2>
+              <p className={`text-lg ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                How much can you spend per day?
+              </p>
+            </div>
+
+
+
+
+
+
+
+
+            <div>
+              <label className={`block text-sm font-bold mb-3 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Currency
+              </label>
+              <select
+                value={data.currency}
+                onChange={(e) => updateData('currency', e.target.value)}
+                className={inputClass}
+              >
+                {CURRENCY_OPTIONS.map(curr => (
+                  <option key={curr.code} value={curr.code}>
+                    {curr.symbol} {curr.name} ({curr.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+
+
+
+
+
+
+
+            <div>
+              <label className={`block text-sm font-bold mb-3 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                Daily Budget
+              </label>
+              <div className="relative">
+                <span className={`absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-bold ${
+                  isDark ? 'text-slate-500' : 'text-slate-400'
+                }`}>
+                  {CURRENCY_OPTIONS.find(c => c.code === data.currency)?.symbol}
+                </span>
+                <input
+                  type="number"
+                  value={data.dailyBudget}
+                  onChange={(e) => updateData('dailyBudget', e.target.value)}
+                  className={`${inputClass} pl-14`}
+                  placeholder="100"
+                  min="0"
+                  autoFocus
+                />
+              </div>
+              <p className={`mt-2 text-sm ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+                We'll help you stay within this limit every day 💪
+              </p>
+            </div>
+          </div>
+        );
+
+
+
+
+
+
+
+
+      case 4:
+        return (
+          <div className="space-y-6 animate-slide-in">
+            <div className="text-center mb-8">
+              <div className={`inline-flex items-center justify-center w-20 h-20 rounded-3xl mb-6 shadow-2xl animate-bounce ${
+                isDark 
+                  ? `bg-${accentColor}-500 text-white shadow-${accentColor}-500/40`
+                  : `bg-${accentColor}-600 text-white shadow-${accentColor}-200`
+              }`}>
+                <Target className="w-10 h-10" />
+              </div>
+              <h2 className={`text-4xl font-black mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                Choose your habits
+              </h2>
+              <p className={`text-lg ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                Select all that you want to build (you can add more later)
+              </p>
+            </div>
+
+
+
+
+
+
+
+
+            <div className="grid grid-cols-2 gap-3">
+              {HABIT_SUGGESTIONS.map(habit => {
+                const isSelected = data.selectedHabits.includes(habit.id);
+                const IconComponent = HABIT_ICONS.find(h => h.name === habit.icon)?.icon || Target;
+                
+                return (
+                  <button
+                    key={habit.id}
+                    type="button"
+                    onClick={() => toggleHabit(habit.id)}
+                    className={`p-4 rounded-2xl border-2 transition-all transform active:scale-95 ${
+                      isSelected
+                        ? isDark
+                          ? `bg-${accentColor}-500/20 border-${accentColor}-500 shadow-lg shadow-${accentColor}-500/20`
+                          : `bg-${accentColor}-100 border-${accentColor}-600 shadow-lg`
+                        : isDark
+                          ? `bg-pink-950/60 border-pink-900/50 hover:border-pink-800`
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex flex-col items-center gap-2">
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                        isSelected
+                          ? isDark
+                            ? `bg-${accentColor}-500 text-white`
+                            : `bg-${accentColor}-600 text-white`
+                          : isDark
+                            ? 'bg-slate-700 text-slate-400'
+                            : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        <IconComponent className="w-6 h-6" />
+                      </div>
+                      <span className={`text-sm font-bold text-center ${
+                        isSelected
+                          ? isDark ? 'text-white' : 'text-slate-900'
+                          : isDark ? 'text-slate-400' : 'text-slate-600'
+                      }`}>
+                        {habit.label}
+                      </span>
+                      {isSelected && (
+                        <CheckCircle2 className={`w-5 h-5 ${
+                          isDark ? `text-${accentColor}-400` : `text-${accentColor}-600`
+                        }`} />
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+
+
+
+
+
+
+
+            <p className={`text-center text-sm ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+              {data.selectedHabits.length} habit{data.selectedHabits.length !== 1 ? 's' : ''} selected
+            </p>
+          </div>
+        );
+
+
+
+
+
+
+
+
+      case 5:
+        return (
+          <div className="space-y-6 animate-slide-in text-center">
+            <div className={`inline-flex items-center justify-center w-24 h-24 rounded-full mb-6 shadow-2xl ${
+              isDark 
+                ? `bg-${accentColor}-500 text-white shadow-${accentColor}-500/40`
+                : `bg-${accentColor}-600 text-white shadow-${accentColor}-200`
+            } ${showFireworks ? 'animate-pulse' : 'animate-bounce'}`}>
+              <Trophy className="w-14 h-14" />
+            </div>
+
+
+
+
+
+
+
+
+            <h2 className={`text-5xl font-black mb-4 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+              Welcome to UnBroke,
+              <br />
+              <span className={isDark ? `text-${accentColor}-400` : `text-${accentColor}-600`}>
+                @{data.username}!
+              </span>
+            </h2>
+
+
+
+
+
+
+
+
+            <p className={`text-xl ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+              Change for the better, one habit at a time
+            </p>
+
+
+
+
+
+
+
+
+            <div className="mt-12 space-y-3">
+              <div className={`p-4 rounded-2xl ${isDark ? dc.tabBar : 'bg-slate-100'}`}>
+                <p className={`text-sm font-bold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                  Daily Budget
+                </p>
+                <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  {CURRENCY_OPTIONS.find(c => c.code === data.currency)?.symbol}{data.dailyBudget}
+                </p>
+              </div>
+              <div className={`p-4 rounded-2xl ${isDark ? dc.tabBar : 'bg-slate-100'}`}>
+                <p className={`text-sm font-bold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                  Habits to Build
+                </p>
+                <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  {data.selectedHabits.length}
+                </p>
+              </div>
+            </div>
+
+
+
+
+
+
+
+
+            {showFireworks && <FireworksEffect />}
+          </div>
+        );
+
+
+
+
+
+
+
+
+      default:
+        return null;
+    }
+  };
+
+
+
+
+
+
+
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-md animate-fade-in">
+      <div className={`relative w-full max-w-2xl rounded-3xl shadow-2xl p-8 ${
+        isDark ? `${dc.card} border-2` : 'bg-white border-2 border-slate-100'
+      }`}>
+        
+        {/* Progress Bar */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <span className={`text-sm font-bold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+              Step {step + 1} of {totalSteps}
+            </span>
+            <span className={`text-sm font-bold ${isDark ? `text-${accentColor}-400` : `text-${accentColor}-600`}`}>
+              {Math.round(progress)}%
+            </span>
+          </div>
+          <div className={`w-full h-2 rounded-full overflow-hidden ${isDark ? dc.track : 'bg-slate-200'}`}>
+            <div 
+              className={`h-full transition-all duration-500 ${
+                isDark ? `bg-${accentColor}-500` : `bg-${accentColor}-600`
+              }`}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+
+
+
+
+
+
+
+
+        {/* Step Content */}
+        <div className="min-h-[400px]">
+          {renderStep()}
+        </div>
+
+
+
+
+
+
+
+
+        {/* Navigation Buttons */}
+        <div className="flex gap-4 mt-8">
+          {step > 0 && step < 5 && (
+            <button
+              onClick={handleBack}
+              className={`px-6 py-4 rounded-xl font-bold transition ${
+                isDark 
+                  ? dc.btnSecondary
+                  : 'bg-slate-200 hover:bg-slate-300 text-slate-900'
+              }`}
+            >
+              Back
+            </button>
+          )}
+          
+          <button
+            onClick={handleNext}
+            disabled={!canProceed()}
+            className={`flex-1 py-4 rounded-xl font-bold text-xl transition transform hover:-translate-y-1 shadow-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none ${
+              isDark 
+                ? `bg-${accentColor}-500 hover:bg-${accentColor}-400 text-white shadow-${accentColor}-500/40`
+                : `bg-${accentColor}-600 hover:bg-${accentColor}-700 text-white shadow-${accentColor}-200`
+            }`}
+          >
+            {step === 5 ? (showFireworks ? 'Starting...' : 'Start My Journey! 🚀') : 'Continue →'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+
+
+
+
+
+
+// ============================================
+// 🎆 FIREWORKS EFFECT COMPONENT
+// ============================================
+const FireworksEffect: React.FC = () => {
+  return (
+    <div className="fixed inset-0 pointer-events-none z-50">
+      {[...Array(20)].map((_, i) => (
+        <div
+          key={i}
+          className="absolute animate-firework"
+          style={{
+            left: `${Math.random() * 100}%`,
+            top: `${Math.random() * 100}%`,
+            animationDelay: `${Math.random() * 2}s`,
+          }}
+        >
+          <div className={`w-2 h-2 rounded-full ${
+            i % 4 === 0 ? 'bg-red-500' :
+            i % 4 === 1 ? 'bg-blue-500' :
+            i % 4 === 2 ? 'bg-green-500' :
+            'bg-yellow-500'
+          }`} />
+        </div>
+      ))}
+    </div>
+  );
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// 🏆 ACHIEVEMENTS MODAL COMPONENT
+const AchievementsModal = ({ 
+  achievements, 
+  onClose,
+  isDark,
+  isGreen,
+  isLgbt 
+}: { 
+  achievements: Achievement[];
+  onClose: () => void;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+}) => {
+  const unlockedCount = achievements.filter(a => a.unlocked).length;
+  const totalCount = achievements.length;
+  const progressPercent = (unlockedCount / totalCount) * 100;
+  
+  const categories = ['habits', 'money', 'streak', 'milestone'] as const;
+  
+  const { dc } = useTheme();
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in overflow-y-auto">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}></div>
+      
+      <div className={`relative w-full max-w-3xl my-8 rounded-3xl shadow-2xl animate-pop ${
+        isDark ? `${dc.card} border-2` : 'bg-white border-2 border-slate-100'
+      }`}>
+        
+        <button 
+          onClick={onClose}
+          className={`absolute top-4 right-4 p-2 rounded-xl transition z-10 ${
+            isDark ? dc.btnClose : 'hover:bg-slate-100 text-slate-500'
+          }`}
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        {/* Header */}
+        <div className="p-6 md:p-8 border-b border-slate-200 dark:border-pink-900/40">
+          <div className="text-center">
+            <div className={`inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-4 ${
+              isDark 
+                ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-indigo-500/20 text-indigo-400' : 'bg-pink-500/20 text-pink-400')
+                : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')
+            }`}>
+              <Trophy className="w-7 h-7" />
+            </div>
+            <h2 className="text-3xl font-black mb-2">Achievements</h2>
+            <p className={`text-sm font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+              {unlockedCount} of {totalCount} unlocked
+            </p>
+            
+            {/* Progress Bar */}
+            <div className={`h-3 w-full rounded-full overflow-hidden mt-4 ${
+              isDark ? dc.tabBar : 'bg-slate-100'
+            }`}>
+              <div 
+                className={`h-full rounded-full transition-all duration-1000 ${
+                  isDark 
+                    ? (isGreen ? 'bg-gradient-to-r from-green-500 to-emerald-400' : isLgbt ? 'bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500' : 'bg-gradient-to-r from-pink-500 to-rose-400')
+                    : (isGreen ? 'bg-gradient-to-r from-green-600 to-emerald-600' : isLgbt ? 'bg-gradient-to-r from-red-500 via-yellow-500 to-blue-600' : 'bg-gradient-to-r from-pink-600 to-rose-600')
+                }`}
+                style={{ width: `${progressPercent}%` }}
+              ></div>
+            </div>
+          </div>
+        </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        {/* Achievement Grid */}
+        <div className="p-6 md:p-8 max-h-[60vh] overflow-y-auto">
+          {categories.map(category => {
+            const categoryAchievements = achievements.filter(a => a.category === category);
+            if (categoryAchievements.length === 0) return null;
+            
+            return (
+              <div key={category} className="mb-6 last:mb-0">
+                <h3 className={`text-lg font-bold mb-3 capitalize ${
+                  isDark ? 'text-slate-300' : 'text-slate-700'
+                }`}>
+                  {category}
+                </h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {categoryAchievements.map(achievement => (
+                    <div
+                      key={achievement.id}
+                      className={`p-4 rounded-2xl border-2 transition-all ${
+                        achievement.unlocked
+                          ? (isDark 
+                              ? (isGreen ? 'bg-green-900/20 border-green-500/50' : isLgbt ? 'bg-gradient-to-r from-red-900/20 to-blue-900/20 border-indigo-500/50' : 'bg-pink-900/20 border-pink-500/50')
+                              : (isGreen ? 'bg-green-50 border-green-300' : isLgbt ? 'bg-gradient-to-r from-red-50 to-blue-50 border-indigo-300' : 'bg-pink-50 border-pink-300')
+                            )
+                          : (isDark ? 'bg-pink-950/60 border-pink-900/50 opacity-60' : 'bg-slate-50 border-slate-200 opacity-60')
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`text-3xl ${achievement.unlocked ? 'animate-bounce' : 'grayscale'}`}>
+                          {achievement.icon}
+                        </div>
+                        <div className="flex-1">
+                          <h4 className={`font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                            {achievement.title}
+                          </h4>
+                          <p className={`text-xs mb-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+                            {achievement.description}
+                          </p>
+                          
+                          {achievement.unlocked ? (
+                            <div className={`text-xs font-bold ${
+                              isDark 
+                                ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
+                                : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
+                            }`}>
+                              ✓ Unlocked! {achievement.reward}
+                            </div>
+                          ) : (
+                            <div>
+                              <div className={`flex items-center justify-between text-xs mb-1 ${
+                                isDark ? 'text-slate-500' : 'text-slate-500'
+                              }`}>
+                                <span>Progress</span>
+                                <span>{achievement.progress}/{achievement.requirement}</span>
+                              </div>
+                              <div className={`h-1.5 rounded-full overflow-hidden ${
+                                isDark ? 'bg-slate-700' : 'bg-slate-200'
+                              }`}>
+                                <div
+                                  className={`h-full rounded-full ${
+                                    isDark ? 'bg-slate-600' : 'bg-slate-400'
+                                  }`}
+                                  style={{ width: `${Math.min((achievement.progress / achievement.requirement) * 100, 100)}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+// 🔮 SPENDING PREDICTIONS COMPONENT
+const SpendingPredictionsCard: React.FC<{
+  prediction: SpendingPrediction;
+  currencySymbol: string;
+  isDark: boolean;
+  isGreen: boolean;
+  isLgbt: boolean;
+}> = ({ prediction, currencySymbol, isDark, isGreen, isLgbt }) => {
+  
+  const { dc } = useTheme();
+  const getTrendIcon = () => {
+    if (prediction.trend === 'increasing') return { icon: TrendingUp, color: 'text-red-500', bg: 'bg-red-500/10' };
+    if (prediction.trend === 'decreasing') return { icon: TrendingDown, color: 'text-green-500', bg: 'bg-green-500/10' };
+    return { icon: TrendingUp, color: 'text-blue-500', bg: 'bg-blue-500/10' };
+  };
+  
+  const trendData = getTrendIcon();
+  const TrendIcon = trendData.icon;
+  
+  const getConfidenceBadge = () => {
+    if (prediction.confidence === 'high') return { text: 'High Confidence', color: 'bg-green-500' };
+    if (prediction.confidence === 'medium') return { text: 'Medium Confidence', color: 'bg-yellow-500' };
+    return { text: 'Low Confidence', color: 'bg-orange-500' };
+  };
+  
+  const confidenceBadge = getConfidenceBadge();
+  
+  return (
+    <div className={`p-6 rounded-2xl border-2 ${
+      isDark 
+        ? dc.card
+        : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-purple-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
+    }`}>
+      
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+          isDark 
+            ? (isGreen ? 'bg-green-500/20' : isLgbt ? 'bg-gradient-to-br from-purple-500/20 to-blue-500/20' : 'bg-pink-500/20')
+            : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-br from-purple-100 to-blue-100' : 'bg-pink-100')
+        }`}>
+          <Zap className={`w-6 h-6 ${
+            isDark 
+              ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
+              : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
+          }`} />
+        </div>
+        <div className="flex-1">
+          <h3 className={`font-bold text-xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            Spending Predictions
+          </h3>
+          <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+            AI-powered forecast
+          </p>
+        </div>
+        <div className={`px-3 py-1 rounded-full text-xs font-bold text-white ${confidenceBadge.color}`}>
+          {confidenceBadge.text}
+        </div>
+      </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+      {/* Trend Indicator */}
+      <div className={`p-4 rounded-xl mb-6 flex items-center gap-3 ${trendData.bg}`}>
+        <TrendIcon className={`w-6 h-6 ${trendData.color}`} />
+        <div>
+          <div className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            Spending Trend: {prediction.trend.charAt(0).toUpperCase() + prediction.trend.slice(1)}
+          </div>
+          <div className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+            Average: {currencySymbol}{prediction.averageDailySpending.toFixed(2)}/day
+          </div>
+        </div>
+      </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+      {/* Predictions Grid */}
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className={`p-4 rounded-xl ${
+          isDark ? dc.cardSurface : 'bg-white'
+        }`}>
+          <div className={`text-xs font-bold mb-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+            NEXT WEEK
+          </div>
+          <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            {currencySymbol}{prediction.nextWeekEstimate.toFixed(0)}
+          </div>
+        </div>
+        
+        <div className={`p-4 rounded-xl ${
+          isDark ? dc.cardSurface : 'bg-white'
+        }`}>
+          <div className={`text-xs font-bold mb-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+            NEXT MONTH
+          </div>
+          <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            {currencySymbol}{prediction.nextMonthEstimate.toFixed(0)}
+          </div>
+        </div>
+        
+        <div className={`p-4 rounded-xl ${
+          isDark ? dc.cardSurface : 'bg-white'
+        }`}>
+          <div className={`text-xs font-bold mb-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+            MONTH END PROJECTION
+          </div>
+          <div className={`text-2xl font-black ${
+            prediction.willExceedBudget 
+              ? 'text-red-500' 
+              : 'text-green-500'
+          }`}>
+            {currencySymbol}{prediction.projectedMonthEnd.toFixed(0)}
+          </div>
+        </div>
+        
+        <div className={`p-4 rounded-xl ${
+          isDark ? dc.cardSurface : 'bg-white'
+        }`}>
+          <div className={`text-xs font-bold mb-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
+            BUDGET STATUS
+          </div>
+          <div className={`text-lg font-black ${
+            prediction.willExceedBudget 
+              ? 'text-red-500' 
+              : 'text-green-500'
+          }`}>
+            {prediction.willExceedBudget ? '⚠️ OVER' : '✅ SAFE'}
+          </div>
+        </div>
+      </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+      {/* Budget Warning */}
+      {prediction.daysUntilBudgetExceeded !== null && (
+        <div className={`p-4 rounded-xl mb-4 border-2 ${
+          isDark 
+            ? 'bg-red-900/20 border-red-500/50 text-red-300'
+            : 'bg-red-50 border-red-300 text-red-700'
+        }`}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xl">⏰</span>
+            <span className="font-bold">Budget Alert</span>
+          </div>
+          <div className="text-sm">
+            {prediction.daysUntilBudgetExceeded === 0 
+              ? 'Budget already exceeded this month'
+              : `Budget will be exceeded in ${prediction.daysUntilBudgetExceeded} days at current rate`
+            }
+          </div>
+        </div>
+      )}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+      {/* Recommendations */}
+      <div className={`p-4 rounded-xl ${
+        isDark 
+          ? (isGreen ? 'bg-green-500/10 border border-green-500/30' : isLgbt ? 'bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-indigo-500/30' : 'bg-pink-500/10 border border-pink-500/30')
+          : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-r from-purple-100 to-blue-100' : 'bg-pink-100')
+      }`}>
+        <h4 className={`text-sm font-bold mb-2 flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          <Sparkles className="w-4 h-4" />
+          AI Recommendations
+        </h4>
+        <ul className="space-y-1">
+          {prediction.recommendations.map((rec, idx) => (
+            <li key={idx} className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+              {rec}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+};
+
 // Dashboard Component
+// Insights tab system
+
 const Dashboard = ({ user, onLogout }: { user: FirebaseUser, onLogout: () => void }) => {
+  const [insightsTab, setInsightsTab] = useState<'overview' | 'graphs' | 'ai' | 'health'>('overview');
+const [graphRange, setGraphRange] = useState<'7D' | '1M' | '3M' | '1Y'>('1M');
+const [graphIndex, setGraphIndex] = useState<number>(0); // 0=Expense, 1=Savings, 2=Category
   // ✅ ZUSTAND STATE MANAGEMENT
   const { ui, updateUI } = useAppStore();
   const [habits, setHabits] = useState<Habit[]>([]);
@@ -7034,17 +16372,53 @@ const [deletingHabit, setDeletingHabit] = useState<string | null>(null);
 const [addingExpense, setAddingExpense] = useState(false);
 const [showExportMenu, setShowExportMenu] = useState(false);
 const fileInputRef = useRef<HTMLInputElement>(null);
+const graphTouchStartX = useRef<number>(0);
+const graphTouchStartY = useRef<number>(0);
 const [addingHabit, setAddingHabit] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
   const showStats = ui.showStats;
   const setShowStats = (show: boolean) => updateUI({ showStats: show });
+  const [insightsRange, setInsightsRange] = useState<'30' | '90' | '365'>('90');
   const showAchievements = ui.showAchievements;
   const setShowAchievements = (show: boolean) => updateUI({ showAchievements: show });
   const [reminderHabit, setReminderHabit] = useState<Habit | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  // Map Zustand state to existing variable names (no breaking changes!)
+  // Map Zustand state to existing variable names (no breaking changes!)=> updateUI({ currentPage: page });
   const currentPage = ui.currentPage;
-  const setCurrentPage = (page: 'habits' | 'todos' | 'money') => updateUI({ currentPage: page });
+const setCurrentPage = (page: 'home' | 'habits' | 'todos' | 'money' | 'stats' | 'debt' | 'goals' | 'awards' | 'more') => updateUI({ currentPage: page });
+const [fabMenuOpen, setFabMenuOpen] = useState(false);
+const fabLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+const haptics = useHaptics();
+const [showImportModal, setShowImportModal] = useState(false);
+const [showAllTransactions, setShowAllTransactions] = useState(false);
+const [showBalance, setShowBalance] = useState(true);
+
+
+const handleImportRows = async (rows: ImportRow[]) => {
+  if (!user || !db) return;
+  const expensePromises = rows
+    .filter(r => r.type === 'expense')
+    .map(r => addDoc(collection(db, 'users', user.uid, 'expenses'), {
+      date: r.date,
+      amount: r.amount,
+      category: r.category,
+      description: r.description,
+      createdAt: serverTimestamp(),
+    }));
+  const incomePromises = rows
+    .filter(r => r.type === 'income')
+    .map(r => addDoc(collection(db, `users/${user.uid}/incomes`), {
+      date: r.date,
+      amount: r.amount,
+      source: r.source || r.description,
+      description: r.description,
+      createdAt: serverTimestamp(),
+    }));
+  await Promise.all([...expensePromises, ...incomePromises]);
+};
+
+
+
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [newTodoTitle, setNewTodoTitle] = useState('');
   const [newTodoPriority, setNewTodoPriority] = useState<'low' | 'medium' | 'high'>('medium');
@@ -7068,6 +16442,7 @@ const [addingHabit, setAddingHabit] = useState(false);
   const [totalIncome, setTotalIncome] = useState<number>(0); // 💰 PHASE 3: Track income
   const [currency, setCurrency] = useState<string>('USD');  // ADD THIS
   const [currencySymbol, setCurrencySymbol] = useState<string>('$');  // ADD THIS
+  
   const showAllowanceModal = ui.showAllowanceModal;
   const setShowAllowanceModal = (show: boolean) => updateUI({ showAllowanceModal: show });
   const [newExpenseAmount, setNewExpenseAmount] = useState('');
@@ -7122,6 +16497,34 @@ const [addingHabit, setAddingHabit] = useState(false);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const handleUpdateProgress = async (goalId: string, amount: number) => {
     if (!user) return;
     
@@ -7161,6 +16564,34 @@ const [addingHabit, setAddingHabit] = useState(false);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const handleDeleteGoal = async (goalId: string) => {
     if (!user) return;
     
@@ -7180,6 +16611,34 @@ const [addingHabit, setAddingHabit] = useState(false);
       });
     }
   };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7228,6 +16687,34 @@ const [addingHabit, setAddingHabit] = useState(false);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   }, []);
   // 👆 ADD UNTIL HERE
    useEffect(() => {
@@ -7236,11 +16723,39 @@ const [addingHabit, setAddingHabit] = useState(false);
     }
   }, []);
   
-  const { theme, accent } = useTheme();
+  const { theme, accent, dc } = useTheme();
   const isDark = theme === 'dark';
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
   const [toast, setToast] = useState<ToastData | null>(null);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7277,10 +16792,6 @@ const [addingHabit, setAddingHabit] = useState(false);
       console.error("Error fetching habits:", error);
       setLoading(false);
     });
-
-
-
-
     return () => unsubscribe();
      }, [user]);
      
@@ -7303,6 +16814,34 @@ useEffect(() => {
   
   return () => unsubscribe();
 }, [user]);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7346,6 +16885,34 @@ useEffect(() => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // ✅ Load Debts
 useEffect(() => {
   if (!user) return;
@@ -7365,71 +16932,6 @@ useEffect(() => {
   
   return () => unsubscribe();
 }, [user]);
-
-
-
-
-
-
-
-
-useEffect(() => {
-  if (!user) return;
-  
-  const expensesQuery = query(
-    collection(db, `users/${user.uid}/expenses`),
-    orderBy('createdAt', 'desc')
-  );
-  
-  const unsubscribe = onSnapshot(expensesQuery, (snapshot) => {
-    const expenseData: Expense[] = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as Expense));
-    setExpenses(expenseData);
-  });
-  
-  return () => unsubscribe();
-}, [user]);
-  
-  // Load savings goals
-  useEffect(() => {
-    if (!user) return;
-    
-    const goalsQuery = query(
-      collection(db, `users/${user.uid}/savingsGoals`),
-      orderBy('createdAt', 'desc')
-    );
-    
-    const unsubscribe = onSnapshot(goalsQuery, (snapshot) => {
-      const goalsData: SavingsGoal[] = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as SavingsGoal));
-      setSavingsGoals(goalsData);
-    });
-    
-    return () => unsubscribe();
-  }, [user]);
-
-
-
-
-  // Load category budgets
-  useEffect(() => {
-    if (!user) return;
-    
-    const loadBudgets = async () => {
-      const budgetRef = doc(db, `users/${user.uid}/settings/budgets`);
-      const budgetSnap = await getDoc(budgetRef);
-      
-      if (budgetSnap.exists()) {
-        setCategoryBudgets(budgetSnap.data() as Record<string, number>);
-      }
-    };
-    
-    loadBudgets();
-  }, [user]);
 
 
 
@@ -7471,36 +16973,27 @@ useEffect(() => {
   // ⬆️ END OF NEW CODE ⬆️
   
   // Line 3011
-  useEffect(() => {
-    if (!user || !user.uid) {
-    if (!user || !user.uid) {
-      setTodos([]);
-      return;
-    }
+  // ✅ FIXED CODE
+useEffect(() => {
+  if (!user || !user.uid) {
+    setTodos([]);
+    return;
   }
-    const q = query(
-      collection(db, 'users', user.uid, 'todos'),
-      orderBy('createdAt', 'desc')
-    );
-
-
-
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const todosData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as TodoItem[];
-      setTodos(todosData);
-    }, (error) => {
-      console.error("Error fetching todos:", error);
-    });
-
-
-
-
-    return () => unsubscribe();
-  }, [user]);
+  const q = query(
+    collection(db, 'users', user.uid, 'todos'),
+    orderBy('createdAt', 'desc')
+  );
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    const todosData = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as TodoItem[];
+    setTodos(todosData);
+  }, (error) => {
+    console.error("Error fetching todos:", error);
+  });
+  return () => unsubscribe();
+}, [user]);
 
 
 
@@ -7508,6 +17001,14 @@ useEffect(() => {
   // Load Money Settings - FIXED VERSION
  useEffect(() => {
   if (!user || !user.uid) return;
+
+
+
+
+
+
+
+
 
 
 
@@ -7539,6 +17040,34 @@ useEffect(() => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   // Then, listen for real-time updates
   const unsubscribe = onSnapshot(settingsRef, (docSnap) => {
     if (docSnap.exists()) {
@@ -7560,8 +17089,64 @@ useEffect(() => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   return () => unsubscribe();
 }, [user]);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7576,14 +17161,38 @@ useEffect(() => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     const q = query(
       collection(db, 'users', user.uid, 'expenses'),
       orderBy('date', 'desc')
     );
-
-
-
-
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const expensesData = snapshot.docs.map(doc => ({
         id: doc.id,
@@ -7593,12 +17202,36 @@ useEffect(() => {
     }, (error) => {
       console.error("Error fetching expenses:", error);
     });
-
-
-
-
     return () => unsubscribe();
   }, [user]);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7610,6 +17243,20 @@ useEffect(() => {
   );
   const completedToday = habits.filter(h => h.completedDates?.includes(today)).length;
   const progress = totalHabits === 0 ? 0 : Math.round((completedToday / totalHabits) * 100);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
   // Close export menu when clicking outside
@@ -7631,52 +17278,11 @@ useEffect(() => {
       return () => clearTimeout(timer);
     }
   }, [progress, totalHabits]);
-  // 🆕 PHASE 1: Calculate spending insights
-const calculateSpendingInsights = useCallback((): SpendingInsight => {
-  const now = new Date();
-  const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
-  const startOfLastWeek = new Date(startOfWeek);
-  startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
-  
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
 
 
 
 
-  const thisWeek = expenses
-    .filter(e => new Date(e.date) >= startOfWeek)
-    .reduce((sum, e) => sum + e.amount, 0);
-
-
-
-
-  const lastWeek = expenses
-    .filter(e => {
-      const d = new Date(e.date);
-      return d >= startOfLastWeek && d < startOfWeek;
-    })
-    .reduce((sum, e) => sum + e.amount, 0);
-
-
-
-
-  const thisMonth = expenses
-    .filter(e => new Date(e.date) >= startOfMonth)
-    .reduce((sum, e) => sum + e.amount, 0);
-
-
-
-
-  const lastMonth = expenses
-    .filter(e => {
-      const d = new Date(e.date);
-      return d >= startOfLastMonth && d <= endOfLastMonth;
-    })
-    .reduce((sum, e) => sum + e.amount, 0);
-    // 💰 PHASE 3: Load Income
-useEffect(() => {
+  useEffect(() => {
   if (!user) return;
   
   const incomeQuery = query(
@@ -7694,6 +17300,195 @@ useEffect(() => {
   
   return () => unsubscribe();
 }, [user]);
+  // 🆕 PHASE 1: Calculate spending insights
+const calculateSpendingInsights = useCallback((): SpendingInsight => {
+  const now = new Date();
+  const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
+  const startOfLastWeek = new Date(startOfWeek);
+  startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
+  
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  const thisWeek = expenses
+    .filter(e => new Date(e.date) >= startOfWeek)
+    .reduce((sum, e) => sum + e.amount, 0);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  const lastWeek = expenses
+    .filter(e => {
+      const d = new Date(e.date);
+      return d >= startOfLastWeek && d < startOfWeek;
+    })
+    .reduce((sum, e) => sum + e.amount, 0);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  const thisMonth = expenses
+    .filter(e => new Date(e.date) >= startOfMonth)
+    .reduce((sum, e) => sum + e.amount, 0);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  const lastMonth = expenses
+    .filter(e => {
+      const d = new Date(e.date);
+      return d >= startOfLastMonth && d <= endOfLastMonth;
+    })
+    .reduce((sum, e) => sum + e.amount, 0);
+    // 💰 PHASE 3: Load Income
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7705,6 +17500,34 @@ useEffect(() => {
   });
   
   const topCategory = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1])[0];
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7880,6 +17703,20 @@ const calculateAchievements = useCallback((): Achievement[] => {
 }, [habits, expenses, dailyAllowance]);
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // 🔮 SPENDING PREDICTION CALCULATOR
 const calculateSpendingPrediction = useCallback((): SpendingPrediction => {
   const now = new Date();
@@ -7999,6 +17836,34 @@ const calculateSpendingPrediction = useCallback((): SpendingPrediction => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // 🆕 PHASE 1: Calculate category budgets with spending
 const calculateCategoryBudgets = useCallback((): CategoryBudget[] => {
   const now = new Date();
@@ -8008,7 +17873,7 @@ const calculateCategoryBudgets = useCallback((): CategoryBudget[] => {
   
   const budgets: CategoryBudget[] = EXPENSE_CATEGORIES.map(category => {
     const spent = monthlyExpenses
-      .filter(e => e.category === category.label)
+      .filter(e => e.category === category.id)
       .reduce((sum, e) => sum + e.amount, 0);
     
     const monthlyLimit = categoryBudgets[category.id] || DEFAULT_CATEGORY_BUDGETS[category.id] || 0;
@@ -8030,160 +17895,61 @@ const calculateCategoryBudgets = useCallback((): CategoryBudget[] => {
   
   return budgets;
 }, [expenses, categoryBudgets]);
-// 🏆 ACHIEVEMENTS MODAL COMPONENT
-const AchievementsModal = ({ 
-  achievements, 
-  onClose,
-  isDark,
-  isGreen,
-  isLgbt 
-}: { 
-  achievements: Achievement[];
-  onClose: () => void;
-  isDark: boolean;
-  isGreen: boolean;
-  isLgbt: boolean;
-}) => {
-  const unlockedCount = achievements.filter(a => a.unlocked).length;
-  const totalCount = achievements.length;
-  const progressPercent = (unlockedCount / totalCount) * 100;
-  
-  const categories = ['habits', 'money', 'streak', 'milestone'] as const;
-  
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in overflow-y-auto">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}></div>
-      
-      <div className={`relative w-full max-w-3xl my-8 rounded-3xl shadow-2xl animate-pop ${
-        isDark ? 'bg-slate-900 border-2 border-slate-800' : 'bg-white border-2 border-slate-100'
-      }`}>
-        
-        <button 
-          onClick={onClose}
-          className={`absolute top-4 right-4 p-2 rounded-xl transition z-10 ${
-            isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
-          }`}
-        >
-          <X className="w-5 h-5" />
-        </button>
 
 
 
 
-        {/* Header */}
-        <div className="p-6 md:p-8 border-b border-slate-200 dark:border-slate-800">
-          <div className="text-center">
-            <div className={`inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-4 ${
-              isDark 
-                ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-indigo-500/20 text-indigo-400' : 'bg-pink-500/20 text-pink-400')
-                : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')
-            }`}>
-              <Trophy className="w-7 h-7" />
-            </div>
-            <h2 className="text-3xl font-black mb-2">Achievements</h2>
-            <p className={`text-sm font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-              {unlockedCount} of {totalCount} unlocked
-            </p>
-            
-            {/* Progress Bar */}
-            <div className={`h-3 w-full rounded-full overflow-hidden mt-4 ${
-              isDark ? 'bg-slate-800' : 'bg-slate-100'
-            }`}>
-              <div 
-                className={`h-full rounded-full transition-all duration-1000 ${
-                  isDark 
-                    ? (isGreen ? 'bg-gradient-to-r from-green-500 to-emerald-400' : isLgbt ? 'bg-gradient-to-r from-red-500 via-yellow-500 to-blue-500' : 'bg-gradient-to-r from-pink-500 to-rose-400')
-                    : (isGreen ? 'bg-gradient-to-r from-green-600 to-emerald-600' : isLgbt ? 'bg-gradient-to-r from-red-500 via-yellow-500 to-blue-600' : 'bg-gradient-to-r from-pink-600 to-rose-600')
-                }`}
-                style={{ width: `${progressPercent}%` }}
-              ></div>
-            </div>
-          </div>
-        </div>
 
 
 
 
-        {/* Achievement Grid */}
-        <div className="p-6 md:p-8 max-h-[60vh] overflow-y-auto">
-          {categories.map(category => {
-            const categoryAchievements = achievements.filter(a => a.category === category);
-            if (categoryAchievements.length === 0) return null;
-            
-            return (
-              <div key={category} className="mb-6 last:mb-0">
-                <h3 className={`text-lg font-bold mb-3 capitalize ${
-                  isDark ? 'text-slate-300' : 'text-slate-700'
-                }`}>
-                  {category}
-                </h3>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {categoryAchievements.map(achievement => (
-                    <div
-                      key={achievement.id}
-                      className={`p-4 rounded-2xl border-2 transition-all ${
-                        achievement.unlocked
-                          ? (isDark 
-                              ? (isGreen ? 'bg-green-900/20 border-green-500/50' : isLgbt ? 'bg-gradient-to-r from-red-900/20 to-blue-900/20 border-indigo-500/50' : 'bg-pink-900/20 border-pink-500/50')
-                              : (isGreen ? 'bg-green-50 border-green-300' : isLgbt ? 'bg-gradient-to-r from-red-50 to-blue-50 border-indigo-300' : 'bg-pink-50 border-pink-300')
-                            )
-                          : (isDark ? 'bg-slate-800 border-slate-700 opacity-60' : 'bg-slate-50 border-slate-200 opacity-60')
-                      }`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className={`text-3xl ${achievement.unlocked ? 'animate-bounce' : 'grayscale'}`}>
-                          {achievement.icon}
-                        </div>
-                        <div className="flex-1">
-                          <h4 className={`font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                            {achievement.title}
-                          </h4>
-                          <p className={`text-xs mb-2 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                            {achievement.description}
-                          </p>
-                          
-                          {achievement.unlocked ? (
-                            <div className={`text-xs font-bold ${
-                              isDark 
-                                ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
-                                : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
-                            }`}>
-                              ✓ Unlocked! {achievement.reward}
-                            </div>
-                          ) : (
-                            <div>
-                              <div className={`flex items-center justify-between text-xs mb-1 ${
-                                isDark ? 'text-slate-500' : 'text-slate-500'
-                              }`}>
-                                <span>Progress</span>
-                                <span>{achievement.progress}/{achievement.requirement}</span>
-                              </div>
-                              <div className={`h-1.5 rounded-full overflow-hidden ${
-                                isDark ? 'bg-slate-700' : 'bg-slate-200'
-                              }`}>
-                                <div
-                                  className={`h-full rounded-full ${
-                                    isDark ? 'bg-slate-600' : 'bg-slate-400'
-                                  }`}
-                                  style={{ width: `${Math.min((achievement.progress / achievement.requirement) * 100, 100)}%` }}
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8200,6 +17966,34 @@ interface FinancialHealthProps {
   isGreen: boolean;
   isLgbt: boolean;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8231,7 +18025,7 @@ const FinancialHealthCard: React.FC<FinancialHealthProps> = ({
   return (
     <div className={`p-6 rounded-2xl border-2 ${
       isDark 
-        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
+        ? dc.card
         : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-red-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
     }`}>
       <div className="flex items-center gap-3 mb-6">
@@ -8264,6 +18058,34 @@ const FinancialHealthCard: React.FC<FinancialHealthProps> = ({
           </div>
         </div>
       </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8310,9 +18132,38 @@ const FinancialHealthCard: React.FC<FinancialHealthProps> = ({
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
       {/* Factors Breakdown */}
       <div className="space-y-3 mb-6">
         {Object.entries(healthScore.factors).map(([key, data]) => {
+          const factor = data as { score: number; value: number };
           const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
           return (
             <div key={key}>
@@ -8321,21 +18172,49 @@ const FinancialHealthCard: React.FC<FinancialHealthProps> = ({
                   {label}
                 </span>
                 <span className={`text-sm font-bold ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-                  {data.score}/100
+                  {factor.score}/100
                 </span>
               </div>
               <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}>
                 <div
                   className={`h-full rounded-full transition-all duration-1000 ${
-                    data.score >= 80 ? 'bg-green-500' : data.score >= 60 ? 'bg-yellow-500' : 'bg-red-500'
+                    factor.score >= 80 ? 'bg-green-500' : factor.score >= 60 ? 'bg-yellow-500' : 'bg-red-500'
                   }`}
-                  style={{ width: `${data.score}%` }}
+                  style={{ width: `${factor.score}%` }}
                 />
               </div>
             </div>
           );
         })}
       </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8362,182 +18241,40 @@ const FinancialHealthCard: React.FC<FinancialHealthProps> = ({
 };
 
 
-// 🔮 SPENDING PREDICTIONS COMPONENT
-const SpendingPredictionsCard: React.FC<{
-  prediction: SpendingPrediction;
-  currencySymbol: string;
-  isDark: boolean;
-  isGreen: boolean;
-  isLgbt: boolean;
-}> = ({ prediction, currencySymbol, isDark, isGreen, isLgbt }) => {
-  
-  const getTrendIcon = () => {
-    if (prediction.trend === 'increasing') return { icon: TrendingUp, color: 'text-red-500', bg: 'bg-red-500/10' };
-    if (prediction.trend === 'decreasing') return { icon: TrendingDown, color: 'text-green-500', bg: 'bg-green-500/10' };
-    return { icon: TrendingUp, color: 'text-blue-500', bg: 'bg-blue-500/10' };
-  };
-  
-  const trendData = getTrendIcon();
-  const TrendIcon = trendData.icon;
-  
-  const getConfidenceBadge = () => {
-    if (prediction.confidence === 'high') return { text: 'High Confidence', color: 'bg-green-500' };
-    if (prediction.confidence === 'medium') return { text: 'Medium Confidence', color: 'bg-yellow-500' };
-    return { text: 'Low Confidence', color: 'bg-orange-500' };
-  };
-  
-  const confidenceBadge = getConfidenceBadge();
-  
-  return (
-    <div className={`p-6 rounded-2xl border-2 ${
-      isDark 
-        ? (isGreen ? 'bg-slate-800/50 border-green-900/50' : isLgbt ? 'bg-slate-800/50 border-indigo-900/50' : 'bg-slate-800/50 border-pink-900/50')
-        : (isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-gradient-to-br from-purple-50 to-blue-50 border-indigo-200' : 'bg-pink-50 border-pink-200')
-    }`}>
-      
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-          isDark 
-            ? (isGreen ? 'bg-green-500/20' : isLgbt ? 'bg-gradient-to-br from-purple-500/20 to-blue-500/20' : 'bg-pink-500/20')
-            : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-br from-purple-100 to-blue-100' : 'bg-pink-100')
-        }`}>
-          <Zap className={`w-6 h-6 ${
-            isDark 
-              ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400')
-              : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')
-          }`} />
-        </div>
-        <div className="flex-1">
-          <h3 className={`font-bold text-xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
-            Spending Predictions
-          </h3>
-          <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-            AI-powered forecast
-          </p>
-        </div>
-        <div className={`px-3 py-1 rounded-full text-xs font-bold text-white ${confidenceBadge.color}`}>
-          {confidenceBadge.text}
-        </div>
-      </div>
 
 
-      {/* Trend Indicator */}
-      <div className={`p-4 rounded-xl mb-6 flex items-center gap-3 ${trendData.bg}`}>
-        <TrendIcon className={`w-6 h-6 ${trendData.color}`} />
-        <div>
-          <div className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
-            Spending Trend: {prediction.trend.charAt(0).toUpperCase() + prediction.trend.slice(1)}
-          </div>
-          <div className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-            Average: {currencySymbol}{prediction.averageDailySpending.toFixed(2)}/day
-          </div>
-        </div>
-      </div>
 
 
-      {/* Predictions Grid */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className={`p-4 rounded-xl ${
-          isDark ? 'bg-slate-900/50' : 'bg-white'
-        }`}>
-          <div className={`text-xs font-bold mb-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
-            NEXT WEEK
-          </div>
-          <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
-            {currencySymbol}{prediction.nextWeekEstimate.toFixed(0)}
-          </div>
-        </div>
-        
-        <div className={`p-4 rounded-xl ${
-          isDark ? 'bg-slate-900/50' : 'bg-white'
-        }`}>
-          <div className={`text-xs font-bold mb-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
-            NEXT MONTH
-          </div>
-          <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
-            {currencySymbol}{prediction.nextMonthEstimate.toFixed(0)}
-          </div>
-        </div>
-        
-        <div className={`p-4 rounded-xl ${
-          isDark ? 'bg-slate-900/50' : 'bg-white'
-        }`}>
-          <div className={`text-xs font-bold mb-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
-            MONTH END PROJECTION
-          </div>
-          <div className={`text-2xl font-black ${
-            prediction.willExceedBudget 
-              ? 'text-red-500' 
-              : 'text-green-500'
-          }`}>
-            {currencySymbol}{prediction.projectedMonthEnd.toFixed(0)}
-          </div>
-        </div>
-        
-        <div className={`p-4 rounded-xl ${
-          isDark ? 'bg-slate-900/50' : 'bg-white'
-        }`}>
-          <div className={`text-xs font-bold mb-1 ${isDark ? 'text-slate-500' : 'text-slate-500'}`}>
-            BUDGET STATUS
-          </div>
-          <div className={`text-lg font-black ${
-            prediction.willExceedBudget 
-              ? 'text-red-500' 
-              : 'text-green-500'
-          }`}>
-            {prediction.willExceedBudget ? '⚠️ OVER' : '✅ SAFE'}
-          </div>
-        </div>
-      </div>
 
 
-      {/* Budget Warning */}
-      {prediction.daysUntilBudgetExceeded !== null && (
-        <div className={`p-4 rounded-xl mb-4 border-2 ${
-          isDark 
-            ? 'bg-red-900/20 border-red-500/50 text-red-300'
-            : 'bg-red-50 border-red-300 text-red-700'
-        }`}>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xl">⏰</span>
-            <span className="font-bold">Budget Alert</span>
-          </div>
-          <div className="text-sm">
-            {prediction.daysUntilBudgetExceeded === 0 
-              ? 'Budget already exceeded this month'
-              : `Budget will be exceeded in ${prediction.daysUntilBudgetExceeded} days at current rate`
-            }
-          </div>
-        </div>
-      )}
 
 
-      {/* Recommendations */}
-      <div className={`p-4 rounded-xl ${
-        isDark 
-          ? (isGreen ? 'bg-green-500/10 border border-green-500/30' : isLgbt ? 'bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-indigo-500/30' : 'bg-pink-500/10 border border-pink-500/30')
-          : (isGreen ? 'bg-green-100' : isLgbt ? 'bg-gradient-to-r from-purple-100 to-blue-100' : 'bg-pink-100')
-      }`}>
-        <h4 className={`text-sm font-bold mb-2 flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-          <Sparkles className="w-4 h-4" />
-          AI Recommendations
-        </h4>
-        <ul className="space-y-1">
-          {prediction.recommendations.map((rec, idx) => (
-            <li key={idx} className={`text-sm ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
-              {rec}
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
-  );
-};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 // 🆕 PHASE 1: Get pie chart data
-const getCategoryPieData = useCallback(() => {
+// Line 17986-18002 — REPLACE WITH:
+// 🆕 PHASE 1: Get pie chart data (pure utility — no hook needed)
+const getCategoryPieData = (expenses: Expense[]): { name: string; value: number }[] => {
   const categoryTotals: Record<string, number> = {};
   
   expenses.forEach(e => {
@@ -8550,19 +18287,8 @@ const getCategoryPieData = useCallback(() => {
       value: amount
     }))
     .sort((a, b) => b.value - a.value)
-    .slice(0, 6); // Top 6 categories
-  
-}, [expenses]);
-
-
-
-
-
-
-
-
-
-
+    .slice(0, 6);
+};
 
 
   const selectTemplate = (template: HabitTemplate) => {
@@ -8576,14 +18302,12 @@ const getCategoryPieData = useCallback(() => {
 
 
 
-
-
-
-
-
   const addHabit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newHabitTitle.trim() || !user) return;
+
+
+
 
 
 
@@ -8616,14 +18340,11 @@ const getCategoryPieData = useCallback(() => {
     };
 
 
-
-
     // Optimistic UI Update: Close modal and reset immediately
     setNewHabitTitle('');
     setNewHabitIcon(HABIT_ICONS[0].name); 
     setIsAdding(false);
     setToast({ id: Date.now().toString(), message: 'Habit created successfully!', type: 'success' });
-
 
 
 
@@ -8634,9 +18355,6 @@ const getCategoryPieData = useCallback(() => {
      setToast({ id: Date.now().toString(), message: 'Failed to create habit.', type: 'error' });
     }
   };
-
-
-
 
   const toggleCheckIn = async (habit: Habit) => {
     if (!user) return;
@@ -8649,11 +18367,7 @@ const getCategoryPieData = useCallback(() => {
     }
 
 
-
-
     try {
-
-
 
 
      const habitRef = doc(db, 'users', user.uid, 'habits', habit.id);
@@ -8668,13 +18382,11 @@ const getCategoryPieData = useCallback(() => {
 
 
 
-
   const deleteHabit = (habitId: string) => {
     if (!user) return;
     
     const habitToDelete = habits.find(h => h.id === habitId);
     if (!habitToDelete) return;
-
 
 
 
@@ -8685,9 +18397,8 @@ const getCategoryPieData = useCallback(() => {
 
 
 
+
    let timeoutId: ReturnType<typeof setTimeout>;
-
-
 
 
     const undoDelete = () => {
@@ -8703,7 +18414,6 @@ const getCategoryPieData = useCallback(() => {
 
 
 
-
     // Show undo toast
     setToast({ 
       id: Date.now().toString(), 
@@ -8714,9 +18424,6 @@ const getCategoryPieData = useCallback(() => {
         onClick: undoDelete
       }
     });
-
-
-
 
    // Delete after 5 seconds if not undone
     timeoutId = setTimeout(() => {
@@ -8732,9 +18439,6 @@ const getCategoryPieData = useCallback(() => {
     const saveReminder = async (habitId: string, enabled: boolean, time: string) => {
   if (!user) return;
 
-
-
-
   const updatedHabits = habits.map(h => 
     h.id === habitId 
       ? { ...h, reminderEnabled: enabled, reminderTime: time }
@@ -8742,7 +18446,6 @@ const getCategoryPieData = useCallback(() => {
   );
   
   setHabits(updatedHabits);
-
 
 
 
@@ -8765,14 +18468,11 @@ const getCategoryPieData = useCallback(() => {
 };
 
 
-
-
 const startEditingHabit = (habit: Habit) => {
   setEditingHabit(habit);
   setEditTitle(habit.title);
   setEditIcon(habit.icon || HABIT_ICONS[0].name);
 };
-
 
 
 
@@ -8792,10 +18492,39 @@ const saveEditedHabit = async (e: React.FormEvent) => {
 
 
 
+
   if (editTitle.length > 100) {
     setToast({ id: Date.now().toString(), message: 'Title too long (max 100 chars)', type: 'error' });
     return;
   }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8809,10 +18538,66 @@ const saveEditedHabit = async (e: React.FormEvent) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const updates = {
     title: editTitle.trim(),
     icon: editIcon
   };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8823,6 +18608,34 @@ const saveEditedHabit = async (e: React.FormEvent) => {
   );
   cancelEditing();
   setToast({ id: Date.now().toString(), message: 'Habit updated!', type: 'success' });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8845,9 +18658,65 @@ const saveEditedHabit = async (e: React.FormEvent) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
  const handleTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
   };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8859,9 +18728,65 @@ const saveEditedHabit = async (e: React.FormEvent) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const handleTouchEnd = () => {
     const swipeDistance = touchStartX.current - touchEndX.current;
     const minSwipeDistance = 50;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8876,9 +18801,65 @@ const saveEditedHabit = async (e: React.FormEvent) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const addTodo = async (e: React.FormEvent) => {
   e.preventDefault();
   if (!newTodoTitle.trim() || !user) return;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8894,9 +18875,65 @@ const saveEditedHabit = async (e: React.FormEvent) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   setNewTodoTitle('');
   setNewTodoDueDate('');
   setToast({ id: Date.now().toString(), message: 'To-do added!', type: 'success' });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8912,6 +18949,34 @@ const saveEditedHabit = async (e: React.FormEvent) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const toggleTodo = async (todo: TodoItem) => {
     if (!user) return;
     try {
@@ -8923,6 +18988,34 @@ const saveEditedHabit = async (e: React.FormEvent) => {
       console.error("Error updating todo", error);
     }
   };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8943,12 +19036,68 @@ const saveEditedHabit = async (e: React.FormEvent) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   console.log('💰 Saving allowance:', { amount, currencyCode }); // ← ADD THIS
   try {
     const selectedCurrency = CURRENCIES.find(c => c.code === currencyCode);
     const symbol = selectedCurrency?.symbol || '$';
     console.log('💱 Found currency:', selectedCurrency); // ← ADD THIS
     console.log('💲 Symbol to save:', symbol); // ← ADD THIS
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8976,12 +19125,68 @@ const addExpense = async (e: React.FormEvent) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const amount = parseFloat(newExpenseAmount);
   setAddingExpense(true);
   if (isNaN(amount) || amount <= 0) {
     setToast({ id: Date.now().toString(), message: 'Please enter a valid amount', type: 'error' });
     return;
   }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8999,6 +19204,34 @@ const addExpense = async (e: React.FormEvent) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     const newExpense: any = {
   date: newExpenseDate,
   amount: amount,
@@ -9010,10 +19243,66 @@ const addExpense = async (e: React.FormEvent) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // Only add receiptImage if it exists
 if (receiptUrl) {
   newExpense.receiptImage = receiptUrl;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9073,6 +19362,34 @@ const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   const deleteExpense = async (expenseId: string) => {
     if (!user) return;
     setDeletingExpense(expenseId);
@@ -9121,6 +19438,34 @@ const handleAddDebt = async (debtData: {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // ✅ Delete Debt Handler
 const handleDeleteDebt = async (debtId: string) => {
   if (!user) return;
@@ -9141,6 +19486,34 @@ const handleDeleteDebt = async (debtId: string) => {
     });
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9210,6 +19583,34 @@ const handleAddRecurring = async (data: Omit<RecurringExpense, 'id' | 'createdAt
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const handleUpdateRecurring = async (expenseId: string, data: Partial<RecurringExpense>) => {
   if (!user) return;
   
@@ -9234,6 +19635,34 @@ const handleUpdateRecurring = async (expenseId: string, data: Partial<RecurringE
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const handleToggleRecurringActive = async (expenseId: string, isActive: boolean) => {
   if (!user) return;
   
@@ -9251,6 +19680,34 @@ const handleToggleRecurringActive = async (expenseId: string, isActive: boolean)
     console.error("Error toggling recurring expense:", error);
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9284,6 +19741,34 @@ const exportToCSV = () => {
     });
     return;
   }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9380,7 +19865,35 @@ const exportAllData = () => {
     };
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     const jsonString = JSON.stringify(exportData, null, 2);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
     const blob = new Blob([jsonString], { type: 'application/json' });
@@ -9392,6 +19905,20 @@ const exportAllData = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
     setToast({
@@ -9414,9 +19941,37 @@ const importData = async (event: React.ChangeEvent<HTMLInputElement>) => {
   if (!file || !user) return;
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   try {
     const text = await file.text();
     const importedData = JSON.parse(text);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
     // Validate data structure
@@ -9425,13 +19980,55 @@ const importData = async (event: React.ChangeEvent<HTMLInputElement>) => {
     }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     // Confirm with user
     const confirmImport = window.confirm(
       `Import ${importedData.habits?.length || 0} habits, ${importedData.todos?.length || 0} todos, and ${importedData.expenses?.length || 0} expenses?\n\nThis will REPLACE your current data.`
     );
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     if (!confirmImport) return;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
     // Import habits
@@ -9449,6 +20046,20 @@ const importData = async (event: React.ChangeEvent<HTMLInputElement>) => {
     }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     // Import todos
     if (importedData.todos && Array.isArray(importedData.todos)) {
       for (const todo of importedData.todos) {
@@ -9461,6 +20072,20 @@ const importData = async (event: React.ChangeEvent<HTMLInputElement>) => {
         });
       }
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
     // Import expenses
@@ -9477,6 +20102,20 @@ const importData = async (event: React.ChangeEvent<HTMLInputElement>) => {
     }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     // Import settings
     if (importedData.settings) {
       await setDoc(doc(db, 'users', user.uid, 'settings', 'money'), {
@@ -9484,6 +20123,20 @@ const importData = async (event: React.ChangeEvent<HTMLInputElement>) => {
         currency: importedData.settings.currency || 'USD',
         currencySymbol: importedData.settings.currencySymbol || '$'
       });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
       // ✅ FIXED: Update theme settings using localStorage only
@@ -9498,6 +20151,20 @@ const importData = async (event: React.ChangeEvent<HTMLInputElement>) => {
     }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     setToast({
       id: Date.now().toString(),
       message: `✅ Data imported successfully! Page will reload...`,
@@ -9505,10 +20172,38 @@ const importData = async (event: React.ChangeEvent<HTMLInputElement>) => {
     });
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     // Reload after 2 seconds to apply all changes
     setTimeout(() => {
       window.location.reload();
     }, 2000);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
     // Reset file input
@@ -9526,11 +20221,67 @@ const importData = async (event: React.ChangeEvent<HTMLInputElement>) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const handleEditRecurring = (expense: RecurringExpense) => {
   setEditingRecurring(expense);
   setShowRecurringModal(true);
 };
   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9591,6 +20342,34 @@ const getMonthlyData = (month: number, year: number) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // Yearly Analytics
 const getYearlyData = (year: number) => {
   const yearExpenses = expenses.filter(e => {
@@ -9622,6 +20401,34 @@ const getYearlyData = (year: number) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 const monthlyAnalytics = getMonthlyData(selectedMonth, selectedYear);
 const yearlyAnalytics = getYearlyData(selectedYear);
   // Helper to get correct theme set
@@ -9638,16 +20445,153 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   return (
-    <div className={`min-h-screen w-full overflow-x-hidden font-sans pb-20 px-4 sm:px-6 transition-colors duration-500 relative overflow-hidden ${isDark ? (isLgbt ? 'bg-rainbow-dark text-slate-100' : 'bg-slate-950 text-slate-100') : isGreen ? 'bg-[#F0FDF4] text-slate-900' : isLgbt ? 'bg-rainbow-light text-slate-900' : 'bg-[#FDF2F8] text-slate-900'}`}>
+    <div className={`min-h-screen w-full flex flex-col overflow-x-hidden font-sans pb-20 px-4 sm:px-6 transition-colors duration-500 relative ${isDark ? (isLgbt ? 'bg-rainbow-dark text-slate-100' : 'bg-slate-950 text-slate-100') : isGreen ? 'bg-[#F0FDF4] text-slate-900' : isLgbt ? 'bg-rainbow-light text-slate-900' : 'bg-[#FDF2F8] text-slate-900'}`}>
       <AnimationStyles />
       {/* 🎓 ONBOARDING FLOW */}
+{/* 🎓 ONBOARDING FLOW */}
 {showOnboarding && (
   <OnboardingFlow
-    onComplete={() => setShowOnboarding(false)}
-    isDark={isDark}
-    isGreen={isGreen}
-    isLgbt={isLgbt}
+    user={user}
+    onComplete={async (onboardingData) => {
+      try {
+        // Save to Firestore - FIXED: Removed 'profile' (3 segments invalid)
+        await setDoc(doc(db, 'users', user.uid), {
+          userId: user.uid,
+          username: onboardingData.username,
+          fullName: onboardingData.fullName,
+          age: parseInt(onboardingData.age),
+          occupation: onboardingData.occupation,
+          monthlySalary: parseFloat(onboardingData.monthlySalary),
+          currency: onboardingData.currency,
+          dailyBudget: parseFloat(onboardingData.dailyBudget),
+          onboardingComplete: true,
+          createdAt: serverTimestamp()
+        }, { merge: true });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        // Save currency and budget
+        setCurrency(onboardingData.currency);
+        const currencyData = CURRENCY_OPTIONS.find(c => c.code === onboardingData.currency);
+        setCurrencySymbol(currencyData?.symbol || '$');
+        setDailyAllowance(parseFloat(onboardingData.dailyBudget));
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        // Create initial habits - FIXED: Using top-level collection
+        const habitPromises = onboardingData.selectedHabits.map(habitId => {
+          const habitSuggestion = HABIT_SUGGESTIONS.find(h => h.id === habitId);
+          if (habitSuggestion) {
+            return addDoc(collection(db, 'users', user.uid, 'habits'), {
+             title: habitSuggestion.label,
+             frequency: 'daily',
+             completedDates: [],
+             createdAt: serverTimestamp(),
+             icon: habitSuggestion.icon,
+             colorTheme: isGreen ? 'Green' : isLgbt ? 'Red' : 'Pink'
+          });
+          }
+          return Promise.resolve();
+        });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        await Promise.all(habitPromises);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        // Mark onboarding as complete
+      setShowOnboarding(false);
+        localStorage.setItem('onboardingCompleted', 'true');
+      } catch (error) {
+        console.error('Error completing onboarding:', error);
+        // Still close onboarding even if Firestore fails
+        setShowOnboarding(false);
+        localStorage.setItem('onboardingCompleted', 'true');
+        alert('Failed to save onboarding data');
+      }
+    }}
   />
 )}
       {!isOnline && (
@@ -9656,8 +20600,8 @@ const yearlyAnalytics = getYearlyData(selectedYear);
         </div>
       )}
       
-      {/* Background Decor */}
-      <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
+      {/* Background Decor — fixed so it always covers the full viewport */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
          {/* Dot Pattern */}
          <div className={`absolute inset-0 opacity-[0.03] ${isDark ? 'bg-white' : 'bg-black'}`} 
               style={{ 
@@ -9672,13 +20616,42 @@ const yearlyAnalytics = getYearlyData(selectedYear);
          {/* Soft Blobs */}
          <div className={`absolute -top-20 -left-20 w-96 h-96 rounded-full blur-3xl opacity-20 animate-float ${isDark ? (isGreen ? 'bg-green-900' : isLgbt ? 'bg-indigo-900' : 'bg-pink-900') : (isGreen ? 'bg-green-300' : isLgbt ? 'bg-blue-200' : 'bg-pink-200')}`} style={{ animationDuration: '8s' }}></div>
          <div className={`absolute top-40 -right-20 w-72 h-72 rounded-full blur-3xl opacity-20 animate-float ${isDark ? (isGreen ? 'bg-emerald-900' : isLgbt ? 'bg-purple-900' : 'bg-rose-900') : (isGreen ? 'bg-emerald-300' : isLgbt ? 'bg-purple-200' : 'bg-rose-200')}`} style={{ animationDuration: '10s', animationDelay: '2s' }}></div>
+         <div className={`absolute bottom-0 left-1/3 w-80 h-80 rounded-full blur-3xl opacity-10 animate-float ${isDark ? (isGreen ? 'bg-green-800' : isLgbt ? 'bg-violet-900' : 'bg-pink-800') : (isGreen ? 'bg-green-200' : isLgbt ? 'bg-indigo-200' : 'bg-rose-100')}`} style={{ animationDuration: '12s', animationDelay: '4s' }}></div>
       </div>
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
       {showCelebration && <FullScreenConfetti />}
-       {showStats && <HabitStats habits={habits} expenses={expenses} dailyAllowance={dailyAllowance} currencySymbol={currencySymbol} onClose={() => setShowStats(false)} />}
+       
         {showAchievements && (
   <AchievementsModal
     achievements={calculateAchievements()}
@@ -9695,6 +20668,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
          onClose={() => setShowTemplates(false)} 
       />
 )}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9734,6 +20735,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 {toast && (
   <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
     <Toast toast={toast} onDismiss={() => setToast(null)} />
@@ -9743,31 +20772,81 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
       {/* Top Bar */}
       <div className={`backdrop-blur-md border-b sticky top-0 z-20 transition-colors duration-300 relative ${isDark ? (isGreen ? 'bg-green-900/80 border-green-800 shadow-green-900/40' : isLgbt ? 'bg-slate-900/80 border-slate-800' : 'bg-pink-900/80 border-pink-800 shadow-pink-900/40') : (isGreen ? 'bg-green-600/90 border-green-700' : isLgbt ? 'bg-white/80 border-slate-200' : 'bg-pink-600/90 border-pink-700')}`}>
         <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 sm:h-20 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-md ${isDark ? (isGreen ? 'bg-green-500 shadow-green-500/50 text-white' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white' : 'bg-pink-500 shadow-pink-500/50 text-white') : (isGreen ? 'bg-white text-green-600 shadow-lg' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 text-white shadow-lg' : 'bg-white text-pink-600 shadow-lg')}`}>
-              <TrendingUp className="w-6 h-6" />
-            </div>
-            <span className={`text-xl font-black hidden sm:block ${isDark ? (isGreen ? 'text-green-100' : isLgbt ? 'text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-blue-400' : 'text-pink-100') : (isLgbt ? 'text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-blue-600' : 'text-white')}`}>HabitFlow</span>
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg border-2 ${isDark ? (isGreen ? 'bg-green-900 border-green-500' : isLgbt ? 'bg-slate-900 border-purple-500' : 'bg-pink-900 border-pink-500') : (isGreen ? 'bg-green-600 border-green-400' : isLgbt ? 'bg-gradient-to-br from-red-500 to-blue-500 border-white/30' : 'bg-pink-600 border-pink-400')}`}>
+            <Wallet className="text-white w-5 h-5" />
+          </div>
+          <span className={`text-2xl font-black ${isDark ? (isGreen ? 'text-green-300' : isLgbt ? 'text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-blue-400' : 'text-pink-300') : (isGreen ? 'text-green-700' : isLgbt ? 'text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-blue-600' : 'text-pink-700')}`}>UnBroke</span>
           </div>
           
           <div className="flex items-center gap-4">
+            
             <button 
-              onClick={() => setShowStats(true)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold transition ${isDark ? (isGreen ? 'bg-green-800/50 hover:bg-green-700 text-green-100' : isLgbt ? 'bg-slate-800/50 hover:bg-slate-700 text-indigo-300' : 'bg-pink-800/50 hover:bg-pink-700 text-pink-100') : (isLgbt ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-white/20 hover:bg-white/30 text-white')}`}
+          onClick={() => setShowAchievements(true)}
+           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold transition ${isDark ? (isGreen ? 'bg-green-800/50 hover:bg-green-700 text-green-100' : isLgbt ? `${dc.cardInner} text-indigo-300` : 'bg-pink-800/50 hover:bg-pink-700 text-pink-100') : (isLgbt ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-white/20 hover:bg-white/30 text-white')}`}
             >
-              <PieChart className="w-5 h-5" />
-              <span className="hidden sm:inline">Insights</span>
-            </button>
-            <button 
-  onClick={() => setShowAchievements(true)}
-  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold transition ${isDark ? (isGreen ? 'bg-green-800/50 hover:bg-green-700 text-green-100' : isLgbt ? 'bg-slate-800/50 hover:bg-slate-700 text-indigo-300' : 'bg-pink-800/50 hover:bg-pink-700 text-pink-100') : (isLgbt ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-white/20 hover:bg-white/30 text-white')}`}
->
-  <Trophy className="w-5 h-5" />
-  <span className="hidden sm:inline">Achievements</span>
-</button>
+           <Trophy className="w-5 h-5" />
+          <span className="hidden sm:inline">Achievements</span>
+          </button>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9780,7 +20859,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
             </div>
             <button 
               onClick={onLogout}
-              className={`transition p-3 rounded-xl ${isDark ? (isGreen ? 'bg-green-800 hover:bg-green-700 text-green-300 hover:text-green-100' : isLgbt ? 'bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-indigo-100' : 'bg-pink-800 hover:bg-pink-700 text-pink-300 hover:text-pink-100') : (isGreen ? 'bg-white text-green-600 hover:bg-green-50' : isLgbt ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-white text-pink-600 hover:bg-pink-50')}`}
+              className={`transition p-3 rounded-xl ${isDark ? (isGreen ? 'bg-green-800 hover:bg-green-700 text-green-300 hover:text-green-100' : isLgbt ? `${dc.cardInner} text-indigo-300 hover:text-indigo-100` : 'bg-pink-800 hover:bg-pink-700 text-pink-300 hover:text-pink-100') : (isGreen ? 'bg-white text-green-600 hover:bg-green-50' : isLgbt ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-white text-pink-600 hover:bg-pink-50')}`}
               title="Log Out"
             >
               <LogOut className="w-5 h-5" />
@@ -9792,159 +20871,791 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
       
         
-       <main className="max-w-5xl mx-auto px-6 py-10 pb-24 md:pb-10 relative z-10">
+       <main className="max-w-5xl mx-auto w-full px-6 py-10 pb-24 md:pb-10 relative z-10 flex-1">
         
-        {/* 🆕 LED-Style Digital Display Component */}
-        <div className={`mb-8 p-6 rounded-3xl border-2 shadow-2xl overflow-hidden relative ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-900 border-slate-700'}`}>
-          {/* Scanline Effect */}
-          <div className="absolute inset-0 pointer-events-none opacity-10">
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-green-500 to-transparent animate-scan"></div>
+      {/* 👋 Header - Greeting & Search — only visible on Home */}
+        <div className={`mb-6 flex items-center justify-between gap-4 transition-all duration-300 ${currentPage !== 'home' ? 'opacity-0 h-0 mb-0 overflow-hidden pointer-events-none' : 'opacity-100'}`}>
+          {/* Greeting with Avatar - Hidden when search is active */}
+          <div 
+            className={`transition-all duration-300 ${
+              searchQuery 
+                ? 'opacity-0 w-0 overflow-hidden' 
+                : 'opacity-100 flex-1'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              {/* Avatar Frame */}
+              <div className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-full flex-shrink-0 overflow-hidden border-3 shadow-lg transition-all ${
+                isDark 
+                  ? isGreen
+                    ? 'bg-green-500/20 border-green-500/50'
+                    : isLgbt
+                      ? 'bg-gradient-to-br from-purple-500/20 to-pink-500/20 border-purple-500/50'
+                      : 'bg-pink-500/20 border-pink-500/50'
+                  : isGreen
+                    ? 'bg-green-100 border-green-400'
+                    : isLgbt
+                      ? 'bg-gradient-to-br from-purple-100 to-pink-100 border-purple-400'
+                      : 'bg-pink-100 border-pink-400'
+              }`}>
+                {user.photoURL ? (
+                  <img 
+                    src={user.photoURL} 
+                    alt="Profile" 
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className={`w-full h-full flex items-center justify-center ${
+                    isDark 
+                      ? isGreen
+                        ? 'text-green-400'
+                        : isLgbt
+                          ? 'text-purple-400'
+                          : 'text-pink-400'
+                      : isGreen
+                        ? 'text-green-600'
+                        : isLgbt
+                          ? 'text-purple-600'
+                          : 'text-pink-600'
+                  }`}>
+                    <UserCircle2 className="w-6 h-6 sm:w-7 sm:h-7" />
+                  </div>
+                )}
+              </div>
+              
+              {/* Greeting Text */}
+              <h1 className={`text-2xl sm:text-3xl font-black ${
+                isDark ? 'text-white' : 'text-slate-900'
+              }`}>
+                Hi, @{user.displayName || user.email?.split('@')[0]}! 👋
+              </h1>
+            </div>
           </div>
-          
-          {/* Grid Background */}
-          <div className="absolute inset-0 opacity-5" style={{
-            backgroundImage: 'linear-gradient(rgba(0,255,0,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,0,0.1) 1px, transparent 1px)',
-            backgroundSize: '20px 20px'
-          }}></div>
 
 
 
 
-          {/* Main Display Content */}
-          <div className="relative z-10">
-            {/* Header Section */}
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <div className="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse"></div>
-                <div className="w-3 h-3 rounded-full bg-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.8)]"></div>
-                <div className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.8)] animate-pulse"></div>
-                <span className="ml-2 font-mono text-sm text-green-400 tracking-wider">SYSTEM STATUS: ONLINE</span>
-              </div>
-              <div className="font-mono text-xs text-green-400/60">
-                {new Date().toLocaleTimeString('en-US', { hour12: false })}
-              </div>
+
+
+
+
+          {/* Right Side Actions */}
+          <div className="flex items-center gap-2">
+            {/* Search - Expands when clicked */}
+            <div 
+              className={`transition-all duration-300 ${
+                searchQuery 
+                  ? 'flex-1' 
+                  : 'w-auto'
+              }`}
+            >
+              {searchQuery ? (
+                // Expanded Search Bar
+                <div className={`flex items-center gap-2 px-4 py-3 rounded-2xl border-2 ${
+                  isDark 
+                    ? 'bg-pink-950/60 border-pink-900/50' 
+                    : 'bg-white border-slate-200'
+                }`}>
+                  <Search className={`w-5 h-5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`} />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search habits, tasks, expenses..."
+                    className={`flex-1 bg-transparent outline-none text-base font-medium ${
+                      isDark ? 'text-white placeholder-slate-500' : 'text-slate-900 placeholder-slate-400'
+                    }`}
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className={`p-2 rounded-lg transition ${
+                      isDark 
+                        ? 'hover:bg-slate-700 text-slate-400 hover:text-white' 
+                        : 'hover:bg-slate-100 text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              ) : (
+                // Search Icon Button
+                <button
+                  onClick={() => setSearchQuery(' ')}
+                  className={`p-3 rounded-2xl transition-all transform active:scale-95 ${
+                    isDark 
+                      ? isGreen
+                        ? 'bg-green-500/20 hover:bg-green-500/30 text-green-400 border-2 border-green-500/30'
+                        : isLgbt
+                          ? 'bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 border-2 border-purple-500/30'
+                          : 'bg-pink-500/20 hover:bg-pink-500/30 text-pink-400 border-2 border-pink-500/30'
+                      : isGreen
+                        ? 'bg-green-100 hover:bg-green-200 text-green-700 border-2 border-green-300'
+                        : isLgbt
+                          ? 'bg-purple-100 hover:bg-purple-200 text-purple-700 border-2 border-purple-300'
+                          : 'bg-pink-100 hover:bg-pink-200 text-pink-700 border-2 border-pink-300'
+                  }`}
+                  aria-label="Search"
+                >
+                  <Search className="w-5 h-5" />
+                </button>
+              )}
             </div>
 
 
 
 
-            {/* LED Display Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Display Panel 1 - Habits */}
-              <div className={`p-5 rounded-2xl border backdrop-blur-sm ${isDark ? 'bg-slate-900/50 border-green-900/30' : 'bg-slate-800/50 border-green-800/30'}`}>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]"></div>
-                  <span className="font-mono text-xs text-green-400/80 uppercase tracking-widest">Habits Module</span>
-                </div>
-                <div className="font-mono text-4xl font-black text-green-400 mb-1 drop-shadow-[0_0_10px_rgba(34,197,94,0.5)]">
-                  {progress}%
-                </div>
-                <div className="font-mono text-xs text-green-400/60">
-                  {completedToday}/{habits.length} COMPLETE
-                </div>
-              </div>
 
 
 
 
-              {/* Display Panel 2 - ToDo */}
-              <div className={`p-5 rounded-2xl border backdrop-blur-sm ${isDark ? 'bg-slate-900/50 border-cyan-900/30' : 'bg-slate-800/50 border-cyan-800/30'}`}>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)]"></div>
-                  <span className="font-mono text-xs text-cyan-400/80 uppercase tracking-widest">Tasks Module</span>
-                </div>
-                <div className="font-mono text-4xl font-black text-cyan-400 mb-1 drop-shadow-[0_0_10px_rgba(6,182,212,0.5)]">
-                  {todos.filter(t => !t.completed).length}
-                </div>
-                <div className="font-mono text-xs text-cyan-400/60">
-                  PENDING TASKS
-                </div>
-              </div>
+            {/* Theme Toggle Button */}
+            <button
+              onClick={() => {
+                const newTheme = isDark ? 'light' : 'dark';
+                localStorage.setItem('theme', newTheme);
+                window.location.reload();
+              }}
+              className={`p-3 rounded-2xl transition-all transform active:scale-95 ${
+                isDark 
+                  ? isGreen
+                    ? 'bg-green-500/20 hover:bg-green-500/30 text-green-400 border-2 border-green-500/30'
+                    : isLgbt
+                      ? 'bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 border-2 border-purple-500/30'
+                      : 'bg-pink-500/20 hover:bg-pink-500/30 text-pink-400 border-2 border-pink-500/30'
+                  : isGreen
+                    ? 'bg-green-100 hover:bg-green-200 text-green-700 border-2 border-green-300'
+                    : isLgbt
+                      ? 'bg-purple-100 hover:bg-purple-200 text-purple-700 border-2 border-purple-300'
+                      : 'bg-pink-100 hover:bg-pink-200 text-pink-700 border-2 border-pink-300'
+              }`}
+              aria-label="Toggle theme"
+            >
+              {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
 
 
 
 
-              {/* Display Panel 3 - Money */}
-              <div className={`p-5 rounded-2xl border backdrop-blur-sm ${isDark ? 'bg-slate-900/50 border-yellow-900/30' : 'bg-slate-800/50 border-yellow-800/30'}`}>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-2 h-2 rounded-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.8)]"></div>
-                  <span className="font-mono text-xs text-yellow-400/80 uppercase tracking-widest">Finance Module</span>
-                </div>
-                <div className="font-mono text-4xl font-black text-yellow-400 mb-1 drop-shadow-[0_0_10px_rgba(234,179,8,0.5)]">
-                  ₱{((totalIncomeAmount - totalExpenseAmount) / 1000).toFixed(1)}K
-                </div>
-                <div className="font-mono text-xs text-yellow-400/60">
-                  NET BALANCE
-                </div>
-              </div>
-            </div>
 
 
 
 
-            {/* Bottom Info Bar */}
-            <div className="mt-6 pt-4 border-t border-green-900/30 flex items-center justify-between">
-              <div className="font-mono text-xs text-green-400/40 flex items-center gap-4">
-                <span>SYS: v2.0.1</span>
-                <span className="hidden sm:inline">|</span>
-                <span className="hidden sm:inline">CORE: STABLE</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Zap className="w-3 h-3 text-yellow-400 animate-pulse" />
-                <span className="font-mono text-xs text-green-400/60">READY</span>
-              </div>
-            </div>
+            {/* Notification Bell Button */}
+            <button
+              onClick={() => {
+                // TODO: Add notification functionality
+                alert('Notifications feature coming soon!');
+              }}
+              className={`relative p-3 rounded-2xl transition-all transform active:scale-95 ${
+                isDark 
+                  ? isGreen
+                    ? 'bg-green-500/20 hover:bg-green-500/30 text-green-400 border-2 border-green-500/30'
+                    : isLgbt
+                      ? 'bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 border-2 border-purple-500/30'
+                      : 'bg-pink-500/20 hover:bg-pink-500/30 text-pink-400 border-2 border-pink-500/30'
+                  : isGreen
+                    ? 'bg-green-100 hover:bg-green-200 text-green-700 border-2 border-green-300'
+                    : isLgbt
+                      ? 'bg-purple-100 hover:bg-purple-200 text-purple-700 border-2 border-purple-300'
+                      : 'bg-pink-100 hover:bg-pink-200 text-pink-700 border-2 border-pink-300'
+              }`}
+              aria-label="Notifications"
+            >
+              <Bell className="w-5 h-5" />
+              {/* Notification Badge */}
+              <span className={`absolute top-1 right-1 w-2 h-2 rounded-full ${
+                isDark 
+                  ? 'bg-red-500' 
+                  : 'bg-red-600'
+              }`}></span>
+            </button>
           </div>
         </div>
 
 
 
 
-        {/* Swipeable Container */}
-        <div className="relative">
-          <div className="flex justify-center gap-2 mb-6 overflow-x-auto pb-2">
-            <button
-              onClick={() => setCurrentPage('habits')}
-              className={`px-4 py-2 rounded-xl font-bold transition whitespace-nowrap ${
-                currentPage === 'habits'
-                  ? (isDark 
-                      ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
-                      : (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white' : 'bg-pink-600 text-white')
-                    )
-                  : (isDark ? 'bg-slate-800 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
-              }`}
-            >
-              Habits
-            </button>
-            <button
-              onClick={() => setCurrentPage('todos')}
-              className={`px-4 py-2 rounded-xl font-bold transition whitespace-nowrap ${
-                currentPage === 'todos'
-                  ? (isDark 
-                      ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
-                      : (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white' : 'bg-pink-600 text-white')
-                    )
-                  : (isDark ? 'bg-slate-800 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
-              }`}
-            >
-              To-Do List
-            </button>
-            <button
-              onClick={() => setCurrentPage('money')}
-              className={`px-4 py-2 rounded-xl font-bold transition whitespace-nowrap ${
-                currentPage === 'money'
-                  ? (isDark 
-                      ? (isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 text-white' : 'bg-pink-500 text-white')
-                      : (isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 text-white' : 'bg-pink-600 text-white')
-                    )
-                  : (isDark ? 'bg-slate-800 text-slate-400 hover:text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
-              }`}
-            >
-              💰 Money
-            </button>
+
+
+
+
+        {/* Search Results */}
+        {searchQuery.trim() && (
+          <div className={`mb-6 p-4 rounded-2xl border-2 ${
+            isDark ? dc.card : 'bg-white border-slate-200'
+          }`}>
+            <h3 className={`text-sm font-bold mb-3 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+              Search Results
+            </h3>
+            
+            {(() => {
+              const query = searchQuery.toLowerCase().trim();
+              const matchedHabits = habits.filter(h => 
+                h.title.toLowerCase().includes(query)
+              );
+              const matchedTodos = todos.filter(t => 
+                t.title.toLowerCase().includes(query)
+              );
+              const matchedExpenses = expenses.filter(e => 
+                e.description.toLowerCase().includes(query) || 
+                EXPENSE_CATEGORIES.find(c => c.id === e.category)?.label.toLowerCase().includes(query)
+              );
+              
+              const totalResults = matchedHabits.length + matchedTodos.length + matchedExpenses.length;
+              
+              if (totalResults === 0) {
+                return (
+                  <div className="text-center py-8">
+                    <Search className={`w-12 h-12 mx-auto mb-3 ${isDark ? 'text-slate-700' : 'text-slate-300'}`} />
+                    <p className={`text-sm font-medium ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                      No results found for "{query}"
+                    </p>
+                  </div>
+                );
+              }
+              
+              return (
+                <div className="space-y-4">
+                  {/* Matched Habits */}
+                  {matchedHabits.length > 0 && (
+                    <div>
+                      <p className={`text-xs font-bold mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                        HABITS ({matchedHabits.length})
+                      </p>
+                      <div className="space-y-2">
+                        {matchedHabits.map(habit => (
+                          <button
+                            key={habit.id}
+                            onClick={() => {
+                              setCurrentPage('habits');
+                              setSearchQuery('');
+                            }}
+                            className={`w-full p-3 rounded-xl flex items-center gap-3 transition-all ${
+                              isDark ? dc.btnSecondary : 'bg-slate-50 hover:bg-slate-100'
+                            }`}
+                          >
+                            <CheckCircle2 className={`w-5 h-5 ${
+                              isDark ? 'text-green-400' : 'text-green-600'
+                            }`} />
+                            <span className={`font-bold text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                              {habit.title}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Matched Todos */}
+                  {matchedTodos.length > 0 && (
+                    <div>
+                      <p className={`text-xs font-bold mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                        TASKS ({matchedTodos.length})
+                      </p>
+                      <div className="space-y-2">
+                        {matchedTodos.map(todo => (
+                          <button
+                            key={todo.id}
+                            onClick={() => {
+                              setCurrentPage('todos');
+                              setSearchQuery('');
+                            }}
+                            className={`w-full p-3 rounded-xl flex items-center gap-3 transition-all ${
+                              isDark ? dc.btnSecondary : 'bg-slate-50 hover:bg-slate-100'
+                            }`}
+                          >
+                            <Layout className={`w-5 h-5 ${
+                              isDark ? 'text-blue-400' : 'text-blue-600'
+                            }`} />
+                            <span className={`font-bold text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                              {todo.title}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Matched Expenses */}
+                  {matchedExpenses.length > 0 && (
+                    <div>
+                      <p className={`text-xs font-bold mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                        EXPENSES ({matchedExpenses.length})
+                      </p>
+                      <div className="space-y-2">
+                        {matchedExpenses.slice(0, 5).map(expense => {
+                          const category = EXPENSE_CATEGORIES.find(c => c.id === expense.category);
+                          const CategoryIcon = category?.icon || Receipt;
+                          return (
+                            <button
+                              key={expense.id}
+                              onClick={() => {
+                                setCurrentPage('money');
+                                setSearchQuery('');
+                              }}
+                              className={`w-full p-3 rounded-xl flex items-center justify-between transition-all ${
+                                isDark ? dc.btnSecondary : 'bg-slate-50 hover:bg-slate-100'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <CategoryIcon className={`w-5 h-5 ${
+                                  isDark ? 'text-yellow-400' : 'text-yellow-600'
+                                }`} />
+                                <span className={`font-bold text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                  {expense.description}
+                                </span>
+                              </div>
+                              <span className={`text-sm font-bold ${isDark ? 'text-red-400' : 'text-red-600'}`}>
+                                -{currencySymbol}{expense.amount.toFixed(2)}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
+        )}
+        {/* 🏠 DASHBOARD HOME - Only show when currentPage === 'home' */}
+        {currentPage === 'home' && (
+          <>
+        
+       {/* 💳 Wallet Card — v36 */}
+        <div className="mb-4">
+
+          {/* ── Main Wallet Card ── */}
+          <div
+            className="relative overflow-hidden rounded-[28px]"
+style={{
+              background: isGreen
+  ? 'linear-gradient(135deg, #15803d 0%, #166534 40%, #14532d 100%)'
+                : isLgbt
+                  ? 'linear-gradient(135deg, #ef4444, #f97316, #eab308, #22c55e, #3b82f6, #8b5cf6, #ec4899)'
+                  : '#ec4899',
+              minHeight: '190px',
+              boxShadow: isGreen
+                ? '0 16px 48px rgba(34,197,94,0.40)'
+                : isLgbt
+                  ? '0 16px 48px rgba(139,92,246,0.35)'
+                  : '0 16px 48px rgba(236,72,153,0.40)'
+            }}
+          >
+            {/* ── Premium overlays ── */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              <div className="absolute top-0 left-0 right-0 h-[45%] rounded-t-[28px]"
+                style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.10) 0%, transparent 100%)' }} />
+              <div className="absolute rounded-full blur-3xl"
+                style={{ top:'-50%', left:'-25%', width:'75%', height:'100%', background:'rgba(255,255,255,0.06)' }} />
+              <div className="absolute rounded-full blur-2xl"
+                style={{ bottom:'-35%', right:'-15%', width:'55%', height:'75%', background:'rgba(0,0,0,0.22)' }} />
+              <div className="absolute inset-[1px] rounded-[27px] pointer-events-none"
+                style={{ border:'1px solid rgba(255,255,255,0.12)' }} />
+            </div>
+
+
+
+            {/* ── Card Content ── */}
+            <div className="relative z-10 p-5 sm:p-6">
+
+              {/* Top Row */}
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center"
+                    style={{ background:'rgba(255,255,255,0.14)', backdropFilter:'blur(4px)' }}>
+                    <Wallet className="w-4 h-4 text-white" />
+                  </div>
+                  <span className="text-white/70 text-[11px] font-bold uppercase tracking-[0.12em]">
+                    UnBroke Pay
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Chip */}
+                  <div className="w-10 h-7 rounded-md grid grid-cols-2 gap-0.5 p-1"
+                    style={{ border:'1.5px solid rgba(255,255,255,0.22)', background:'rgba(255,255,255,0.10)', backdropFilter:'blur(4px)' }}>
+                    <div className="rounded-[2px]" style={{ background:'rgba(255,255,255,0.22)' }} />
+                    <div className="rounded-[2px]" style={{ background:'rgba(255,255,255,0.22)' }} />
+                    <div className="rounded-[2px]" style={{ background:'rgba(255,255,255,0.22)' }} />
+                    <div className="rounded-[2px]" style={{ background:'rgba(255,255,255,0.22)' }} />
+                  </div>
+                  {/* Edit Button */}
+                  <button
+                    onClick={() => setShowAllowanceModal(true)}
+                    className="p-2 rounded-[10px] transition-all active:scale-95 hover:scale-105"
+                    style={{ background:'rgba(255,255,255,0.12)', backdropFilter:'blur(4px)' }}
+                    title="Edit Daily Budget"
+                  >
+                    <Edit2 className="w-4 h-4 text-white" />
+                  </button>
+                </div>
+              </div>
+
+{/* Balance */}
+              <div className="mb-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-white/50 text-[10px] font-semibold uppercase tracking-[0.15em]">
+                    Available Balance
+                  </p>
+                  <button
+                    onClick={() => setShowBalance(prev => !prev)}
+                    className="p-1 rounded-md transition-all active:scale-90 hover:bg-white/10"
+                    title={showBalance ? 'Hide balance' : 'Show balance'}
+                  >
+                    {showBalance
+                      ? <Eye className="w-3.5 h-3.5 text-white/50" />
+                      : <EyeOff className="w-3.5 h-3.5 text-white/50" />
+                    }
+                  </button>
+                </div>
+                <p className="text-3xl sm:text-4xl font-black text-white leading-none tracking-tight"
+                  style={{ fontFamily:"'DM Mono', 'Courier New', monospace" }}>
+                  {showBalance
+                    ? `${currencySymbol}${(dailyAllowance - todaySpent).toFixed(2)}`
+                    : `${currencySymbol}••••••`
+                  }
+                </p>
+              </div>
+              {/* Divider */}
+              <div className="my-4 h-px" style={{ background:'rgba(255,255,255,0.10)' }} />
+
+              {/* Bottom Row */}
+              <div className="flex items-end justify-between">
+                <div>
+                  <p className="text-white/40 text-[9px] uppercase tracking-[0.15em] mb-0.5">Cardholder</p>
+                  <p className="text-white font-bold text-sm uppercase tracking-wider truncate max-w-[140px]">
+                    {user.displayName || user.email?.split('@')[0]}
+                  </p>
+                </div>
+                <div className="text-right space-y-1">
+                  <div className="flex items-center justify-end gap-1.5 text-xs" style={{ color:'rgba(255,255,255,0.60)' }}>
+                    <TrendingUp className="w-3 h-3" />
+                    <span>Budget {currencySymbol}{dailyAllowance.toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-end gap-1.5 text-xs" style={{ color:'rgba(255,255,255,0.60)' }}>
+                    <TrendingDown className="w-3 h-3" />
+                    <span>Spent {currencySymbol}{todaySpent.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          {/* ── 3 Stat Cards: Streak / Habits / Saved ── */}
+          <div className="grid grid-cols-3 gap-2.5 mt-3">
+
+            {/* Streak */}
+            <div className={`
+              p-3.5 rounded-[20px] border transition-all duration-200 hover:-translate-y-0.5
+              ${isDark
+                ? `${dc.card} shadow-sm`
+                : 'bg-white border-slate-100 shadow-sm'
+              }
+            `}>
+              <div className={`w-7 h-7 rounded-[10px] flex items-center justify-center mb-2 text-sm
+                ${isDark
+                  ? isGreen ? 'bg-green-500/15 text-green-400' : isLgbt ? 'bg-orange-500/15 text-orange-400' : 'bg-pink-500/15 text-pink-400'
+                  : isGreen ? 'bg-green-50 text-green-600'     : isLgbt ? 'bg-orange-50 text-orange-500'     : 'bg-pink-50 text-pink-600'
+                }
+              `}>🔥</div>
+              <p className={`text-[10px] font-bold uppercase tracking-[0.08em] mb-0.5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Streak</p>
+              <p className={`text-2xl font-black leading-none tracking-tight
+                ${isDark
+                  ? isGreen ? 'text-green-400' : isLgbt ? 'text-orange-400' : 'text-pink-400'
+                  : isGreen ? 'text-green-700' : isLgbt ? 'text-orange-600' : 'text-pink-700'
+                }
+              `} style={{ fontFamily:"'DM Mono', monospace" }}>
+                {Math.max(...habits.map(h => h.streak), 0)}
+              </p>
+              <p className={`text-[10px] mt-0.5 ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>days</p>
+            </div>
+
+            {/* Habits Done */}
+            <div className={`
+              p-3.5 rounded-[20px] border transition-all duration-200 hover:-translate-y-0.5
+              ${isDark
+                ? `${dc.card} shadow-sm`
+                : 'bg-white border-slate-100 shadow-sm'
+              }
+            `}>
+              <div className={`w-7 h-7 rounded-[10px] flex items-center justify-center mb-2
+                ${isDark
+                  ? isGreen ? 'bg-green-500/15' : isLgbt ? 'bg-indigo-500/15' : 'bg-pink-500/15'
+                  : isGreen ? 'bg-green-50'      : isLgbt ? 'bg-indigo-50'     : 'bg-pink-50'
+                }
+              `}>
+                <CheckCircle2 className={`w-4 h-4 ${
+                  isDark
+                    ? isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400'
+                    : isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600'
+                }`} />
+              </div>
+              <p className={`text-[10px] font-bold uppercase tracking-[0.08em] mb-0.5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Habits</p>
+              <p className={`text-2xl font-black leading-none tracking-tight
+                ${isDark
+                  ? isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400'
+                  : isGreen ? 'text-green-700' : isLgbt ? 'text-indigo-700' : 'text-pink-700'
+                }
+              `} style={{ fontFamily:"'DM Mono', monospace" }}>
+                {completedToday}/{totalHabits}
+              </p>
+              <p className={`text-[10px] mt-0.5 ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>today</p>
+            </div>
+
+            {/* Saved */}
+            <div className={`
+              p-3.5 rounded-[20px] border transition-all duration-200 hover:-translate-y-0.5
+              ${isDark
+                ? `${dc.card} shadow-sm`
+                : 'bg-white border-slate-100 shadow-sm'
+              }
+            `}>
+              <div className={`w-7 h-7 rounded-[10px] flex items-center justify-center mb-2
+                ${isDark
+                  ? isGreen ? 'bg-emerald-500/15' : isLgbt ? 'bg-violet-500/15' : 'bg-rose-500/15'
+                  : isGreen ? 'bg-emerald-50'      : isLgbt ? 'bg-violet-50'     : 'bg-rose-50'
+                }
+              `}>
+                <DollarSign className={`w-4 h-4 ${
+                  isDark
+                    ? isGreen ? 'text-emerald-400' : isLgbt ? 'text-violet-400' : 'text-rose-400'
+                    : isGreen ? 'text-emerald-600' : isLgbt ? 'text-violet-600' : 'text-rose-600'
+                }`} />
+              </div>
+              <p className={`text-[10px] font-bold uppercase tracking-[0.08em] mb-0.5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Saved</p>
+              <p className={`text-[17px] font-black leading-none tracking-tight
+                ${netWorth >= 0
+                  ? isDark ? 'text-emerald-400' : 'text-emerald-600'
+                  : isDark ? 'text-red-400'     : 'text-red-600'
+                }
+              `} style={{ fontFamily:"'DM Mono', monospace" }}>
+                {currencySymbol}{Math.abs(netWorth).toFixed(0)}
+              </p>
+              <p className={`text-[10px] mt-0.5 ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
+                {netWorth >= 0 ? 'net ↑' : 'net ↓'}
+              </p>
+            </div>
+
+          </div>
+        </div>
+
+
+
+
+          </>
+        )}
+
+
+
+
+        {/* 📱 App Icons Grid — v36 */}
+       {currentPage === 'home' && (
+        <div className="relative mb-5">
+          <p className={`text-[10px] font-bold uppercase tracking-[0.12em] mb-3 ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
+            Services
+          </p>
+          <div className="grid grid-cols-4 gap-2.5 [&>*:nth-child(7)]:col-start-2">
+            {[
+             
+               { page: 'habits', Icon: CheckCircle2, label: 'Habits', iconColor: (active: boolean) => active ? 'text-white' : isDark ? 'text-slate-400' : 'text-slate-500' },
+              { page: 'todos',  Icon: Layout,       label: 'Tasks',  iconColor: (active: boolean) => active ? 'text-white' : isDark ? 'text-slate-400' : 'text-slate-500' },
+              { page: 'money',  Icon: Wallet,       label: 'Money',  iconColor: (active: boolean) => active ? 'text-white' : isDark ? 'text-slate-400' : 'text-slate-500' },
+              { page: 'stats',  Icon: BarChart3,    label: 'Stats',  iconColor: (active: boolean) => active ? 'text-white' : isDark ? 'text-slate-400' : 'text-slate-500' },
+
+            ].map(({ page, Icon, label, iconColor }) => {
+              const isActive = currentPage === page;
+              const activeCircle = isDark
+                ? isGreen  ? 'bg-gradient-to-br from-green-400  to-emerald-600 shadow-lg shadow-green-500/40'
+                : isLgbt   ? 'bg-gradient-to-br from-violet-400 to-indigo-600  shadow-lg shadow-violet-500/40'
+                           : 'bg-gradient-to-br from-pink-400   to-rose-600    shadow-lg shadow-pink-500/40'
+                : isGreen  ? 'bg-gradient-to-br from-green-500  to-emerald-700 shadow-md shadow-green-300/50'
+                : isLgbt   ? 'bg-gradient-to-br from-violet-500 to-indigo-700  shadow-md shadow-violet-300/50'
+                           : 'bg-gradient-to-br from-pink-500   to-rose-700    shadow-md shadow-pink-300/50';
+              const inactiveCircle = isDark ? 'bg-slate-700/80' : 'bg-slate-100';
+              const activeCard = isDark
+                ? isGreen  ? 'bg-green-500/10  border-green-500/50'
+                : isLgbt   ? 'bg-violet-500/10 border-violet-500/50'
+                           : 'bg-pink-500/10   border-pink-500/50'
+                : isGreen  ? 'bg-green-50  border-green-300/70'
+                : isLgbt   ? 'bg-violet-50 border-violet-300/70'
+                           : 'bg-pink-50   border-pink-300/70';
+              const inactiveCard = isDark
+                ? dc.card
+                : 'bg-white border-slate-200/80 hover:bg-slate-50 hover:border-slate-300';
+              const activeLabel = isDark
+                ? isGreen ? 'text-green-400' : isLgbt ? 'text-violet-400' : 'text-pink-400'
+                : isGreen ? 'text-green-700' : isLgbt ? 'text-violet-700' : 'text-pink-700';
+              const inactiveLabel = isDark ? 'text-slate-400' : 'text-slate-500';
+              return (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page as any)}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-[20px] border transition-all duration-200 active:scale-[0.93] hover:-translate-y-0.5 ${isActive ? activeCard : inactiveCard}`}
+                  style={{ boxShadow: isActive ? (isDark ? '0 4px 20px rgba(0,0,0,0.30)' : '0 4px 16px rgba(0,0,0,0.08)') : 'none' }}
+                >
+                  <div className={`w-12 h-12 rounded-[16px] flex items-center justify-center transition-all duration-200 ${isActive ? activeCircle : inactiveCircle}`}>
+                    <Icon className={`w-6 h-6 ${iconColor(isActive)}`} />
+                  </div>
+                  <span className={`text-[11px] font-bold tracking-tight leading-none ${isActive ? activeLabel : inactiveLabel}`}>
+                    {label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+       )}
+
+{/* Recent Transactions - Below Nav Buttons */}
+        {currentPage === 'home' && (
+<div className={`mt-4 rounded-xl sm:rounded-2xl p-4 sm:p-5 ${
+            isDark ? dc.card : 'bg-white border border-slate-200'
+          }`}>
+            <h3 className={`text-base sm:text-lg font-bold mb-3 sm:mb-4 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
+              Recent Transactions
+            </h3>
+            {expenses.length === 0 ? (
+              <div className="text-center py-6 sm:py-8">
+                <Receipt className={`w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-2 sm:mb-3 ${isDark ? 'text-slate-700' : 'text-slate-300'}`} />
+                <p className={`text-xs sm:text-sm font-medium ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                  No transactions yet
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2 sm:space-y-3">
+                  {expenses.slice(0, showAllTransactions ? expenses.length : 5).map((expense) => {
+                    const category = EXPENSE_CATEGORIES.find(c => c.id === expense.category);
+                    const CategoryIcon = category?.icon || Receipt;
+                    const CatIllu = CategoryIllustrations[expense.category];
+                    return (
+                      <div
+                        key={expense.id}
+                        className={`flex items-center justify-between p-2.5 sm:p-3 rounded-lg sm:rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98] ${
+                          isGreen ? 'bg-gradient-to-r from-green-800 via-green-700 to-green-900 hover:from-green-700 hover:to-green-800'
+                          : isLgbt ? 'hover:opacity-90'
+                                   : 'bg-pink-500 hover:bg-pink-400'
+                        }`}
+                        style={isLgbt ? { background: 'linear-gradient(135deg, #ef4444, #f97316, #eab308, #22c55e, #3b82f6, #8b5cf6, #ec4899)' } : {}}
+                      >
+                        <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                          <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl flex-shrink-0 flex items-center justify-center ${
+                            isDark ? 'bg-slate-700' : 'bg-slate-100'
+                          }`}>
+                            {CatIllu
+                              ? <CatIllu size={22} />
+                              : <CategoryIcon className="w-4 h-4 sm:w-5 sm:h-5" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`font-bold text-xs sm:text-sm truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                              {expense.description}
+                            </p>
+                            <div className="flex items-center gap-1.5 sm:gap-2 mt-0.5">
+                              <span className={`text-xs font-medium px-1.5 sm:px-2 py-0.5 rounded truncate max-w-[100px] ${
+                                isDark ? 'bg-slate-700 text-slate-400' : 'bg-slate-200 text-slate-600'
+                              }`}>
+                                {category?.label}
+                              </span>
+                              <span className="text-xs font-semibold text-white/90">
+                                {new Date(expense.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <span className={`text-base sm:text-lg font-black flex-shrink-0 ml-2 ${
+                          isDark ? 'text-red-800' : 'text-red-600'
+                        }`}>
+                          -{currencySymbol}{expense.amount.toFixed(2)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex gap-2 mt-3 sm:mt-4">
+                  {expenses.length > 5 && (
+                    <button
+                      onClick={() => setShowAllTransactions(prev => !prev)}
+                      className={`flex-1 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-bold text-xs sm:text-sm transition active:scale-[0.98] ${
+                        isDark ? dc.btnSecondary : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {showAllTransactions ? `Show Less ↑` : `Show All ${expenses.length} ↓`}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setCurrentPage('money')}
+                    className={`flex-1 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-bold text-xs sm:text-sm transition active:scale-[0.98] ${
+                      isDark ? dc.btnSecondary : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    Money Tab →
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+
+
+
+
+
+        {/* Content Container */}
+        <div className="relative">
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9961,7 +21672,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
               
       
                {/* 🆕 Habit Health Card - NOW INSIDE HABITS TAB */}
-              <div className={`mb-6 p-6 rounded-3xl border-2 shadow-lg ${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`}>
+              <div className={`mb-6 p-6 rounded-3xl border-2 shadow-lg ${isDark ? dc.card : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`}>
                 <div className="flex justify-between items-end mb-4">
                   <div>
                     <div className="flex items-center gap-2 mb-1">
@@ -9978,7 +21689,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                 </div>
                 
                 {/* Progress Bar */}
-                <div className={`h-6 w-full rounded-full overflow-hidden p-1 mb-4 ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                <div className={`h-6 w-full rounded-full overflow-hidden p-1 mb-4 ${isDark ? dc.tabBar : 'bg-slate-100'}`}>
                   <div 
                     className={`h-full rounded-full transition-all duration-1000 ease-out relative shadow-sm ${progress === 100 ? (isGreen ? 'shadow-[0_0_15px_rgba(16,185,129,0.6)]' : isLgbt ? 'shadow-[0_0_15px_rgba(99,102,241,0.6)]' : 'shadow-[0_0_15px_rgba(236,72,153,0.6)]') : ''} ${isDark ? (isGreen ? 'bg-gradient-to-r from-green-500 to-emerald-400' : isLgbt ? 'bg-gradient-to-r from-red-500 via-green-500 to-blue-500' : 'bg-gradient-to-r from-pink-500 to-rose-400') : (isGreen ? 'bg-gradient-to-r from-green-600 to-emerald-600' : isLgbt ? 'bg-gradient-to-r from-red-500 via-green-500 to-blue-600' : 'bg-gradient-to-r from-pink-600 to-rose-600')}`}
                     style={{ width: `${progress}%` }}
@@ -9990,17 +21701,45 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 {/* Stats Grid */}
                 <div className="grid grid-cols-3 gap-3">
-                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'}`}>
                     <div className={`w-8 h-8 rounded-xl flex items-center justify-center mb-2 ${isDark ? (isGreen ? 'bg-green-900/40 text-green-300' : isLgbt ? 'bg-indigo-900/40 text-indigo-300' : 'bg-pink-900/40 text-pink-300') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-indigo-100 text-indigo-600' : 'bg-pink-100 text-pink-600')}`}>
                       <Layout className="w-4 h-4" />
                     </div>
-                    <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Total</p>
+                    <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-pink-400' : 'text-slate-400'}`}>Total</p>
                     <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{habits.length}</p>
                   </div>
                   
-                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'}`}>
                     <div className={`w-8 h-8 rounded-xl flex items-center justify-center mb-2 ${isDark ? (isGreen ? 'bg-emerald-900/40 text-emerald-300' : isLgbt ? 'bg-purple-900/40 text-purple-300' : 'bg-rose-900/40 text-rose-300') : (isGreen ? 'bg-emerald-100 text-emerald-600' : isLgbt ? 'bg-purple-100 text-purple-600' : 'bg-rose-100 text-rose-600')}`}>
                       <CheckCircle2 className="w-4 h-4" />
                     </div>
@@ -10008,7 +21747,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                     <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{completedToday}</p>
                   </div>
                   
-                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                  <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'}`}>
                     <div className={`w-8 h-8 rounded-xl flex items-center justify-center mb-2 ${isDark ? (isGreen ? 'bg-green-900/40 text-green-300' : isLgbt ? 'bg-orange-900/40 text-orange-300' : 'bg-pink-900/40 text-pink-300') : (isGreen ? 'bg-green-100 text-green-600' : isLgbt ? 'bg-orange-100 text-orange-600' : 'bg-pink-100 text-pink-600')}`}>
                       <Flame className="w-4 h-4" />
                     </div>
@@ -10041,18 +21780,32 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                     
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                     {/* Create Custom Habit Button */}
                     <button 
                       onClick={() => setIsAdding(true)}
                       className={`group py-5 border-2 border-dashed rounded-3xl font-bold transition flex items-center justify-center gap-3 text-lg ${
                         isDark 
-                          ? (isGreen ? 'border-slate-800 text-slate-500 hover:border-green-500 hover:text-green-300 hover:bg-slate-900' : isLgbt ? 'border-slate-800 text-slate-500 hover:border-indigo-500 hover:text-indigo-300 hover:bg-slate-900' : 'border-slate-800 text-slate-500 hover:border-pink-500 hover:text-pink-300 hover:bg-slate-900') 
+                          ? dc.cardInner 
                           : (isGreen ? 'border-green-200 text-green-400 hover:border-green-400 hover:text-green-600 hover:bg-green-50' : isLgbt ? 'border-indigo-200 text-indigo-400 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50' : 'border-pink-200 text-pink-400 hover:border-pink-400 hover:text-pink-600 hover:bg-pink-50')
                       }`}
                     >
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center transition ${
                         isDark 
-                          ? (isGreen ? 'bg-slate-800 group-hover:bg-green-900/50' : isLgbt ? 'bg-slate-800 group-hover:bg-indigo-900/50' : 'bg-slate-800 group-hover:bg-pink-900/50') 
+                          ? dc.cardInner 
                           : (isGreen ? 'bg-green-100 group-hover:bg-green-200' : isLgbt ? 'bg-indigo-100 group-hover:bg-indigo-200' : 'bg-pink-100 group-hover:bg-pink-200')
                       }`}>
                         <Plus className="w-5 h-5" />
@@ -10061,7 +21814,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                     </button>
                   </div>
                 ) : (
-                  <form onSubmit={addHabit} className={`p-6 rounded-3xl shadow-xl border animate-pop ${isDark ? 'bg-slate-900 border-slate-700 shadow-slate-950' : (isGreen ? 'bg-white shadow-green-100 border-green-100' : isLgbt ? 'bg-white shadow-indigo-100 border-indigo-100' : 'bg-white shadow-pink-100 border-pink-100')}`}>
+                  <form onSubmit={addHabit} className={`p-6 rounded-3xl shadow-xl border animate-pop ${isDark ? `${dc.card} shadow-black/40` : (isGreen ? 'bg-white shadow-green-100 border-green-100' : isLgbt ? 'bg-white shadow-indigo-100 border-indigo-100' : 'bg-white shadow-pink-100 border-pink-100')}`}>
                     <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>What's your new goal?</h3>
                     
                     <div className="space-y-5">
@@ -10071,12 +21824,40 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                         placeholder="e.g., Meditate for 10 mins..."
                         className={`w-full px-5 py-4 rounded-2xl border-2 outline-none transition font-medium text-lg ${
                           isDark 
-                            ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400') 
+                            ? dc.input 
                             : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500 focus:bg-white' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500 focus:bg-white' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500 focus:bg-white')
                         }`}
                         value={newHabitTitle}
                         onChange={(e: ChangeEvent<HTMLInputElement>) => setNewHabitTitle(e.target.value)}
                       />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10096,7 +21877,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                                 className={`aspect-square rounded-xl flex items-center justify-center transition border-2 ${
                                   isSelected 
                                     ? `${isGreen ? 'border-green-500 bg-green-500/20 text-green-500' : isLgbt ? 'border-indigo-500 bg-indigo-500/20 text-indigo-500' : 'border-pink-500 bg-pink-500/20 text-pink-500'} scale-110 shadow-sm` 
-                                    : `${isDark ? 'border-slate-800 text-slate-500 hover:bg-slate-800 hover:text-slate-300' : 'border-slate-100 text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`
+                                    : `${isDark ? dc.btnGhost : 'border-slate-100 text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`
                                 }`}
                               >
                                 <Icon className="w-5 h-5" />
@@ -10105,6 +21886,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                           })}
                         </div>
                       </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10119,7 +21928,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                         <button 
                           type="button" 
                           onClick={() => setIsAdding(false)}
-                          className={`px-6 py-3.5 font-bold rounded-2xl transition hover:bg-opacity-80 ${isDark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'}`}
+                          className={`px-6 py-3.5 font-bold rounded-2xl transition hover:bg-opacity-80 ${isDark ? dc.btnClose : 'text-slate-500 hover:bg-slate-100'}`}
                         >
                           Cancel
                         </button>
@@ -10128,6 +21937,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                   </form>
                 )}
               </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10156,7 +21993,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                           onChange={(e) => setSearchQuery(e.target.value)}
                         className={`w-full px-4 py-3 pl-11 rounded-xl border-2 outline-none transition font-medium ${
                           isDark 
-                            ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400 placeholder-slate-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400 placeholder-slate-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400 placeholder-slate-500') 
+                            ? dc.input 
                             : (isGreen ? 'bg-white border-green-200 text-slate-900 focus:border-green-500 placeholder-slate-400' : isLgbt ? 'bg-white border-indigo-200 text-slate-900 focus:border-indigo-500 placeholder-slate-400' : 'bg-white border-pink-200 text-slate-900 focus:border-pink-500 placeholder-slate-400')
                         }`}
                       />
@@ -10177,14 +22014,42 @@ const yearlyAnalytics = getYearlyData(selectedYear);
               )}
               
               <div className="grid gap-5">
-                {loading && <SkeletonLoader />}
+                {loading && <HabitSkeletonLoader />}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
 
                 {!loading && habits.length === 0 && !isAdding && (
-                  <div className={`text-center py-16 rounded-3xl border border-dashed ${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-200' : isLgbt ? 'bg-white border-indigo-200' : 'bg-white border-pink-200')}`}>
-                    <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 animate-float ${isDark ? 'bg-slate-800 text-slate-600' : (isGreen ? 'bg-green-50 text-green-300' : isLgbt ? 'bg-indigo-50 text-indigo-300' : 'bg-pink-50 text-pink-300')}`}>
+                  <div className={`text-center py-16 rounded-3xl border border-dashed ${isDark ? dc.card : (isGreen ? 'bg-white border-green-200' : isLgbt ? 'bg-white border-indigo-200' : 'bg-white border-pink-200')}`}>
+                    <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 animate-float ${isDark ? dc.iconBox : (isGreen ? 'bg-green-50 text-green-300' : isLgbt ? 'bg-indigo-50 text-indigo-300' : 'bg-pink-50 text-pink-300')}`}>
                       <Calendar className="w-10 h-10" />
                     </div>
                     <h3 className={`text-xl font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>It's quiet here...</h3>
@@ -10195,9 +22060,37 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 {!loading && habits.length > 0 && filteredHabits.length === 0 && (
-                  <div className={`text-center py-16 rounded-3xl border border-dashed ${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-200' : isLgbt ? 'bg-white border-indigo-200' : 'bg-white border-pink-200')}`}>
-                    <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 ${isDark ? 'bg-slate-800 text-slate-600' : (isGreen ? 'bg-green-50 text-green-300' : isLgbt ? 'bg-indigo-50 text-indigo-300' : 'bg-pink-50 text-pink-300')}`}>
+                  <div className={`text-center py-16 rounded-3xl border border-dashed ${isDark ? dc.card : (isGreen ? 'bg-white border-green-200' : isLgbt ? 'bg-white border-indigo-200' : 'bg-white border-pink-200')}`}>
+                    <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 ${isDark ? dc.iconBox : (isGreen ? 'bg-green-50 text-green-300' : isLgbt ? 'bg-indigo-50 text-indigo-300' : 'bg-pink-50 text-pink-300')}`}>
                       <Target className="w-10 h-10" />
                     </div>
                     <h3 className={`text-xl font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>No habits found</h3>
@@ -10214,6 +22107,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                     </button>
                   </div>
                 )}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10235,7 +22156,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                         key={habit.id}
                         onSubmit={saveEditedHabit}
                         className={`p-6 rounded-3xl border-2 shadow-lg animate-pop ${
-                          isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-100'
+                          isDark ? dc.card : 'bg-white border-slate-100'
                         }`}
                       >
                         <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>
@@ -10250,12 +22171,40 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                             maxLength={100}
                             className={`w-full px-5 py-4 rounded-2xl border-2 outline-none transition font-medium text-lg ${
                               isDark 
-                                ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400') 
+                                ? dc.input 
                                 : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500 focus:bg-white' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500 focus:bg-white' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500 focus:bg-white')
                             }`}
                             value={editTitle}
                             onChange={(e: ChangeEvent<HTMLInputElement>) => setEditTitle(e.target.value)}
                           />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10276,7 +22225,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                                     className={`aspect-square rounded-xl flex items-center justify-center transition border-2 ${
                                       isSelected 
                                         ? `${isGreen ? 'border-green-500 bg-green-500/20 text-green-500' : isLgbt ? 'border-indigo-500 bg-indigo-500/20 text-indigo-500' : 'border-pink-500 bg-pink-500/20 text-pink-500'} scale-110 shadow-sm` 
-                                        : `${isDark ? 'border-slate-800 text-slate-500 hover:bg-slate-800 hover:text-slate-300' : 'border-slate-100 text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`
+                                        : `${isDark ? dc.btnGhost : 'border-slate-100 text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`
                                     }`}
                                   >
                                     <Icon className="w-5 h-5" />
@@ -10285,6 +22234,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                               })}
                             </div>
                           </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10304,7 +22281,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                               type="button" 
                               onClick={cancelEditing}
                               className={`px-6 py-3.5 font-bold rounded-2xl transition ${
-                                isDark ? 'text-slate-400 hover:bg-slate-800' : 'text-slate-500 hover:bg-slate-100'
+                                isDark ? dc.btnClose : 'text-slate-500 hover:bg-slate-100'
                               }`}
                             >
                               Cancel
@@ -10321,11 +22298,39 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                       style={{ animationDelay: `${idx * 0.05}s` }}
                       className={`group relative p-4 sm:p-6 rounded-2xl sm:rounded-3xl border-2 transition-all duration-300 animate-pop ${
                         isCompletedToday 
-                          ? `${isDark ? 'bg-slate-900 border-slate-800' : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`
+                          ? `${isDark ? dc.card : (isGreen ? 'bg-white border-green-100' : isLgbt ? 'bg-white border-indigo-100' : 'bg-white border-pink-100')}`
                           : `${isDark ? 'bg-slate-900 border-slate-900 hover:border-slate-700 hover:shadow-lg hover:shadow-slate-900' : (isGreen ? 'bg-white border-white hover:border-green-100 hover:shadow-lg hover:shadow-green-100' : isLgbt ? 'bg-white border-white hover:border-indigo-100 hover:shadow-lg hover:shadow-indigo-100' : 'bg-white border-white hover:border-pink-100 hover:shadow-lg hover:shadow-pink-100')} shadow-sm`
                       }`}
                     >
                       <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition duration-500 rounded-3xl bg-gradient-to-r ${themeBase.light.bg.replace('bg-', 'from-white via-white to-')}/30 pointer-events-none`}></div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10361,12 +22366,40 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                           {/* Mobile Actions */}
                           <div className="flex items-center gap-1 flex-shrink-0">
                             <button
                               onClick={() => startEditingHabit(habit)}
                               className={`p-2.5 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center ${
-                                isDark ? 'text-slate-600 hover:bg-slate-800 hover:text-slate-400' : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
+                                isDark ? dc.btnGhost : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
                               }`}
                             >
                               <Edit2 className="w-4 h-4" />
@@ -10377,7 +22410,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                               className={`p-2.5 rounded-xl transition min-w-[44px] min-h-[44px] flex items-center justify-center ${
                                 habit.reminderEnabled
                                   ? (isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
-                                  : (isDark ? 'text-slate-600 hover:bg-slate-800' : 'text-slate-300 hover:bg-slate-100')
+                                  : (isDark ? dc.btnGhost : 'text-slate-300 hover:bg-slate-100')
                               }`}
                             >
                               <span className="text-base">{habit.reminderEnabled ? '🔔' : '🔕'}</span>
@@ -10399,10 +22432,66 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                         <div className="w-full">
                           <WeeklyProgress completedDates={habit.completedDates} />
                         </div>
                       </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10437,12 +22526,40 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                         <div className="flex items-center gap-4">
                           <WeeklyProgress completedDates={habit.completedDates} />
                           <button
                             onClick={() => startEditingHabit(habit)}
                             className={`opacity-0 group-hover:opacity-100 transition-opacity p-3 rounded-xl ${
-                              isDark ? 'text-slate-600 hover:bg-slate-800 hover:text-slate-400' : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
+                              isDark ? dc.btnGhost : 'text-slate-300 hover:bg-slate-100 hover:text-slate-600'
                             }`}
                             title="Edit Habit"
                           >
@@ -10453,7 +22570,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                             className={`p-3 rounded-xl transition ${
                               habit.reminderEnabled
                                 ? (isDark ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-600')
-                                : (isDark ? 'text-slate-600 hover:bg-slate-800' : 'text-slate-300 hover:bg-slate-100')
+                                : (isDark ? dc.btnGhost : 'text-slate-300 hover:bg-slate-100')
                             }`}
                             title={habit.reminderEnabled ? "Reminder On" : "Reminder Off"}
                           >
@@ -10481,6 +22598,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
             {/* TO-DO LIST PAGE */}
             <div className={`transition-all duration-300 ${currentPage === 'todos' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'}`}>
               <div className="mb-6">
@@ -10489,7 +22634,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                 </h2>
                 
                 {/* Add Todo Form */}
-<form onSubmit={addTodo} className={`p-4 rounded-2xl border-2 mb-6 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
+<form onSubmit={addTodo} className={`p-4 rounded-2xl border-2 mb-6 ${isDark ? dc.card : 'bg-white border-slate-100'}`}>
   <div className="space-y-3">
     <div className="flex gap-3">
       <input
@@ -10499,7 +22644,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
         onChange={(e) => setNewTodoTitle(e.target.value)}
         className={`flex-1 px-4 py-3 rounded-xl border-2 outline-none transition font-medium ${
           isDark 
-            ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400 placeholder-slate-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400 placeholder-slate-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400 placeholder-slate-500') 
+            ? dc.input 
             : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500 placeholder-slate-400' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500 placeholder-slate-400' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500 placeholder-slate-400')
         }`}
       />
@@ -10521,7 +22666,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
         onChange={(e) => setNewTodoDueDate(e.target.value)}
         className={`flex-1 px-4 py-3 rounded-xl border-2 outline-none transition font-medium ${
           isDark 
-            ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400') 
+            ? dc.input 
             : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500')
         }`}
       />
@@ -10529,7 +22674,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
         value={newTodoPriority}
         onChange={(e) => setNewTodoPriority(e.target.value as 'low' | 'medium' | 'high')}
         className={`px-4 py-3 rounded-xl border-2 outline-none transition font-bold ${
-           isDark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
+           isDark ? 'bg-pink-950/60 border-pink-900/50 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
            }`}
            >
               <option value="low">Low</option>
@@ -10544,11 +22689,39 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
               {/* Todo Items */}
               <div className="grid gap-3">
                 {todos.length === 0 ? (
-                  <div className={`text-center py-16 rounded-3xl border border-dashed ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
-                    <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 ${isDark ? 'bg-slate-800 text-slate-600' : 'bg-slate-100 text-slate-400'}`}>
+                  <div className={`text-center py-16 rounded-3xl border border-dashed ${isDark ? dc.card : 'bg-white border-slate-200'}`}>
+                    <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 ${isDark ? dc.iconBox : 'bg-slate-100 text-slate-400'}`}>
                       <CheckCircle2 className="w-10 h-10" />
                     </div>
                     <h3 className={`text-xl font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>No tasks yet</h3>
@@ -10561,8 +22734,8 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                       style={{ animationDelay: `${idx * 0.05}s` }}
                       className={`p-4 rounded-2xl border-2 transition-all animate-pop ${
                         todo.completed
-                          ? (isDark ? 'bg-slate-900 border-slate-800 opacity-60' : 'bg-slate-50 border-slate-200 opacity-60')
-                          : (isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100')
+                          ? (isDark ? `${dc.card} opacity-60` : 'bg-slate-50 border-slate-200 opacity-60')
+                          : (isDark ? dc.card : 'bg-white border-slate-100')
                       }`}
                     >
                       <div className="flex items-center gap-3">
@@ -10574,7 +22747,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                                   ? (isGreen ? 'bg-green-500 border-green-500' : isLgbt ? 'bg-indigo-500 border-indigo-500' : 'bg-pink-500 border-pink-500')
                                   : (isGreen ? 'bg-green-600 border-green-600' : isLgbt ? 'bg-indigo-600 border-indigo-600' : 'bg-pink-600 border-pink-600')
                                 )
-                              : (isDark ? 'border-slate-700 hover:border-slate-600' : 'border-slate-300 hover:border-slate-400')
+                              : (isDark ? `${dc.divider} hover:border-opacity-80` : 'border-slate-300 hover:border-slate-400')
                           }`}
                         >
                           {todo.completed && <Check className="w-4 h-4 text-white" />}
@@ -10600,7 +22773,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                           <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${
                             new Date(todo.dueDate) < new Date() && !todo.completed
                            ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                           : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                           : 'bg-slate-100 text-slate-700 dark:bg-pink-950/60 dark:text-pink-100'
                           }`}>
                       📅 DEADLINE: {new Date(todo.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                        </span>
@@ -10632,7 +22805,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
   </h2>
   
   {/* Analytics Tabs */}
-  <div className={`flex gap-2 p-1.5 rounded-2xl ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+  <div className={`flex gap-2 p-1.5 rounded-2xl ${isDark ? dc.tabBar : 'bg-slate-100'}`}>
     {[
       { id: 'overview', label: 'Overview', icon: PieChart },
       { id: 'monthly', label: 'Monthly', icon: Calendar },
@@ -10663,9 +22836,37 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 {/* Today's Budget Card */}
                 <div className={`mb-6 p-6 rounded-3xl border-2 shadow-lg ${
-                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'
+                  isDark ? dc.card : 'bg-white border-slate-100'
                 }`}>
                   <div className="flex items-center justify-between mb-4">
                     <div>
@@ -10686,7 +22887,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                     <button
                       onClick={() => setShowAllowanceModal(true)}
                       className={`p-3 rounded-xl transition ${
-                        isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-400' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                        isDark ? dc.btnSecondary : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
                       }`}
                       title="Edit Daily Allowance"
                     >
@@ -10697,9 +22898,37 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                   {/* Progress Bar */}
                   <div className={`h-4 w-full rounded-full overflow-hidden mb-3 ${
-                    isDark ? 'bg-slate-800' : 'bg-slate-100'
+                    isDark ? dc.tabBar : 'bg-slate-100'
                   }`}>
                     <div
                       className={`h-full rounded-full transition-all duration-1000 ${
@@ -10715,6 +22944,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                       style={{ width: `${Math.min((todaySpent / dailyAllowance) * 100, 100)}%` }}
                     ></div>
                   </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10743,9 +23000,37 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 {/* Quick Add Expense */}
                 <form onSubmit={addExpense} className={`p-5 rounded-2xl border-2 mb-6 ${
-                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'
+                  isDark ? dc.card : 'bg-white border-slate-100'
                 }`}>
                   <h3 className={`font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
                     <Plus className="w-5 h-5" />
@@ -10762,7 +23047,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                         onChange={(e) => setNewExpenseAmount(e.target.value)}
                         className={`px-4 py-3 rounded-xl border-2 outline-none transition font-bold text-lg ${
                           isDark 
-                            ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400 placeholder-slate-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400 placeholder-slate-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400 placeholder-slate-500')
+                            ? dc.input
                             : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500 placeholder-slate-400' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500 placeholder-slate-400' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500 placeholder-slate-400')
                         }`}
                       />
@@ -10771,7 +23056,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                         onChange={(e) => setNewExpenseCategory(e.target.value)}
                         className={`px-4 py-3 rounded-xl border-2 outline-none transition font-bold ${
                           isDark 
-                            ? 'bg-slate-800 border-slate-700 text-white'
+                            ? 'bg-pink-950/60 border-pink-900/50 text-white'
                             : 'bg-slate-50 border-slate-200 text-slate-900'
                         }`}
                       >
@@ -10784,6 +23069,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                     <input
                       type="text"
                       placeholder="Description (optional)"
@@ -10791,7 +23104,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                       onChange={(e) => setNewExpenseDescription(e.target.value)}
                       className={`w-full px-4 py-3 rounded-xl border-2 outline-none transition font-medium ${
                         isDark 
-                          ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400 placeholder-slate-500' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400 placeholder-slate-500' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400 placeholder-slate-500')
+                          ? dc.input
                           : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500 placeholder-slate-400' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500 placeholder-slate-400' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500 placeholder-slate-400')
                       }`}
                     />
@@ -10799,10 +23112,38 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                     <div className="space-y-3">
   {/* 📸 PHASE 3: Image Upload */}
   <div className={`p-4 rounded-xl border-2 border-dashed ${
-    isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'
+    isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'
   }`}>
     <label className="cursor-pointer flex items-center gap-3">
       <input
@@ -10856,6 +23197,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   <div className="flex gap-3">
     <input
       type="date"
@@ -10863,7 +23232,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
       onChange={(e) => setNewExpenseDate(e.target.value)}
       className={`flex-1 px-4 py-3 rounded-xl border-2 outline-none transition font-medium ${
         isDark 
-          ? 'bg-slate-800 border-slate-700 text-white'
+          ? 'bg-pink-950/60 border-pink-900/50 text-white'
           : 'bg-slate-50 border-slate-200 text-slate-900'
       }`}
     />
@@ -10895,9 +23264,37 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 {/* Weekly Overview */}
                 <div className={`p-5 rounded-2xl border-2 mb-6 ${
-                  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'
+                  isDark ? dc.card : 'bg-white border-slate-100'
                 }`}>
                   <h3 className={`font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
                     <BarChart3 className="w-5 h-5" />
@@ -10926,7 +23323,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                             ></div>
                             {day.spent > 0 && (
                               <div className={`absolute -top-8 left-1/2 -translate-x-1/2 text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded whitespace-nowrap ${
-                              isDark ? 'bg-slate-800' : 'bg-white shadow-lg'
+                              isDark ? dc.cardInner : 'bg-white shadow-lg'
                               }`}>
                               {currencySymbol}{day.spent.toFixed(0)}
                             </div>
@@ -10943,7 +23340,35 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
-                  <div className={`flex items-center justify-between pt-4 border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                  <div className={`flex items-center justify-between pt-4 border-t ${isDark ? dc.divider : 'border-slate-100'}`}>
                     <div>
                       <p className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
                         Weekly Total
@@ -10981,6 +23406,20 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 </div>
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 {/* 🔮 SPENDING PREDICTIONS */}
 {expenses.length >= 5 && (
   <div className="mb-6">
@@ -10995,6 +23434,20 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 )}
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 {/* 🆕 PHASE 1: Budget Limits Section */}
                 <div className="mb-6">
                   <BudgetLimitsSection
@@ -11006,6 +23459,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                     onEditBudgets={() => setShowBudgetModal(true)}
                   />
                 </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11024,16 +23505,72 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 {/* 🆕 PHASE 1: Category Pie Chart */}
                 <div className="mb-6">
                   <CategoryPieChart
-                    data={getCategoryPieData()}
+                    data={getCategoryPieData(expenses)}
                     currencySymbol={currencySymbol}
                     isDark={isDark}
                     isGreen={isGreen}
                     isLgbt={isLgbt}
                   />
                 </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11114,19 +23651,57 @@ const yearlyAnalytics = getYearlyData(selectedYear);
     <div className="relative">
   <button
     onClick={() => setShowExportMenu(!showExportMenu)}
-    className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold transition ${
-      isDark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+    className={`flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-2xl font-bold transition-all duration-200 active:scale-95 border ${
+      isDark
+        ? 'bg-slate-800/80 border-slate-700 hover:border-slate-500 text-slate-200'
+        : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700 shadow-sm'
     }`}
   >
-    <Download className="w-4 h-4" />
-    Export Data
-    <ChevronRight className={`w-4 h-4 transition-transform ${showExportMenu ? 'rotate-90' : ''}`} />
+    {/* Illustrated export icon */}
+    <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${isDark ? 'bg-slate-700' : 'bg-slate-50'}`}>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <defs>
+          <linearGradient id="exp-btn-doc" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#e2e8f0"/>
+            <stop offset="100%" stopColor="#cbd5e1"/>
+          </linearGradient>
+          <linearGradient id="exp-btn-arrow" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#60a5fa"/>
+            <stop offset="100%" stopColor="#2563eb"/>
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="11" height="14" rx="2" fill="url(#exp-btn-doc)" stroke="#94a3b8" strokeWidth="0.8"/>
+        <path d="M9 2 L13 6 L9 6 Z" fill="#94a3b8" opacity="0.6"/>
+        <line x1="4.5" y1="9" x2="10" y2="9" stroke="#94a3b8" strokeWidth="1" strokeLinecap="round"/>
+        <line x1="4.5" y1="11.5" x2="8.5" y2="11.5" stroke="#94a3b8" strokeWidth="1" strokeLinecap="round"/>
+        <circle cx="15" cy="15" r="4.5" fill="url(#exp-btn-arrow)"/>
+        <path d="M15 12.5 L15 17.5 M13 15.5 L15 17.5 L17 15.5" stroke="white" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    </div>
+    <span className="text-sm">Export</span>
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={`transition-transform duration-200 ${showExportMenu ? 'rotate-180' : ''}`}>
+      <path d="M3 5 L7 9 L11 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
   </button>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
   {showExportMenu && (
     <div className={`absolute top-full right-0 mt-2 w-56 rounded-xl shadow-2xl border-2 overflow-hidden z-50 ${
-      isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'
+      isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-white border-slate-200'
     }`}>
       <button
         onClick={() => {
@@ -11147,13 +23722,27 @@ const yearlyAnalytics = getYearlyData(selectedYear);
       </button>
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
       <button
         onClick={() => {
           exportAllData();
           setShowExportMenu(false);
         }}
         className={`w-full px-4 py-3 text-left flex items-center gap-3 transition border-t ${
-          isDark ? 'hover:bg-slate-700 text-slate-300 border-slate-700' : 'hover:bg-slate-50 text-slate-700 border-slate-200'
+          isDark ? `${dc.btnSecondary} ${dc.divider}` : 'hover:bg-slate-50 text-slate-700 border-slate-200'
         }`}
       >
         <Shield className="w-4 h-4" />
@@ -11166,13 +23755,27 @@ const yearlyAnalytics = getYearlyData(selectedYear);
       </button>
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
       <button
         onClick={() => {
           fileInputRef.current?.click();
           setShowExportMenu(false);
         }}
         className={`w-full px-4 py-3 text-left flex items-center gap-3 transition border-t ${
-          isDark ? 'hover:bg-slate-700 text-green-400 border-slate-700' : 'hover:bg-slate-50 text-green-600 border-slate-200'
+          isDark ? `${dc.hoverSurface} text-green-400 ${dc.divider}` : 'hover:bg-slate-50 text-green-600 border-slate-200'
         }`}
       >
         <Upload className="w-4 h-4" />
@@ -11185,6 +23788,20 @@ const yearlyAnalytics = getYearlyData(selectedYear);
       </button>
     </div>
   )}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
   {/* Hidden File Input */}
@@ -11200,10 +23817,10 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                   
                   {expenses.length === 0 ? (
                     <div className={`text-center py-12 rounded-2xl border-2 border-dashed ${
-                      isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                      isDark ? dc.card : 'bg-white border-slate-200'
                     }`}>
                       <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3 ${
-                        isDark ? 'bg-slate-800 text-slate-600' : 'bg-slate-100 text-slate-400'
+                        isDark ? dc.iconBox : 'bg-slate-100 text-slate-400'
                       }`}>
                         <Receipt className="w-8 h-8" />
                       </div>
@@ -11217,13 +23834,17 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                         const CategoryIcon = category?.icon || Target;
                         
                         return (
-                          <div
-                            key={expense.id}
-                            style={{ animationDelay: `${idx * 0.05}s` }}
-                            className={`p-4 rounded-2xl border-2 transition-all animate-pop flex items-center justify-between ${
-                              isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'
-                            }`}
-                          >
+  <SwipeToDeleteWrapper
+    key={expense.id}
+    onDelete={() => deleteExpense(expense.id)}
+    className="animate-pop"
+    style={{ animationDelay: `${idx * 0.05}s` }}
+  >
+    <div
+      className={`p-4 rounded-2xl border-2 transition-all flex items-center justify-between ${
+        isDark ? dc.card : 'bg-white border-slate-100'
+      }`}
+    >
                             <div className="flex items-center gap-3 flex-1">
               
   {/* 📸 PHASE 3: Show receipt thumbnail or category icon */}
@@ -11241,7 +23862,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
     </div>
   ) : (
     <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-      isDark ? 'bg-slate-800' : 'bg-slate-100'
+      isDark ? dc.tabBar : 'bg-slate-100'
     }`}>
       <CategoryIcon className={`w-5 h-5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`} />
     </div>
@@ -11252,7 +23873,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
     </p>
                                 <div className="flex items-center gap-2 mt-1">
                                   <span className={`text-xs font-bold px-2 py-0.5 rounded ${
-                                    isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'
+                                    isDark ? dc.btnSecondary : 'bg-slate-100 text-slate-600'
                                   }`}>
                                     {category?.label}
                                   </span>
@@ -11282,10 +23903,9 @@ const yearlyAnalytics = getYearlyData(selectedYear);
   ) : (
     <Trash2 className="w-4 h-4" />
   )}
-</button>
-                            </div>
+</button></div>
                           </div>
-                          
+                          </SwipeToDeleteWrapper>
                         );
                       })}
                     </div>
@@ -11307,13 +23927,13 @@ const yearlyAnalytics = getYearlyData(selectedYear);
           }
         }}
         className={`p-3 rounded-xl font-bold transition ${
-          isDark ? 'bg-slate-800 hover:bg-slate-700 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
+          isDark ? dc.btnSecondary : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
         }`}
       >
         ←
       </button>
       <div className={`px-6 py-3 rounded-xl font-black text-xl ${
-        isDark ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-900'
+        isDark ? dc.btnSecondary : 'bg-slate-100 text-slate-900'
       }`}>
         {new Date(selectedYear, selectedMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
       </div>
@@ -11327,7 +23947,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
           }
         }}
         className={`p-3 rounded-xl font-bold transition ${
-          isDark ? 'bg-slate-800 hover:bg-slate-700 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
+          isDark ? dc.btnSecondary : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
         }`}
       >
         →
@@ -11337,22 +23957,50 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     {/* Monthly Summary Cards */}
     <div className="grid grid-cols-3 gap-3">
-      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-        <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Total Spent</div>
+      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'}`}>
+        <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-pink-400' : 'text-slate-400'}`}>Total Spent</div>
         <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
           {currencySymbol}{monthlyAnalytics.totalSpent.toFixed(2)}
         </div>
       </div>
-      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-        <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Budget</div>
+      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'}`}>
+        <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-pink-400' : 'text-slate-400'}`}>Budget</div>
         <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
           {currencySymbol}{monthlyAnalytics.monthlyBudget.toFixed(2)}
         </div>
       </div>
-      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-        <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-slate-50 border-slate-200'}`}>
+        <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-pink-400' : 'text-slate-400'}`}>
           {monthlyAnalytics.saved >= 0 ? 'Saved' : 'Over'}
         </div>
         <div className={`text-2xl font-black ${
@@ -11368,8 +24016,36 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     {/* Daily Spending Chart */}
-    <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
+    <div className={`p-5 rounded-2xl border ${isDark ? dc.card : 'bg-white border-slate-100'}`}>
       <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>Daily Spending</h3>
       <div className="h-64 flex items-end justify-between gap-1">
         {monthlyAnalytics.dailyData.map((day, i) => {
@@ -11395,7 +24071,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                 ></div>
                 {day.spent > 0 && (
                   <div className={`absolute -top-8 left-1/2 -translate-x-1/2 text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded whitespace-nowrap ${
-                    isDark ? 'bg-slate-800' : 'bg-white shadow-lg'
+                    isDark ? dc.cardInner : 'bg-white shadow-lg'
                   }`}>
                     {currencySymbol}{day.spent.toFixed(0)}
                   </div>
@@ -11415,9 +24091,37 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     {/* Category Breakdown */}
     {monthlyAnalytics.categoryTotals.length > 0 && (
-      <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
+      <div className={`p-5 rounded-2xl border ${isDark ? dc.card : 'bg-white border-slate-100'}`}>
         <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>Spending by Category</h3>
         <div className="space-y-3">
           {monthlyAnalytics.categoryTotals
@@ -11466,149 +24170,52 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 {moneyView === 'yearly' && (
-  <div className="space-y-6">
-    {/* Year Selector */}
-    <div className="flex gap-3 items-center justify-center">
-      <button
-        onClick={() => setSelectedYear(selectedYear - 1)}
-        className={`p-3 rounded-xl font-bold transition ${
-          isDark ? 'bg-slate-800 hover:bg-slate-700 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
-        }`}
-      >
-        ←
-      </button>
-      <div className={`px-6 py-3 rounded-xl font-black text-xl ${
-        isDark ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-900'
-      }`}>
-        {selectedYear}
-      </div>
-      <button
-        onClick={() => setSelectedYear(selectedYear + 1)}
-        className={`p-3 rounded-xl font-bold transition ${
-          isDark ? 'bg-slate-800 hover:bg-slate-700 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
-        }`}
-      >
-        →
-      </button>
-    </div>
-
-
-
-
-    {/* Yearly Summary Cards */}
-    <div className="grid grid-cols-3 gap-3">
-      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-        <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Total Spent</div>
-        <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
-          {currencySymbol}{yearlyAnalytics.totalSpent.toFixed(2)}
-        </div>
-      </div>
-      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-        <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Budget</div>
-        <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
-          {currencySymbol}{yearlyAnalytics.yearlyBudget.toFixed(2)}
-        </div>
-      </div>
-      <div className={`p-4 rounded-2xl border ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-        <div className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-          {yearlyAnalytics.saved >= 0 ? 'Saved' : 'Over'}
-        </div>
-        <div className={`text-2xl font-black ${
-          yearlyAnalytics.saved >= 0
-            ? (isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-blue-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-blue-600' : 'text-pink-600'))
-            : 'text-red-500'
-        }`}>
-          {currencySymbol}{Math.abs(yearlyAnalytics.saved).toFixed(2)}
-        </div>
-      </div>
-    </div>
-
-
-
-
-    {/* Monthly Trend Chart */}
-    <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
-      <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>Monthly Spending Trend</h3>
-      <div className="h-64 flex items-end justify-between gap-2">
-        {yearlyAnalytics.monthlyData.map((month, i) => {
-          const maxSpent = Math.max(...yearlyAnalytics.monthlyData.map(m => m.spent), 1);
-          const height = (month.spent / maxSpent) * 100;
-          const isOverBudget = month.spent > month.budget;
-          
-          return (
-            <div key={i} className="flex-1 flex flex-col items-center gap-2 group">
-              <div className="w-full relative flex-1 flex items-end">
-                <div
-                  className={`w-full rounded-t-lg transition-all duration-500 ${
-                    isOverBudget
-                      ? 'bg-red-500 group-hover:bg-red-400'
-                      : month.spent > 0
-                      ? (isDark 
-                          ? (isGreen ? 'bg-green-600 group-hover:bg-green-500' : isLgbt ? 'bg-gradient-to-t from-blue-500 to-purple-500 group-hover:opacity-80' : 'bg-pink-600 group-hover:bg-pink-500')
-                          : (isGreen ? 'bg-green-500 group-hover:bg-green-600' : isLgbt ? 'bg-gradient-to-t from-blue-500 to-purple-500 group-hover:opacity-90' : 'bg-pink-500 group-hover:bg-pink-600')
-                        )
-                      : (isDark ? 'bg-slate-700' : 'bg-slate-200')
-                  }`}
-                  style={{ height: `${height}%`, minHeight: month.spent > 0 ? '8px' : '4px' }}
-                ></div>
-                {month.spent > 0 && (
-                  <div className={`absolute -top-8 left-1/2 -translate-x-1/2 text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded whitespace-nowrap ${
-                    isDark ? 'bg-slate-800' : 'bg-white shadow-lg'
-                  }`}>
-                    {currencySymbol}{month.spent.toFixed(0)}
-                  </div>
-                )}
-              </div>
-              <div className={`text-[10px] font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                {month.month}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-
-
-
-
-    {/* Savings Trend */}
-    <div className={`p-5 rounded-2xl border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'}`}>
-      <h3 className={`font-bold mb-4 text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>Monthly Savings</h3>
-      <div className="h-48 flex items-center justify-between gap-2">
-        {yearlyAnalytics.monthlyData.map((month, i) => {
-          const maxAbsSaved = Math.max(...yearlyAnalytics.monthlyData.map(m => Math.abs(m.saved)), 1);
-          const height = (Math.abs(month.saved) / maxAbsSaved) * 100;
-          const isSavings = month.saved >= 0;
-          
-          return (
-            <div key={i} className="flex-1 flex flex-col items-center group">
-              <div className="w-full h-24 flex items-center relative">
-                <div
-                  className={`w-full rounded-lg transition-all duration-500 ${
-                    isSavings
-                      ? (isDark 
-                          ? (isGreen ? 'bg-green-600 group-hover:bg-green-500' : isLgbt ? 'bg-blue-600 group-hover:bg-blue-500' : 'bg-pink-600 group-hover:bg-pink-500')
-                          : (isGreen ? 'bg-green-500 group-hover:bg-green-600' : isLgbt ? 'bg-blue-500 group-hover:bg-blue-600' : 'bg-pink-500 group-hover:bg-pink-600')
-                        )
-                      : 'bg-red-500 group-hover:bg-red-400'
-                  }`}
-                  style={{ height: `${height}%`, minHeight: '4px' }}
-                ></div>
-                <div className={`absolute left-1/2 -translate-x-1/2 ${isSavings ? '-top-8' : '-bottom-8'} text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 rounded whitespace-nowrap ${
-                  isDark ? 'bg-slate-800' : 'bg-white shadow-lg'
-                }`}>
-                  {currencySymbol}{Math.abs(month.saved).toFixed(0)}
-                </div>
-              </div>
-              <div className={`text-[10px] font-bold mt-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
-                {month.month}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+  <div className={`p-8 rounded-3xl border-2 text-center ${isDark ? dc.card : 'bg-white border-slate-100'}`}>
+    <BarChart3 className={`w-12 h-12 mx-auto mb-3 ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')}`} />
+    <h3 className={`text-lg font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+      Yearly charts have moved to Insights
+    </h3>
+    <p className={`text-sm mb-4 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+      All charts, trends, and AI recommendations are now in one place.
+    </p>
+    <button
+      onClick={() => setCurrentPage('stats')}
+      className={`px-6 py-3 rounded-xl font-bold text-white transition ${
+        isDark
+          ? (isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-indigo-500 hover:bg-indigo-400' : 'bg-pink-500 hover:bg-pink-400')
+          : (isGreen ? 'bg-green-600 hover:bg-green-700' : isLgbt ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-pink-600 hover:bg-pink-700')
+      }`}
+    >
+      Go to Insights →
+    </button>
   </div>
 )}
               {showAllowanceModal && (
@@ -11616,17 +24223,45 @@ const yearlyAnalytics = getYearlyData(selectedYear);
     <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowAllowanceModal(false)}></div>
     
     <div className={`relative w-full max-w-md rounded-3xl shadow-2xl p-6 animate-pop ${
-      isDark ? 'bg-slate-900 border-2 border-slate-800' : 'bg-white border-2 border-slate-100'
+      isDark ? `${dc.card} border-2` : 'bg-white border-2 border-slate-100'
     }`}>
       
       <button 
         onClick={() => setShowAllowanceModal(false)}
         className={`absolute top-4 right-4 p-2 rounded-xl transition ${
-          isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
+          isDark ? dc.btnClose : 'hover:bg-slate-100 text-slate-500'
         }`}
       >
         <X className="w-5 h-5" />
       </button>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11658,6 +24293,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
                   currencySymbol={currencySymbol}
                 />
               )}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11704,6 +24367,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 {/* ✅ ADD DEBT MODAL */}
 <AddDebtModal
   isOpen={showDebtModal}
@@ -11715,7 +24406,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 {showIncomeModal && (
   <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
     <div className={`w-full max-w-md rounded-2xl p-6 ${
-      isDark ? 'bg-slate-800' : 'bg-white'
+      isDark ? dc.modal : 'bg-white'
     }`}>
       <div className="flex items-center justify-between mb-6">
         <h3 className={`font-bold text-2xl ${isDark ? 'text-white' : 'text-slate-900'}`}>
@@ -11730,6 +24421,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
           <X className={`w-5 h-5 ${isDark ? 'text-slate-400' : 'text-slate-600'}`} />
         </button>
       </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11795,6 +24514,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         <input
           type="text"
           name="description"
@@ -11803,6 +24550,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
             isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
           }`}
         />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11816,6 +24591,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
             isDark ? 'bg-slate-700 border-slate-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
           }`}
         />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11834,6 +24637,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
     </div>
   </div>
 )}              
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11887,7 +24718,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
       placeholder="e.g., 50.00"
       className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-bold text-2xl text-center ${
         isDark 
-          ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400')
+          ? dc.input
           : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500')
       }`}
       required
@@ -11895,7 +24726,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
   </div>
   {/* 💰 PHASE 3: Net Worth Card */}
 <div className={`mb-6 p-6 rounded-3xl border-2 shadow-lg ${
-  isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-100'
+  isDark ? dc.card : 'bg-white border-slate-100'
 }`}>
   <div className="text-center">
     <h3 className={`text-sm font-bold uppercase tracking-wider mb-2 ${
@@ -11916,7 +24747,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
   </div>
   
   <div className="grid grid-cols-2 gap-4 mt-6">
-    <div className={`p-4 rounded-xl ${isDark ? 'bg-slate-800' : 'bg-green-50'}`}>
+    <div className={`p-4 rounded-xl ${isDark ? dc.cardInner : 'bg-green-50'}`}>
       <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${
         isDark ? 'text-slate-500' : 'text-green-600'
       }`}>
@@ -11927,7 +24758,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
       </p>
     </div>
     
-    <div className={`p-4 rounded-xl ${isDark ? 'bg-slate-800' : 'bg-red-50'}`}>
+    <div className={`p-4 rounded-xl ${isDark ? dc.cardInner : 'bg-red-50'}`}>
       <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${
         isDark ? 'text-slate-500' : 'text-red-600'
       }`}>
@@ -11954,6 +24785,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   {/* 👇 NEW: Currency Selector - ADD THIS ENTIRE BLOCK */}
   <div>
     <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
@@ -11973,7 +24832,7 @@ const yearlyAnalytics = getYearlyData(selectedYear);
   }}
   className={`w-full px-5 py-4 rounded-xl border-2 outline-none transition font-bold text-lg ${
     isDark 
-      ? (isGreen ? 'bg-slate-800 border-green-900/50 text-white focus:border-green-400' : isLgbt ? 'bg-slate-800 border-indigo-900/50 text-white focus:border-indigo-400' : 'bg-slate-800 border-pink-900/50 text-white focus:border-pink-400')
+      ? dc.input
       : (isGreen ? 'bg-slate-50 border-green-200 text-slate-900 focus:border-green-500' : isLgbt ? 'bg-slate-50 border-indigo-200 text-slate-900 focus:border-indigo-500' : 'bg-slate-50 border-pink-200 text-slate-900 focus:border-pink-500')
   }`}
 >
@@ -11985,6 +24844,34 @@ const yearlyAnalytics = getYearlyData(selectedYear);
 </select>
   </div>
   {/* 👆 END OF NEW CURRENCY SELECTOR */}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -12001,73 +24888,1555 @@ const yearlyAnalytics = getYearlyData(selectedYear);
   </button>
 </form>
     </div>
+    
   </div>
+  
 )}
+
+
+
+{/* ══════════════════════════════════════════════════ */}
+{/* INSIGHTS PAGE — Tabbed Hub                        */}
+{/* ══════════════════════════════════════════════════ */}
+<div className={`transition-all duration-300 ${currentPage === 'stats' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'}`}>
+
+  {/* ── Page Header ── */}
+  <div className="mb-4 text-center">
+    <h2 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>📊 Insights</h2>
+    <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+      Your financial picture, all in one place
+    </p>
+  </div>
+
+  {/* ── Top Tab Bar ── */}
+  <div className={`relative flex gap-2 p-1.5 rounded-2xl mb-5 ${isDark ? 'bg-slate-900/80 border border-slate-800' : 'bg-white/70 border border-slate-200'} backdrop-blur-md shadow-sm`}>
+    {([
+      { id: 'overview', label: 'Overview', emoji: '💰' },
+      { id: 'graphs',   label: 'Graphs',   emoji: '📈' },
+      { id: 'ai',       label: 'AI',        emoji: '🤖' },
+      { id: 'health',   label: 'Health',   emoji: '❤️' },
+    ] as const).map(tab => {
+      const isActive = insightsTab === tab.id;
+      return (
+        <button
+          key={tab.id}
+          onClick={() => setInsightsTab(tab.id)}
+          className={`relative flex-1 flex flex-col items-center gap-0.5 py-3 px-1 rounded-xl font-bold text-xs transition-all duration-300 ease-out select-none ${
+            isActive
+              ? isDark
+                ? isGreen
+                  ? 'bg-gradient-to-b from-green-500 to-green-600 text-white shadow-lg shadow-green-500/40 scale-[1.04]'
+                  : isLgbt
+                  ? 'bg-gradient-to-b from-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-500/40 scale-[1.04]'
+                  : 'bg-gradient-to-b from-pink-500 to-rose-600 text-white shadow-lg shadow-pink-500/40 scale-[1.04]'
+                : isGreen
+                  ? 'bg-gradient-to-b from-green-500 to-green-600 text-white shadow-lg shadow-green-400/50 scale-[1.04]'
+                  : isLgbt
+                  ? 'bg-gradient-to-b from-indigo-500 to-violet-600 text-white shadow-lg shadow-indigo-400/50 scale-[1.04]'
+                  : 'bg-gradient-to-b from-pink-500 to-rose-600 text-white shadow-lg shadow-pink-400/50 scale-[1.04]'
+              : isDark
+                ? 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/60 scale-100'
+                : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100/80 scale-100'
+          }`}
+          style={{ transform: isActive ? 'scale(1.04)' : 'scale(1)', transition: 'all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+        >
+          {/* Fluid shimmer on active */}
+          {isActive && (
+            <span className="absolute inset-0 rounded-xl overflow-hidden pointer-events-none">
+              <span className={`absolute inset-0 opacity-30 animate-pulse rounded-xl ${
+                isGreen ? 'bg-green-300' : isLgbt ? 'bg-indigo-300' : 'bg-pink-300'
+              }`} style={{ animationDuration: '2s' }} />
+            </span>
+          )}
+          <span className="text-base leading-none relative z-10">{tab.emoji}</span>
+          <span className="text-[10px] font-extrabold tracking-wide relative z-10">{tab.label}</span>
+          {/* Active dot indicator */}
+          {isActive && (
+            <span className={`absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${
+              isGreen ? 'bg-green-300' : isLgbt ? 'bg-indigo-300' : 'bg-pink-300'
+            }`} />
+          )}
+        </button>
+      );
+    })}
+  </div>
+
+  {/* ════════════════════════════════ */}
+  {/* TAB 1 — OVERVIEW                */}
+  {/* ════════════════════════════════ */}
+  {insightsTab === 'overview' && (() => {
+    const rangeDays = graphRange === '7D' ? 7 : graphRange === '1M' ? 30 : graphRange === '3M' ? 90 : 365;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - rangeDays);
+    const rangeExpenses = expenses.filter(e => new Date(e.date) >= cutoff);
+    const totalSpent = rangeExpenses.reduce((s, e) => s + e.amount, 0);
+    const budgetTotal = dailyAllowance * rangeDays;
+    const saved = budgetTotal - totalSpent;
+    const savingsRate = budgetTotal > 0 ? Math.round((saved / budgetTotal) * 100) : 0;
+    const totalIncome = incomes
+      .filter(i => {
+        const d = i.date ? new Date(i.date) : i.createdAt?.toDate?.() ?? new Date(0);
+        return d >= cutoff;
+      })
+      .reduce((s, i) => s + i.amount, 0);
+
+    const insights = calculateSpendingInsights();
+
+    return (
+      <div className="space-y-4">
+
+        {/* KPI Cards */}
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            {
+              label: 'Total Spent',
+              value: `${currencySymbol}${totalSpent.toFixed(0)}`,
+              sub: `last ${graphRange}`,
+              color: 'text-red-500',
+            },
+            {
+              label: 'Net Saved',
+              value: `${saved >= 0 ? '+' : ''}${currencySymbol}${Math.abs(saved).toFixed(0)}`,
+              sub: 'vs budget',
+              color: saved >= 0
+                ? (isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600'))
+                : 'text-red-500',
+            },
+            {
+              label: 'Savings Rate',
+              value: `${Math.max(savingsRate, 0)}%`,
+              sub: 'target 20%+',
+              color: savingsRate >= 20 ? 'text-green-500' : savingsRate >= 0 ? 'text-yellow-500' : 'text-red-500',
+            },
+            {
+              label: 'Income Logged',
+              value: `${currencySymbol}${totalIncome.toFixed(0)}`,
+              sub: `last ${graphRange}`,
+              color: isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600'),
+            },
+          ].map(kpi => (
+            <div key={kpi.label} className={`p-4 rounded-2xl border-2 ${isDark ? dc.card : 'bg-white border-slate-100'}`}>
+              <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{kpi.label}</p>
+              <p className={`text-2xl font-black ${kpi.color}`}>{kpi.value}</p>
+              <p className={`text-xs mt-0.5 ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>{kpi.sub}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Week-on-Week comparison */}
+        <div className={`p-4 rounded-2xl border-2 ${isDark ? dc.card : 'bg-white border-slate-100'}`}>
+          <p className={`text-xs font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Week-on-Week</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className={`p-3 rounded-xl ${isDark ? dc.cardInner : 'bg-slate-50'}`}>
+              <p className={`text-xs font-bold mb-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>This Week</p>
+              <p className={`text-xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{currencySymbol}{insights.thisWeek.toFixed(0)}</p>
+              {insights.thisWeek > insights.lastWeek
+                ? <p className="text-xs text-red-500 font-bold mt-1">▲ +{currencySymbol}{(insights.thisWeek - insights.lastWeek).toFixed(0)}</p>
+                : <p className="text-xs text-green-500 font-bold mt-1">▼ -{currencySymbol}{(insights.lastWeek - insights.thisWeek).toFixed(0)}</p>
+              }
+            </div>
+            <div className={`p-3 rounded-xl ${isDark ? dc.cardInner : 'bg-slate-50'}`}>
+              <p className={`text-xs font-bold mb-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>This Month</p>
+              <p className={`text-xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{currencySymbol}{insights.thisMonth.toFixed(0)}</p>
+              <p className={`text-xs mt-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Top: {insights.topCategory}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Habit snapshot */}
+        <div className={`p-4 rounded-2xl border-2 ${isDark ? dc.card : 'bg-white border-slate-100'}`}>
+          <p className={`text-xs font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Habits Today</p>
+          <div className="grid grid-cols-3 gap-2">
+            <div className={`p-3 rounded-xl text-center ${isDark ? dc.cardInner : 'bg-slate-50'}`}>
+              <p className={`text-xl font-black ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')}`}>{completedToday}/{totalHabits}</p>
+              <p className={`text-[10px] mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>done</p>
+            </div>
+            <div className={`p-3 rounded-xl text-center ${isDark ? dc.cardInner : 'bg-slate-50'}`}>
+              <p className="text-xl font-black text-orange-500">{habits.length > 0 ? Math.max(...habits.map(h => h.streak || 0)) : 0}</p>
+              <p className={`text-[10px] mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>best streak</p>
+            </div>
+            <div className={`p-3 rounded-xl text-center ${isDark ? dc.cardInner : 'bg-slate-50'}`}>
+              <p className="text-xl font-black text-blue-500">{progress}%</p>
+              <p className={`text-[10px] mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>completion</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    );
+  })()}
+
+  {/* ════════════════════════════════ */}
+  {/* TAB 2 — GRAPHS (Swipable)       */}
+  {/* ════════════════════════════════ */}
+  {insightsTab === 'graphs' && (() => {
+
+    // ── Build data for current graphRange ──
+    const rangeDays = graphRange === '7D' ? 7 : graphRange === '1M' ? 30 : graphRange === '3M' ? 90 : 365;
+    const buckets   = graphRange === '7D' ? 7 : graphRange === '1M' ? 30 : graphRange === '3M' ? 13 : 12;
+    const bucketSize = graphRange === '7D' ? 1 : graphRange === '1M' ? 1 : graphRange === '3M' ? 7 : 30;
+
+    const formatLabel = (d: Date) => {
+      if (graphRange === '7D') return d.toLocaleDateString('en', { weekday: 'short' });
+      if (graphRange === '1M') return d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+      if (graphRange === '3M') return `W${Math.ceil(d.getDate() / 7)} ${d.toLocaleDateString('en', { month: 'short' })}`;
+      return d.toLocaleDateString('en', { month: 'short' });
+    };
+
+    // Show every Nth tick to avoid crowding
+    const tickInterval = graphRange === '7D' ? 0 : graphRange === '1M' ? 4 : 0;
+
+    const expensePoints: { label: string; Spending: number; Budget: number }[] = [];
+    const savingsPoints: { label: string; Savings: number; Target: number }[] = [];
+    let cumSaved = 0;
+
+    for (let i = buckets - 1; i >= 0; i--) {
+      const periodEnd = new Date();
+      periodEnd.setDate(periodEnd.getDate() - i * bucketSize);
+      const periodStart = new Date(periodEnd);
+      periodStart.setDate(periodStart.getDate() - bucketSize + 1);
+
+      const spent = expenses
+        .filter(e => { const d = new Date(e.date); return d >= periodStart && d <= periodEnd; })
+        .reduce((s, e) => s + e.amount, 0);
+
+      const budget = dailyAllowance * bucketSize;
+      cumSaved += budget - spent;
+
+      const label = formatLabel(periodEnd);
+      expensePoints.push({ label, Spending: Math.round(spent * 100) / 100, Budget: Math.round(budget * 100) / 100 });
+      savingsPoints.push({ label, Savings: Math.round(cumSaved * 100) / 100, Target: Math.round(budget * 0.2 * (buckets - i) * 100) / 100 });
+    }
+
+    // Category pie data
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - rangeDays);
+    const catMap: Record<string, number> = {};
+    expenses.filter(e => new Date(e.date) >= cutoff).forEach(e => {
+      catMap[e.category] = (catMap[e.category] || 0) + e.amount;
+    });
+    const pieData = Object.entries(catMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name, value]) => ({ name: name.charAt(0).toUpperCase() + name.slice(1), value: Math.round(value * 100) / 100 }));
+
+    const accentStroke = isGreen ? '#16a34a' : isLgbt ? '#6366f1' : '#db2777';
+    // Aesthetic, high-contrast, colorblind-safe palette
+    const PIE_COLORS = ['#06b6d4', '#f59e0b', '#8b5cf6', '#10b981', '#f43f5e', '#3b82f6'];
+
+    const graphs = [
+      {
+        id: 'expense',
+        title: 'Expense Trend',
+        subtitle: 'Actual spending vs your daily budget',
+        icon: '💸',
+        chart: (
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart data={expensePoints} margin={{ top: 10, right: 10, bottom: 30, left: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#f1f5f9'} vertical={false} />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8', fontWeight: 600 }}
+                tickLine={false}
+                axisLine={false}
+                interval={tickInterval}
+                label={{ value: graphRange === '7D' ? 'Day of Week' : graphRange === '1M' ? 'Day of Month' : graphRange === '3M' ? 'Week' : 'Month', position: 'insideBottom', offset: -16, fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8', fontWeight: 700 }}
+              />
+              <YAxis
+                tick={{ fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8' }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={v => `${currencySymbol}${v}`}
+                width={52}
+                label={{ value: 'Amount', angle: -90, position: 'insideLeft', offset: 10, fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8', fontWeight: 700 }}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: isDark ? '#1e293b' : '#fff',
+                  border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                  borderRadius: '12px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                }}
+                formatter={(value: number | undefined, name: string | undefined) => [
+                  `${currencySymbol}${(value ?? 0).toFixed(2)}`,
+                  (name ?? '') === 'Spending' ? 'Spent' : 'Budget',
+                ] as [string, string]}
+              />
+              <Legend
+                wrapperStyle={{ fontSize: '10px', paddingTop: '8px' }}
+                iconType="circle"
+                iconSize={8}
+              />
+              <Line type="monotone" dataKey="Spending" stroke={accentStroke} strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+              <Line type="monotone" dataKey="Budget"   stroke="#f97316"    strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        ),
+      },
+      {
+        id: 'savings',
+        title: 'Savings Growth',
+        subtitle: 'Cumulative savings vs 20% target pace',
+        icon: '📈',
+        chart: (
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart data={savingsPoints} margin={{ top: 10, right: 10, bottom: 30, left: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#f1f5f9'} vertical={false} />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8', fontWeight: 600 }}
+                tickLine={false}
+                axisLine={false}
+                interval={tickInterval}
+                label={{ value: graphRange === '7D' ? 'Day of Week' : graphRange === '1M' ? 'Day of Month' : graphRange === '3M' ? 'Week' : 'Month', position: 'insideBottom', offset: -16, fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8', fontWeight: 700 }}
+              />
+              <YAxis
+                tick={{ fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8' }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={v => `${currencySymbol}${v}`}
+                width={52}
+                label={{ value: 'Amount', angle: -90, position: 'insideLeft', offset: 10, fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8', fontWeight: 700 }}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: isDark ? '#1e293b' : '#fff',
+                  border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                  borderRadius: '12px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                }}
+                formatter={(value: number | undefined, name: string | undefined) => [
+                  `${currencySymbol}${(value ?? 0).toFixed(2)}`,
+                  (name ?? '') === 'Savings' ? 'Actual Savings' : '20% Target',
+                ] as [string, string]}
+              />
+              <Legend
+                wrapperStyle={{ fontSize: '10px', paddingTop: '8px' }}
+                iconType="circle"
+                iconSize={8}
+              />
+              <Line type="monotone" dataKey="Savings" stroke="#22c55e" strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+              <Line type="monotone" dataKey="Target"  stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        ),
+      },
+      {
+        id: 'category',
+        title: 'Spending by Category',
+        subtitle: `Where your money went — last ${graphRange}`,
+        icon: '🥧',
+        chart: pieData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={320}>
+            <PieChart margin={{ top: 20, right: 30, bottom: 20, left: 30 }}>
+              <Pie
+                data={pieData}
+                cx="50%"
+                cy="48%"
+                innerRadius={58}
+                outerRadius={92}
+                paddingAngle={3}
+                dataKey="value"
+                label={({ name, percent, x, y }: { name?: string; percent?: number; x?: number; y?: number }) => (
+                  <text
+                    x={x ?? 0}
+                    y={y ?? 0}
+                    fill={isDark ? '#e2e8f0' : '#1e293b'}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    style={{ fontSize: '10px', fontWeight: 700 }}
+                  >
+                    {`${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                  </text>
+                )}
+                labelLine={{ stroke: isDark ? '#475569' : '#cbd5e1', strokeWidth: 1 }}
+              >
+                {pieData.map((_, index) => (
+                  <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: isDark ? '#1e293b' : '#fff',
+                  border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                  borderRadius: '12px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                }}
+                formatter={(value: number | undefined, name: string | undefined) => [
+                  `${currencySymbol}${(value ?? 0).toFixed(2)}`,
+                  name ?? '',
+                ] as [string, string]}
+              />
+              <Legend
+                iconType="circle"
+                iconSize={8}
+                wrapperStyle={{ fontSize: '10px', paddingTop: '8px', fontWeight: 600 }}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="h-[220px] flex flex-col items-center justify-center">
+            <p className={`text-sm font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>No expenses in this period</p>
+          </div>
+        ),
+      },
+      {
+        id: 'monthly-spending',
+        title: 'Monthly Spending vs Budget',
+        subtitle: 'Bar chart — monthly spend against your budget',
+        icon: '📊',
+        chart: (() => {
+          const currentYear = new Date().getFullYear();
+          const monthlyBarData = Array.from({ length: 12 }, (_, i) => {
+            const monthExpenses = expenses.filter(e => {
+              const d = new Date(e.date);
+              return d.getFullYear() === currentYear && d.getMonth() === i;
+            });
+            const daysInMonth = new Date(currentYear, i + 1, 0).getDate();
+            return {
+              month: new Date(currentYear, i, 1).toLocaleDateString('en', { month: 'short' }),
+              Spent: Math.round(monthExpenses.reduce((s, e) => s + e.amount, 0) * 100) / 100,
+              Budget: Math.round(dailyAllowance * daysInMonth * 100) / 100,
+            };
+          });
+          const accentBar = isGreen ? '#16a34a' : isLgbt ? '#6366f1' : '#db2777';
+          return (
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={monthlyBarData} margin={{ top: 10, right: 10, bottom: 30, left: 10 }} barCategoryGap="25%">
+                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#f1f5f9'} vertical={false} />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8', fontWeight: 600 }}
+                  tickLine={false}
+                  axisLine={false}
+                  label={{ value: 'Month', position: 'insideBottom', offset: -16, fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8', fontWeight: 700 }}
+                />
+                <YAxis
+                  tick={{ fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8' }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={v => `${currencySymbol}${v}`}
+                  width={52}
+                  label={{ value: 'Amount', angle: -90, position: 'insideLeft', offset: 10, fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8', fontWeight: 700 }}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: isDark ? '#1e293b' : '#fff',
+                    border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                    borderRadius: '12px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                  }}
+                  formatter={(value: number | undefined, name: string | undefined) => [
+                    `${currencySymbol}${(value ?? 0).toFixed(2)}`,
+                    name ?? '',
+                  ] as [string, string]}
+                />
+                <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '8px' }} iconType="circle" iconSize={8} />
+                <Bar dataKey="Spent"  fill={accentBar}  radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Budget" fill={isDark ? '#334155' : '#e2e8f0'} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          );
+        })(),
+      },
+      {
+        id: 'monthly-savings',
+        title: 'Monthly Savings / Deficit',
+        subtitle: 'Green = saved · Red = over budget',
+        icon: '💰',
+        chart: (() => {
+          const currentYear = new Date().getFullYear();
+          const savingsBarData = Array.from({ length: 12 }, (_, i) => {
+            const monthExpenses = expenses.filter(e => {
+              const d = new Date(e.date);
+              return d.getFullYear() === currentYear && d.getMonth() === i;
+            });
+            const daysInMonth = new Date(currentYear, i + 1, 0).getDate();
+            const saved = Math.round((dailyAllowance * daysInMonth - monthExpenses.reduce((s, e) => s + e.amount, 0)) * 100) / 100;
+            return {
+              month: new Date(currentYear, i, 1).toLocaleDateString('en', { month: 'short' }),
+              Savings: saved,
+            };
+          });
+          return (
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={savingsBarData} margin={{ top: 10, right: 10, bottom: 30, left: 10 }} barCategoryGap="25%">
+                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#334155' : '#f1f5f9'} vertical={false} />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8', fontWeight: 600 }}
+                  tickLine={false}
+                  axisLine={false}
+                  label={{ value: 'Month', position: 'insideBottom', offset: -16, fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8', fontWeight: 700 }}
+                />
+                <YAxis
+                  tick={{ fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8' }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={v => `${currencySymbol}${v}`}
+                  width={52}
+                  label={{ value: 'Amount', angle: -90, position: 'insideLeft', offset: 10, fontSize: 9, fill: isDark ? '#64748b' : '#94a3b8', fontWeight: 700 }}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: isDark ? '#1e293b' : '#fff',
+                    border: `1px solid ${isDark ? '#334155' : '#e2e8f0'}`,
+                    borderRadius: '12px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                  }}
+                  formatter={(value: number | undefined) => [
+                    `${currencySymbol}${Math.abs(value ?? 0).toFixed(2)}`,
+                    (value ?? 0) >= 0 ? 'Saved' : 'Over Budget',
+                  ] as [string, string]}
+                />
+                <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '8px' }} iconType="circle" iconSize={8} />
+                <Bar dataKey="Savings" radius={[4, 4, 0, 0]}>
+                  {savingsBarData.map((entry, idx) => (
+                    <Cell
+                      key={`cell-${idx}`}
+                      fill={entry.Savings >= 0
+                        ? (isGreen ? '#16a34a' : isLgbt ? '#6366f1' : '#22c55e')
+                        : '#ef4444'}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          );
+        })(),
+      },
+    ];
+
+    const TOTAL_GRAPHS = graphs.length;
+
+    return (
+      <div className="space-y-4">
+
+        {/* Swipable Graph Card */}
+        <div
+          className={`rounded-3xl border-2 overflow-hidden ${isDark ? dc.card : 'bg-white border-slate-100'}`}
+          onTouchStart={e => {
+            graphTouchStartX.current = e.touches[0].clientX;
+            graphTouchStartY.current = e.touches[0].clientY;
+          }}
+          onTouchEnd={e => {
+            const dx = e.changedTouches[0].clientX - graphTouchStartX.current;
+            const dy = e.changedTouches[0].clientY - graphTouchStartY.current;
+            // Only register as horizontal swipe if it's more horizontal than vertical
+            if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40) {
+              if (dx < 0) setGraphIndex(i => Math.min(i + 1, TOTAL_GRAPHS - 1));
+              else        setGraphIndex(i => Math.max(i - 1, 0));
+            }
+          }}
+        >
+          {/* Card Header */}
+          <div className="p-4 pb-0">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">{graphs[graphIndex].icon}</span>
+                <div>
+                  <p className={`font-black text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    {graphs[graphIndex].title}
+                  </p>
+                  <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                    {graphs[graphIndex].subtitle}
+                  </p>
+                </div>
+              </div>
+              {/* Arrow navigation for non-touch */}
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setGraphIndex(i => Math.max(i - 1, 0))}
+                  disabled={graphIndex === 0}
+                  className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold transition ${
+                    graphIndex === 0
+                      ? isDark ? 'text-slate-700 bg-slate-800' : 'text-slate-300 bg-slate-100'
+                      : isDark ? 'text-white bg-slate-700 hover:bg-slate-600' : 'text-slate-700 bg-slate-100 hover:bg-slate-200'
+                  }`}
+                >
+                  ‹
+                </button>
+                <button
+                  onClick={() => setGraphIndex(i => Math.min(i + 1, TOTAL_GRAPHS - 1))}
+                  disabled={graphIndex === TOTAL_GRAPHS - 1}
+                  className={`w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold transition ${
+                    graphIndex === TOTAL_GRAPHS - 1
+                      ? isDark ? 'text-slate-700 bg-slate-800' : 'text-slate-300 bg-slate-100'
+                      : isDark ? 'text-white bg-slate-700 hover:bg-slate-600' : 'text-slate-700 bg-slate-100 hover:bg-slate-200'
+                  }`}
+                >
+                  ›
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Chart area */}
+          <div className="px-2 pb-3">
+            {graphs[graphIndex].chart}
+          </div>
+
+          {/* Dot indicator */}
+          <div className="flex justify-center gap-1.5 pb-4">
+            {graphs.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setGraphIndex(i)}
+                className={`rounded-full transition-all duration-200 ${
+                  i === graphIndex
+                    ? `w-5 h-2 ${isGreen ? 'bg-green-500' : isLgbt ? 'bg-indigo-500' : 'bg-pink-500'}`
+                    : `w-2 h-2 ${isDark ? 'bg-slate-600 hover:bg-slate-500' : 'bg-slate-300 hover:bg-slate-400'}`
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Swipe hint (shows briefly on first visit) */}
+        <p className={`text-center text-xs ${isDark ? 'text-slate-600' : 'text-slate-300'}`}>
+          ← Swipe or tap arrows to switch graphs →
+        </p>
+
+        {/* ── Range Selector — centered between graph and budget section ── */}
+        <div className="flex justify-center">
+          <div className={`inline-flex gap-1 p-1 rounded-xl ${isDark ? dc.tabBar : 'bg-slate-100'}`}>
+            {(['7D', '1M', '3M', '1Y'] as const).map(r => (
+              <button
+                key={r}
+                onClick={() => setGraphRange(r)}
+                className={`px-4 py-1.5 rounded-lg font-bold text-xs transition ${
+                  graphRange === r
+                    ? isDark
+                      ? isGreen ? 'bg-green-500 text-white' : isLgbt ? 'bg-indigo-500 text-white' : 'bg-pink-500 text-white'
+                      : isGreen ? 'bg-green-600 text-white' : isLgbt ? 'bg-indigo-600 text-white' : 'bg-pink-600 text-white'
+                    : isDark ? 'text-slate-400' : 'text-slate-500'
+                }`}
+              >
+                {r === '7D' ? '7D' : r === '1M' ? '1M' : r === '3M' ? '3M' : '1Y'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Category Budget Progress (stays below swipable card) */}
+        {calculateCategoryBudgets().filter(b => b.spent > 0).length > 0 && (
+          <div className={`p-4 rounded-2xl border-2 ${isDark ? dc.card : 'bg-white border-slate-100'}`}>
+            <p className={`text-xs font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+              Budget vs Spending
+            </p>
+            <div className="space-y-3">
+              {calculateCategoryBudgets().filter(b => b.spent > 0 || b.monthlyLimit > 0).map(budget => {
+                const Icon = budget.categoryIcon;
+                const over = budget.monthlyLimit > 0 && budget.spent > budget.monthlyLimit;
+                return (
+                  <div key={budget.category}>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <Icon className={`w-3.5 h-3.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`} />
+                        <span className={`text-xs font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{budget.categoryLabel}</span>
+                      </div>
+                      <span className={`text-xs font-bold ${over ? 'text-red-500' : isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {currencySymbol}{budget.spent.toFixed(0)}{budget.monthlyLimit > 0 ? ` / ${currencySymbol}${budget.monthlyLimit}` : ''}
+                      </span>
+                    </div>
+                    <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                      <div
+                        className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-red-500' : isDark ? (isGreen ? 'bg-green-500' : isLgbt ? 'bg-indigo-500' : 'bg-pink-500') : (isGreen ? 'bg-green-600' : isLgbt ? 'bg-indigo-600' : 'bg-pink-600')}`}
+                        style={{ width: `${budget.monthlyLimit > 0 ? Math.min(budget.percentage, 100) : 100}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+      </div>
+    );
+  })()}
+
+  {/* ════════════════════════════════ */}
+  {/* TAB 3 — AI & PREDICTIONS        */}
+  {/* ════════════════════════════════ */}
+  {insightsTab === 'ai' && (() => {
+    const rangeDays = graphRange === '7D' ? 7 : graphRange === '1M' ? 30 : graphRange === '3M' ? 90 : 365;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - rangeDays);
+    const rangeExpenses = expenses.filter(e => new Date(e.date) >= cutoff);
+    const totalSpent    = rangeExpenses.reduce((s, e) => s + e.amount, 0);
+    const budgetTotal   = dailyAllowance * rangeDays;
+    const saved         = budgetTotal - totalSpent;
+    const savingsRate   = budgetTotal > 0 ? (saved / budgetTotal) * 100 : 0;
+    const avgDaily      = totalSpent / Math.max(rangeDays, 1);
+    const projMonth     = avgDaily * 30;
+
+    const catMap: Record<string, number> = {};
+    rangeExpenses.forEach(e => { catMap[e.category] = (catMap[e.category] || 0) + e.amount; });
+    const topEntry = Object.entries(catMap).sort((a, b) => b[1] - a[1])[0];
+    const topCat   = topEntry?.[0] ?? null;
+    const topCatPct = topEntry && totalSpent > 0 ? ((topEntry[1] / totalSpent) * 100).toFixed(0) : '0';
+
+    type Priority = 'high' | 'medium' | 'low';
+    const recs: { icon: string; title: string; body: string; priority: Priority }[] = [];
+
+    if (savingsRate < 0) {
+      recs.push({
+        icon: '🚨', priority: 'high',
+        title: "You're spending over budget",
+        body: `Over by ${currencySymbol}${Math.abs(saved).toFixed(0)} in the last ${graphRange}. Try reducing ${topCat ?? 'discretionary'} spending by 20% this week.`,
+      });
+    } else if (savingsRate < 10) {
+      recs.push({
+        icon: '⚠️', priority: 'high',
+        title: `Savings rate is low (${savingsRate.toFixed(0)}%)`,
+        body: `Advisors recommend 20%+. Set aside ${currencySymbol}${(dailyAllowance * 0.2).toFixed(0)}/day as non-negotiable savings.`,
+      });
+    } else {
+      recs.push({
+        icon: '🌟', priority: 'low',
+        title: `Savings rate is ${savingsRate.toFixed(0)}% — great!`,
+        body: `You're saving above the 20% benchmark. Consider investing the surplus ${currencySymbol}${Math.max(saved - budgetTotal * 0.2, 0).toFixed(0)}.`,
+      });
+    }
+
+    if (topCat && parseFloat(topCatPct) > 40) {
+      recs.push({
+        icon: '📌', priority: 'medium',
+        title: `${topCat.charAt(0).toUpperCase() + topCat.slice(1)} is ${topCatPct}% of spending`,
+        body: `A 15% cut here saves ${currencySymbol}${(topEntry![1] * 0.15).toFixed(0)} over this period.`,
+      });
+    }
+
+    if (debts.length > 0) {
+      const maxRate = Math.max(...debts.map(d => d.interestRate));
+      recs.push({
+        icon: '💳', priority: 'high',
+        title: `High-interest debt at ${maxRate}%/yr`,
+        body: `${debts.length} active debt(s). Even ${currencySymbol}${(dailyAllowance * 0.1).toFixed(0)}/day extra accelerates payoff significantly.`,
+      });
+    }
+
+    if (savingsGoals.length === 0) {
+      recs.push({
+        icon: '🎯', priority: 'medium',
+        title: 'No savings goals set',
+        body: 'Goals give your saving purpose. Add one — even a 1-month emergency fund is a strong start.',
+      });
+    }
+
+    recs.push({
+      icon: '📅',
+      priority: projMonth > dailyAllowance * 30 ? 'high' : 'low',
+      title: `Projected spend this month: ${currencySymbol}${projMonth.toFixed(0)}`,
+      body: projMonth > dailyAllowance * 30
+        ? `You're on pace to overspend by ${currencySymbol}${(projMonth - dailyAllowance * 30).toFixed(0)}. Pull back now.`
+        : `You're on pace to stay within your ${currencySymbol}${(dailyAllowance * 30).toFixed(0)} monthly budget.`,
+    });
+
+    const sorted = [...recs].sort((a, b) => {
+      const o: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
+      return o[a.priority] - o[b.priority];
+    });
+
+    const badgeColor = (p: Priority) =>
+      p === 'high'   ? 'text-red-500 bg-red-500/10'   :
+      p === 'medium' ? 'text-yellow-500 bg-yellow-500/10' :
+                       'text-green-500 bg-green-500/10';
+
+    const cardBg = (p: Priority) =>
+      p === 'high'   ? (isDark ? 'border-red-500/30 bg-red-500/5'    : 'border-red-200 bg-red-50')   :
+      p === 'medium' ? (isDark ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-yellow-200 bg-yellow-50') :
+                       (isDark ? 'border-green-500/30 bg-green-500/5' : 'border-green-200 bg-green-50');
+
+    return (
+      <div className="space-y-4">
+
+        {/* Spending Predictions */}
+        <SpendingPredictionsCard
+          prediction={calculateSpendingPrediction()}
+          currencySymbol={currencySymbol}
+          isDark={isDark}
+          isGreen={isGreen}
+          isLgbt={isLgbt}
+        />
+
+        {/* AI Recommendations header */}
+        <div className="flex items-center gap-2">
+          <Sparkles className={`w-4 h-4 ${isDark ? (isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400') : (isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600')}`} />
+          <p className={`font-black text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>AI Recommendations</p>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${isDark ? 'bg-slate-700 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>
+            based on last {graphRange}
+          </span>
+        </div>
+
+        {sorted.map((rec, i) => (
+          <div key={i} className={`p-4 rounded-2xl border ${cardBg(rec.priority)}`}>
+            <div className="flex items-start gap-3">
+              <span className="text-xl leading-none mt-0.5">{rec.icon}</span>
+              <div className="flex-1">
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <p className={`font-bold text-sm leading-snug ${isDark ? 'text-white' : 'text-slate-900'}`}>{rec.title}</p>
+                  <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full whitespace-nowrap ${badgeColor(rec.priority)}`}>
+                    {rec.priority === 'high' ? 'Action' : rec.priority === 'medium' ? 'Review' : 'Good'}
+                  </span>
+                </div>
+                <p className={`text-xs leading-relaxed ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>{rec.body}</p>
+              </div>
+            </div>
+          </div>
+        ))}
+
+      </div>
+    );
+  })()}
+
+  {/* ════════════════════════════════ */}
+  {/* TAB 4 — HEALTH                  */}
+  {/* ════════════════════════════════ */}
+  {insightsTab === 'health' && (
+    <div className="space-y-4">
+
+      <FinancialHealthCard
+        healthScore={calculateFinancialHealth()}
+        currencySymbol={currencySymbol}
+        isDark={isDark}
+        isGreen={isGreen}
+        isLgbt={isLgbt}
+      />
+
+      {/* Habit Performance — detailed */}
+      <div className={`p-4 rounded-2xl border-2 ${isDark ? dc.card : 'bg-white border-slate-100'}`}>
+        <p className={`text-xs font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Habit Streaks</p>
+        <div className="space-y-3">
+          {habits.length === 0 ? (
+            <p className={`text-sm text-center py-4 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>No habits tracked yet</p>
+          ) : habits.slice(0, 8).map(habit => {
+            const pct = habit.streak > 0 ? Math.min((habit.streak / 30) * 100, 100) : 0;
+            return (
+              <div key={habit.id}>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{habit.title}</span>
+                  <span className={`${isDark ? 'text-slate-400' : 'text-slate-500'}`}>🔥 {habit.streak || 0}d</span>
+                </div>
+                <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                  <div
+                    className={`h-full rounded-full transition-all duration-700 ${isDark ? (isGreen ? 'bg-green-500' : isLgbt ? 'bg-indigo-500' : 'bg-pink-500') : (isGreen ? 'bg-green-600' : isLgbt ? 'bg-indigo-600' : 'bg-pink-600')}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Debt snapshot */}
+      {debts.length > 0 && (
+        <div className={`p-4 rounded-2xl border-2 ${isDark ? dc.card : 'bg-white border-slate-100'}`}>
+          <p className={`text-xs font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Debt Overview</p>
+          <div className="grid grid-cols-3 gap-2">
+            <div className={`p-3 rounded-xl text-center ${isDark ? dc.cardInner : 'bg-slate-50'}`}>
+              <p className="text-lg font-black text-red-500">{currencySymbol}{debts.reduce((s, d) => s + d.balance, 0).toFixed(0)}</p>
+              <p className={`text-[10px] mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>total debt</p>
+            </div>
+            <div className={`p-3 rounded-xl text-center ${isDark ? dc.cardInner : 'bg-slate-50'}`}>
+              <p className="text-lg font-black text-orange-500">{currencySymbol}{debts.reduce((s, d) => s + d.minimumPayment, 0).toFixed(0)}</p>
+              <p className={`text-[10px] mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>min/month</p>
+            </div>
+            <div className={`p-3 rounded-xl text-center ${isDark ? dc.cardInner : 'bg-slate-50'}`}>
+              <p className="text-lg font-black text-yellow-500">{debts.length > 0 ? (debts.reduce((s, d) => s + d.interestRate, 0) / debts.length).toFixed(1) : 0}%</p>
+              <p className={`text-[10px] mt-0.5 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>avg rate</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Goals snapshot */}
+      {savingsGoals.length > 0 && (
+        <div className={`p-4 rounded-2xl border-2 ${isDark ? dc.card : 'bg-white border-slate-100'}`}>
+          <p className={`text-xs font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Savings Goals</p>
+          <div className="space-y-3">
+            {savingsGoals.slice(0, 4).map(goal => {
+              const pct = Math.min((goal.currentAmount / goal.targetAmount) * 100, 100);
+              return (
+                <div key={goal.id}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{goal.name}</span>
+                    <span className={`${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{currencySymbol}{goal.currentAmount.toFixed(0)} / {currencySymbol}{goal.targetAmount.toFixed(0)}</span>
+                  </div>
+                  <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                    <div
+                      className="h-full rounded-full bg-blue-500 transition-all duration-700"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+    </div>
+  )}
+
 </div>
-{/* 📱 MOBILE BOTTOM NAVIGATION */}
-<nav className={`fixed bottom-0 left-0 right-0 z-40 md:hidden border-t-2 backdrop-blur-xl ${
-  isDark 
-    ? (isGreen ? 'bg-slate-900/95 border-green-900' : isLgbt ? 'bg-slate-900/95 border-indigo-900' : 'bg-slate-900/95 border-pink-900')
-    : (isGreen ? 'bg-white/95 border-green-200' : isLgbt ? 'bg-white/95 border-indigo-200' : 'bg-white/95 border-pink-200')
-}`}>
-  <div className="flex justify-around items-center h-16 px-2">
+
+
+
+            {/* ══════════════════════════════════════════════════ */}
+            {/* DEBT PAGE */}
+            {/* ══════════════════════════════════════════════════ */}
+            <div className={`transition-all duration-300 ${currentPage === 'debt' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'}`}>
+              <div className="space-y-6">
+                <h2 className={`text-2xl md:text-3xl font-black mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>💳 Debt Tracker</h2>
+
+
+
+
+                {debts.length > 0 && (
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-red-50 border-red-200'}`}>
+                      <p className={`text-xs font-bold uppercase mb-1 ${isDark ? 'text-slate-500' : 'text-red-500'}`}>Total Debt</p>
+                      <p className={`text-xl font-black ${isDark ? 'text-red-400' : 'text-red-700'}`}>{currencySymbol}{debts.reduce((s, d) => s + d.balance, 0).toLocaleString()}</p>
+                    </div>
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-orange-50 border-orange-200'}`}>
+                      <p className={`text-xs font-bold uppercase mb-1 ${isDark ? 'text-slate-500' : 'text-orange-500'}`}>Min/Month</p>
+                      <p className={`text-xl font-black ${isDark ? 'text-orange-400' : 'text-orange-700'}`}>{currencySymbol}{debts.reduce((s, d) => s + d.minimumPayment, 0).toLocaleString()}</p>
+                    </div>
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-yellow-50 border-yellow-200'}`}>
+                      <p className={`text-xs font-bold uppercase mb-1 ${isDark ? 'text-slate-500' : 'text-yellow-600'}`}>Avg Rate</p>
+                      <p className={`text-xl font-black ${isDark ? 'text-yellow-400' : 'text-yellow-700'}`}>{debts.length > 0 ? (debts.reduce((s, d) => s + d.interestRate, 0) / debts.length).toFixed(1) : 0}%</p>
+                    </div>
+                  </div>
+                )}
+
+
+
+
+                <DebtTracker
+                  debts={debts}
+                  currencySymbol={currencySymbol}
+                  onAddDebt={() => setShowDebtModal(true)}
+                  onDeleteDebt={handleDeleteDebt}
+                  onMakePayment={handleMakePayment}
+                  isDark={isDark}
+                  isGreen={isGreen}
+                  isLgbt={isLgbt}
+                />
+
+
+
+
+                <AddDebtModal
+                  isOpen={showDebtModal}
+                  onClose={() => setShowDebtModal(false)}
+                  onAdd={handleAddDebt}
+                  currencySymbol={currencySymbol}
+                />
+              </div>
+            </div>
+
+
+
+
+            {/* ══════════════════════════════════════════════════ */}
+            {/* GOALS PAGE */}
+            {/* ══════════════════════════════════════════════════ */}
+            <div className={`transition-all duration-300 ${currentPage === 'goals' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'}`}>
+              <div className="space-y-6">
+                <h2 className={`text-2xl md:text-3xl font-black mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>🎯 Savings Goals</h2>
+
+
+
+
+                {savingsGoals.length > 0 && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-blue-50 border-blue-200'}`}>
+                      <p className={`text-xs font-bold uppercase mb-1 ${isDark ? 'text-slate-500' : 'text-blue-500'}`}>Active Goals</p>
+                      <p className={`text-3xl font-black ${isDark ? 'text-blue-400' : 'text-blue-700'}`}>{savingsGoals.length}</p>
+                    </div>
+                    <div className={`p-4 rounded-2xl border ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-green-50 border-green-200'}`}>
+                      <p className={`text-xs font-bold uppercase mb-1 ${isDark ? 'text-slate-500' : 'text-green-500'}`}>Total Saved</p>
+                      <p className={`text-3xl font-black ${isDark ? 'text-green-400' : 'text-green-700'}`}>{currencySymbol}{savingsGoals.reduce((s, g) => s + g.currentAmount, 0).toLocaleString()}</p>
+                    </div>
+                  </div>
+                )}
+
+
+
+
+                <button
+                  onClick={() => setShowGoalsModal(true)}
+                  className={`w-full py-4 rounded-2xl font-bold text-white flex items-center justify-center gap-2 transition-all active:scale-95 ${
+                    isDark ? isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-indigo-500 hover:bg-indigo-400' : 'bg-pink-500 hover:bg-pink-400' : isGreen ? 'bg-green-600 hover:bg-green-700' : isLgbt ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-pink-600 hover:bg-pink-700'
+                  }`}
+                >
+                  <Plus className="w-5 h-5" /> Add New Goal
+                </button>
+
+
+
+
+                {savingsGoals.length === 0 ? (
+                  <div className={`p-12 rounded-3xl border-2 border-dashed text-center ${isDark ? dc.divider : 'border-slate-200'}`}>
+                    <Target className={`w-12 h-12 mx-auto mb-3 ${isDark ? 'text-slate-700' : 'text-slate-300'}`} />
+                    <p className={`font-bold text-lg mb-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>No goals yet</p>
+                    <p className={`text-sm ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>Tap "Add New Goal" to start saving</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {savingsGoals.map(goal => {
+                      const pct = Math.min((goal.currentAmount / goal.targetAmount) * 100, 100);
+                      const daysLeft = Math.ceil((new Date(goal.deadline).getTime() - Date.now()) / 86400000);
+                      return (
+                        <div key={goal.id} className={`p-5 rounded-2xl border-2 ${isDark ? 'bg-pink-950/60 border-pink-900/50' : 'bg-white border-slate-200'}`}>
+                          <div className="flex justify-between items-start mb-3">
+                            <div>
+                              <h4 className={`font-bold text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>{goal.name}</h4>
+                              <p className={`text-sm ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                                {daysLeft > 0 ? `${daysLeft} days left` : daysLeft === 0 ? 'Due today!' : `${Math.abs(daysLeft)} days overdue`}
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className={`text-xl font-black ${isDark ? isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400' : isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600'}`}>{currencySymbol}{goal.currentAmount.toLocaleString()}</p>
+                              <p className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>of {currencySymbol}{goal.targetAmount.toLocaleString()}</p>
+                            </div>
+                          </div>
+                          <div className={`h-3 rounded-full overflow-hidden mb-3 ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                            <div className={`h-full rounded-full transition-all duration-700 ${pct >= 100 ? 'bg-green-500' : isDark ? isGreen ? 'bg-green-500' : isLgbt ? 'bg-indigo-500' : 'bg-pink-500' : isGreen ? 'bg-green-600' : isLgbt ? 'bg-indigo-600' : 'bg-pink-600'}`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className={`text-sm font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{pct.toFixed(0)}% complete</span>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => { const amt = prompt(`Add amount to "${goal.name}":`); if (amt && !isNaN(parseFloat(amt))) handleUpdateProgress(goal.id, parseFloat(amt)); }}
+                                className={`px-3 py-1.5 rounded-lg text-sm font-bold text-white ${isDark ? isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-indigo-500 hover:bg-indigo-400' : 'bg-pink-500 hover:bg-pink-400' : isGreen ? 'bg-green-600' : isLgbt ? 'bg-indigo-600' : 'bg-pink-600'}`}
+                              >+ Add</button>
+                              <button
+                                onClick={() => { if (confirm(`Delete "${goal.name}"?`)) handleDeleteGoal(goal.id); }}
+                                className={`p-1.5 rounded-lg ${isDark ? 'hover:bg-red-500/20 text-red-400' : 'hover:bg-red-100 text-red-600'}`}
+                              ><Trash2 className="w-4 h-4" /></button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+
+
+
+            {/* ══════════════════════════════════════════════════ */}
+            {/* AWARDS PAGE */}
+            {/* ══════════════════════════════════════════════════ */}
+            <div className={`transition-all duration-300 ${currentPage === 'awards' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'}`}>
+              <div className="space-y-6">
+                <h2 className={`text-2xl md:text-3xl font-black mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>🏆 Achievements</h2>
+                {(() => {
+                  const achievements = calculateAchievements();
+                  const unlocked = achievements.filter(a => a.unlocked).length;
+                  const pct = Math.round((unlocked / Math.max(achievements.length, 1)) * 100);
+                  const categories = ['habits', 'money', 'streak', 'milestone'] as const;
+                  return (
+                    <>
+                      <div className={`p-5 rounded-2xl border-2 ${isDark ? isGreen ? 'bg-green-900/20 border-green-800' : isLgbt ? 'bg-indigo-900/20 border-indigo-800' : 'bg-pink-900/20 border-pink-800' : isGreen ? 'bg-green-50 border-green-200' : isLgbt ? 'bg-indigo-50 border-indigo-200' : 'bg-pink-50 border-pink-200'}`}>
+                        <div className="flex justify-between mb-2">
+                          <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{unlocked} / {achievements.length} Unlocked</span>
+                          <span className={`font-bold ${isDark ? isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400' : isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600'}`}>{pct}%</span>
+                        </div>
+                        <div className={`h-3 rounded-full overflow-hidden ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                          <div className={`h-full rounded-full transition-all duration-1000 ${isDark ? isGreen ? 'bg-gradient-to-r from-green-500 to-emerald-400' : isLgbt ? 'bg-gradient-to-r from-indigo-500 to-purple-400' : 'bg-gradient-to-r from-pink-500 to-rose-400' : isGreen ? 'bg-gradient-to-r from-green-500 to-emerald-500' : isLgbt ? 'bg-gradient-to-r from-indigo-500 to-purple-500' : 'bg-gradient-to-r from-pink-500 to-rose-500'}`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                      {categories.map(cat => {
+                        const catItems = achievements.filter(a => a.category === cat);
+                        if (!catItems.length) return null;
+                        return (
+                          <div key={cat}>
+                            <h3 className={`text-sm font-black uppercase tracking-wider mb-3 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{cat}</h3>
+                            <div className="space-y-3">
+                              {catItems.map(achievement => (
+                                <div key={achievement.id} className={`p-4 rounded-2xl border-2 ${achievement.unlocked ? isDark ? isGreen ? 'bg-green-900/20 border-green-500/40' : isLgbt ? 'bg-indigo-900/20 border-indigo-500/40' : 'bg-pink-900/20 border-pink-500/40' : isGreen ? 'bg-green-50 border-green-300' : isLgbt ? 'bg-indigo-50 border-indigo-300' : 'bg-pink-50 border-pink-300' : isDark ? 'bg-pink-950/60 border-pink-900/50 opacity-50' : 'bg-slate-50 border-slate-200 opacity-50'}`}>
+                                  <div className="flex items-center gap-3">
+                                    <div className={`text-3xl ${achievement.unlocked ? '' : 'grayscale opacity-40'}`}>{achievement.icon}</div>
+                                    <div className="flex-1">
+                                      <h4 className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>{achievement.title}</h4>
+                                      <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{achievement.description}</p>
+                                      {achievement.unlocked ? (
+                                        <p className={`text-xs font-bold mt-1 ${isDark ? isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400' : isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600'}`}>✓ {achievement.reward}</p>
+                                      ) : (
+                                        <div className="mt-2">
+                                          <div className={`h-1.5 rounded-full overflow-hidden ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                                            <div className={`h-full rounded-full ${isDark ? 'bg-slate-500' : 'bg-slate-400'}`} style={{ width: `${Math.min((achievement.progress / achievement.requirement) * 100, 100)}%` }} />
+                                          </div>
+                                          <p className={`text-[10px] mt-1 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>{achievement.progress}/{achievement.requirement}</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+
+
+
+
+            {/* ══════════════════════════════════════════════════ */}
+            {/* MORE PAGE */}
+            {/* ══════════════════════════════════════════════════ */}
+            <div className={`transition-all duration-300 ${currentPage === 'more' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'}`}>
+              <div className="space-y-6">
+                <h2 className={`text-2xl md:text-3xl font-black mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>✨ More</h2>
+
+
+
+
+                {/* Recurring Expenses */}
+                <div className={`p-5 rounded-3xl border-2 ${isDark ? dc.card : 'bg-white border-slate-200'}`}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className={`text-lg font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      <Receipt className={`w-5 h-5 ${isDark ? isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400' : isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600'}`} />
+                      Recurring Expenses
+                    </h3>
+                    <button onClick={() => setShowRecurringModal(true)} className={`flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-sm text-white transition active:scale-95 ${isDark ? isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-indigo-500 hover:bg-indigo-400' : 'bg-pink-500 hover:bg-pink-400' : isGreen ? 'bg-green-600' : isLgbt ? 'bg-indigo-600' : 'bg-pink-600'}`}>
+                      <Plus className="w-4 h-4" /> Add
+                    </button>
+                  </div>
+                  <RecurringExpensesSection
+                    recurringExpenses={recurringExpenses}
+                    currencySymbol={currencySymbol}
+                    onAddRecurring={() => setShowRecurringModal(true)}
+                    onDeleteRecurring={handleDeleteRecurring}
+                    onEditRecurring={handleEditRecurring}
+                    onToggleActive={handleToggleRecurringActive}
+                    isDark={isDark}
+                    isGreen={isGreen}
+                    isLgbt={isLgbt}
+                  />
+                </div>
+
+
+
+
+                {/* Export Data */}
+                <div className={`p-5 rounded-3xl border-2 ${isDark ? dc.card : 'bg-white border-slate-200'}`}>
+                  <h3 className={`text-lg font-bold mb-3 flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    <Download className={`w-5 h-5 ${isDark ? isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400' : isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600'}`} />
+                    Export Data
+                  </h3>
+                  <p className={`text-sm mb-4 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Download your expense history as a CSV file for Excel or Google Sheets.</p>
+                  <button onClick={exportToCSV} className={`w-full py-3 rounded-2xl font-bold text-white flex items-center justify-center gap-2 transition-all active:scale-95 ${isDark ? isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-indigo-500 hover:bg-indigo-400' : 'bg-pink-500 hover:bg-pink-400' : isGreen ? 'bg-green-600' : isLgbt ? 'bg-indigo-600' : 'bg-pink-600'}`}>
+                    <Download className="w-5 h-5" /> Export Expenses CSV
+                  </button>
+                </div>
+
+
+
+
+                {/* Habit Templates */}
+                <div className={`p-5 rounded-3xl border-2 ${isDark ? dc.card : 'bg-white border-slate-200'}`}>
+                  <h3 className={`text-lg font-bold mb-3 flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    <Sparkles className={`w-5 h-5 ${isDark ? isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400' : isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600'}`} />
+                    Habit Templates
+                  </h3>
+                  <p className={`text-sm mb-4 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Quickly add proven habits from curated templates.</p>
+                  <button onClick={() => setShowTemplates(true)} className={`w-full py-3 rounded-2xl font-bold text-white flex items-center justify-center gap-2 transition-all active:scale-95 ${isDark ? isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-indigo-500 hover:bg-indigo-400' : 'bg-pink-500 hover:bg-pink-400' : isGreen ? 'bg-green-600' : isLgbt ? 'bg-indigo-600' : 'bg-pink-600'}`}>
+                    <Sparkles className="w-5 h-5" /> Browse Templates
+                  </button>
+                </div>
+
+
+
+
+                {/* Notifications */}
+                <div className={`p-5 rounded-3xl border-2 ${isDark ? dc.card : 'bg-white border-slate-200'}`}>
+                  <h3 className={`text-lg font-bold mb-3 flex items-center gap-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    <Bell className={`w-5 h-5 ${isDark ? isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400' : isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600'}`} />
+                    Notifications
+                  </h3>
+                  <div className={`p-4 rounded-xl flex items-center justify-between ${isDark ? dc.cardInner : 'bg-slate-50'}`}>
+                    <div>
+                      <p className={`font-bold text-sm ${isDark ? 'text-white' : 'text-slate-900'}`}>Habit Reminders</p>
+                      <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                        {typeof Notification !== 'undefined' ? `Status: ${Notification.permission}` : 'Not supported'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => { if (typeof Notification !== 'undefined') Notification.requestPermission(); }}
+                      className={`px-4 py-2 rounded-xl text-sm font-bold text-white transition ${isDark ? isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-indigo-500 hover:bg-indigo-400' : 'bg-pink-500 hover:bg-pink-400' : isGreen ? 'bg-green-600' : isLgbt ? 'bg-indigo-600' : 'bg-pink-600'}`}
+                    >Enable</button>
+                  </div>
+                </div>
+
+
+
+
+                {/* App Info + Sign Out */}
+                <div className={`p-5 rounded-3xl border-2 text-center ${isDark ? dc.card : 'bg-white border-slate-200'}`}>
+                  <div className={`w-14 h-14 rounded-2xl mx-auto mb-3 flex items-center justify-center ${isDark ? isGreen ? 'bg-green-500/20' : isLgbt ? 'bg-indigo-500/20' : 'bg-pink-500/20' : isGreen ? 'bg-green-100' : isLgbt ? 'bg-indigo-100' : 'bg-pink-100'}`}>
+                    <TrendingUp className={`w-7 h-7 ${isDark ? isGreen ? 'text-green-400' : isLgbt ? 'text-indigo-400' : 'text-pink-400' : isGreen ? 'text-green-600' : isLgbt ? 'text-indigo-600' : 'text-pink-600'}`} />
+                  </div>
+                  <h3 className={`font-black text-xl mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>UnBroke</h3>
+                  <p className={`text-sm mb-4 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Version 1.0.0 · Built with ❤️</p>
+                  <button onClick={onLogout} className={`flex items-center gap-2 mx-auto px-5 py-2.5 rounded-xl font-bold text-sm transition ${isDark ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}>
+                    <LogOut className="w-4 h-4" /> Sign Out
+                  </button>
+                </div>
+              </div>
+            </div>
+
+
+
+
+</div>
+{/* 📱 DYNAMIC ISLAND BOTTOM NAV */}
+<div className="fixed bottom-0 left-0 right-0 z-40 flex justify-center pb-4 sm:pb-6 pointer-events-none">
+  <nav
+    className={`
+      pointer-events-auto
+      flex items-center
+      px-2 py-2
+      rounded-full
+      shadow-2xl
+      backdrop-blur-2xl
+      border
+      transition-all duration-300
+      ${isDark
+        ? 'bg-slate-900/90 border-white/10 shadow-black/50'
+        : 'bg-white/90 border-black/8 shadow-black/20'
+      }
+    `}
+    style={{ gap: '2px' }}
+  >
+
+    {/* HOME */}
+    <button
+      onClick={() => setCurrentPage('home')}
+      className={`
+        flex flex-col items-center justify-center gap-0.5
+        px-4 py-2.5 rounded-full
+        transition-all duration-200 active:scale-90
+        min-w-[60px]
+        ${currentPage === 'home'
+          ? isDark
+            ? isGreen ? 'bg-green-500/25 text-green-400' : isLgbt ? 'bg-purple-500/25 text-purple-400' : 'bg-pink-500/25 text-pink-400'
+            : isGreen ? 'bg-green-100 text-green-700' : isLgbt ? 'bg-purple-100 text-purple-700' : 'bg-pink-100 text-pink-700'
+          : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-slate-600'
+        }
+      `}
+    >
+      <Home className={`transition-all duration-200 ${currentPage === 'home' ? 'w-5 h-5' : 'w-5 h-5'}`} />
+      <span className="text-[9px] font-bold tracking-wide">Home</span>
+    </button>
+
+    {/* LEARN */}
     <button
       onClick={() => setCurrentPage('habits')}
-      className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition min-w-[60px] ${
-        currentPage === 'habits'
-          ? (isDark 
-              ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-indigo-500/20 text-indigo-400' : 'bg-pink-500/20 text-pink-400')
-              : (isGreen ? 'bg-green-100 text-green-700' : isLgbt ? 'bg-indigo-100 text-indigo-700' : 'bg-pink-100 text-pink-700')
-            )
-          : (isDark ? 'text-slate-500' : 'text-slate-400')
-      }`}
+      className={`
+        flex flex-col items-center justify-center gap-0.5
+        px-4 py-2.5 rounded-full
+        transition-all duration-200 active:scale-90
+        min-w-[60px]
+        ${currentPage === 'habits' || currentPage === 'todos'
+          ? isDark
+            ? isGreen ? 'bg-green-500/25 text-green-400' : isLgbt ? 'bg-purple-500/25 text-purple-400' : 'bg-pink-500/25 text-pink-400'
+            : isGreen ? 'bg-green-100 text-green-700' : isLgbt ? 'bg-purple-100 text-purple-700' : 'bg-pink-100 text-pink-700'
+          : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-slate-600'
+        }
+      `}
     >
-      <Target className="w-6 h-6" />
-      <span className="text-[10px] font-bold">Habits</span>
+      <Book className={`w-5 h-5`} />
+      <span className="text-[9px] font-bold tracking-wide">Learn</span>
     </button>
-    
+
+   {/* CTA — CENTER FAB WITH LONG PRESS MENU */}
+    <div className="relative flex items-center justify-center mx-1">
+
+      {/* RADIAL QUICK ACTIONS — appear above on long press */}
+      {fabMenuOpen && (
+        <>
+          {/* Backdrop to close menu on tap outside */}
+          <div
+            className="fixed inset-0 z-30"
+            onClick={() => setFabMenuOpen(false)}
+          />
+
+         {/* The 3 mini action buttons — Illustration Style */}
+          <div className="absolute bottom-[72px] left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-2.5 animate-fade-in-up">
+
+            {/* 1. Import Data */}
+            <button
+              onClick={() => { setFabMenuOpen(false); setShowImportModal(true); }}
+              className="flex flex-col items-center gap-1.5 active:scale-90 transition-all duration-150 group"
+            >
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-xl transition-transform duration-150 group-hover:scale-105 ${isDark ? 'bg-slate-800 border border-slate-700' : 'bg-white border border-slate-100'}`}
+                style={{ boxShadow: isDark ? '0 8px 24px rgba(59,130,246,0.3)' : '0 8px 24px rgba(59,130,246,0.2)' }}>
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                  <defs>
+                    <linearGradient id="imp-sheet" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stopColor="#22c55e"/>
+                      <stop offset="100%" stopColor="#16a34a"/>
+                    </linearGradient>
+                    <linearGradient id="imp-arrow" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#60a5fa"/>
+                      <stop offset="100%" stopColor="#3b82f6"/>
+                    </linearGradient>
+                    <linearGradient id="imp-doc" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stopColor="#f0fdf4"/>
+                      <stop offset="100%" stopColor="#dcfce7"/>
+                    </linearGradient>
+                  </defs>
+                  {/* Document body */}
+                  <rect x="5" y="4" width="16" height="20" rx="2.5" fill="url(#imp-doc)" stroke="#22c55e" strokeWidth="1.2"/>
+                  {/* Fold corner */}
+                  <path d="M17 4 L21 8 L17 8 Z" fill="#bbf7d0"/>
+                  <path d="M17 4 L21 8 H17 V4Z" fill="#86efac" opacity="0.6"/>
+                  {/* Table lines */}
+                  <line x1="8" y1="12" x2="18" y2="12" stroke="#22c55e" strokeWidth="1" strokeLinecap="round" opacity="0.7"/>
+                  <line x1="8" y1="15" x2="18" y2="15" stroke="#22c55e" strokeWidth="1" strokeLinecap="round" opacity="0.5"/>
+                  <line x1="8" y1="18" x2="14" y2="18" stroke="#22c55e" strokeWidth="1" strokeLinecap="round" opacity="0.5"/>
+                  <line x1="13" y1="11" x2="13" y2="20" stroke="#22c55e" strokeWidth="0.8" strokeLinecap="round" opacity="0.5"/>
+                  {/* Arrow circle */}
+                  <circle cx="23" cy="23" r="7" fill="url(#imp-arrow)"/>
+                  <path d="M23 19.5 L23 26.5 M20 23.5 L23 26.5 L26 23.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <span className={`text-[10px] font-bold tracking-wide ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>Import</span>
+            </button>
+
+            {/* 2. Invest */}
+            <button
+              onClick={() => { setFabMenuOpen(false); setCurrentPage('money'); setShowInvestmentModal(true); }}
+              className="flex flex-col items-center gap-1.5 active:scale-90 transition-all duration-150 group"
+            >
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-xl transition-transform duration-150 group-hover:scale-105 ${isDark ? 'bg-slate-800 border border-slate-700' : 'bg-white border border-slate-100'}`}
+                style={{ boxShadow: isDark ? '0 8px 24px rgba(16,185,129,0.3)' : '0 8px 24px rgba(16,185,129,0.2)' }}>
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                  <defs>
+                    <linearGradient id="inv-bg" x1="0" y1="1" x2="1" y2="0">
+                      <stop offset="0%" stopColor="#d1fae5"/>
+                      <stop offset="100%" stopColor="#a7f3d0"/>
+                    </linearGradient>
+                    <linearGradient id="inv-bar1" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#34d399"/>
+                      <stop offset="100%" stopColor="#10b981"/>
+                    </linearGradient>
+                    <linearGradient id="inv-bar2" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#6ee7b7"/>
+                      <stop offset="100%" stopColor="#34d399"/>
+                    </linearGradient>
+                    <linearGradient id="inv-bar3" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#10b981"/>
+                      <stop offset="100%" stopColor="#059669"/>
+                    </linearGradient>
+                    <linearGradient id="inv-coin" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stopColor="#fde68a"/>
+                      <stop offset="100%" stopColor="#f59e0b"/>
+                    </linearGradient>
+                  </defs>
+                  {/* Base platform */}
+                  <rect x="4" y="22" width="24" height="2.5" rx="1.25" fill="#d1fae5"/>
+                  {/* Bars */}
+                  <rect x="6" y="16" width="5" height="6" rx="1.5" fill="url(#inv-bar2)"/>
+                  <rect x="13.5" y="11" width="5" height="11" rx="1.5" fill="url(#inv-bar1)"/>
+                  <rect x="21" y="7" width="5" height="15" rx="1.5" fill="url(#inv-bar3)"/>
+                  {/* Trend arrow */}
+                  <path d="M7 18 L14 13 L21.5 9" stroke="#065f46" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.6"/>
+                  {/* Gold coin */}
+                  <circle cx="24" cy="8" r="5" fill="url(#inv-coin)" stroke="#fbbf24" strokeWidth="0.8"/>
+                  <text x="24" y="11" textAnchor="middle" fill="#92400e" fontSize="6" fontWeight="bold">$</text>
+                </svg>
+              </div>
+              <span className={`text-[10px] font-bold tracking-wide ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>Invest</span>
+            </button>
+
+            {/* 3. Enter Expense */}
+            <button
+              onClick={() => {
+                setFabMenuOpen(false);
+                setCurrentPage('money');
+                setAddingExpense(true);
+                setNewExpenseDescription('');
+                setNewExpenseAmount('');
+                setNewExpenseCategory(EXPENSE_CATEGORIES[0].id);
+                setNewExpenseDate(today);
+              }}
+              className="flex flex-col items-center gap-1.5 active:scale-90 transition-all duration-150 group"
+            >
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-xl transition-transform duration-150 group-hover:scale-105 ${isDark ? 'bg-slate-800 border border-slate-700' : 'bg-white border border-slate-100'}`}
+                style={{ boxShadow: isDark ? '0 8px 24px rgba(236,72,153,0.3)' : '0 8px 24px rgba(236,72,153,0.2)' }}>
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                  <defs>
+                    <linearGradient id="exp-card" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stopColor="#fb7185"/>
+                      <stop offset="100%" stopColor="#e11d48"/>
+                    </linearGradient>
+                    <linearGradient id="exp-receipt" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#fff1f2"/>
+                      <stop offset="100%" stopColor="#ffe4e6"/>
+                    </linearGradient>
+                    <linearGradient id="exp-chip" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stopColor="#fde68a"/>
+                      <stop offset="100%" stopColor="#fbbf24"/>
+                    </linearGradient>
+                  </defs>
+                  {/* Receipt paper */}
+                  <rect x="9" y="8" width="14" height="18" rx="2" fill="url(#exp-receipt)" stroke="#fda4af" strokeWidth="1"/>
+                  {/* Receipt serrated bottom */}
+                  <path d="M9 24 Q10 26 11 24 Q12 26 13 24 Q14 26 15 24 Q16 26 17 24 Q18 26 19 24 Q20 26 21 24 Q22 26 23 24 V26 H9 Z" fill="url(#exp-receipt)" stroke="#fda4af" strokeWidth="0.8"/>
+                  {/* Lines on receipt */}
+                  <line x1="12" y1="13" x2="20" y2="13" stroke="#fda4af" strokeWidth="1.2" strokeLinecap="round"/>
+                  <line x1="12" y1="16" x2="20" y2="16" stroke="#fda4af" strokeWidth="1" strokeLinecap="round" opacity="0.7"/>
+                  <line x1="12" y1="19" x2="17" y2="19" stroke="#fda4af" strokeWidth="1" strokeLinecap="round" opacity="0.7"/>
+                  <line x1="18" y1="19" x2="20" y2="19" stroke="#fb7185" strokeWidth="1.2" strokeLinecap="round"/>
+                  {/* Card overlay */}
+                  <rect x="16" y="4" width="13" height="9" rx="2.5" fill="url(#exp-card)"/>
+                  {/* Card chip */}
+                  <rect x="18.5" y="6.5" width="3.5" height="2.5" rx="0.8" fill="url(#exp-chip)"/>
+                  {/* Card stripe */}
+                  <line x1="18" y1="10" x2="27" y2="10" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5"/>
+                </svg>
+              </div>
+              <span className={`text-[10px] font-bold tracking-wide ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>Expense</span>
+            </button>
+
+          </div>
+        </>
+      )}
+
+      {/* THE MAIN FAB BUTTON */}
+      <button
+        onClick={() => {
+          // Short tap: default action = add expense directly
+          if (!fabMenuOpen) {
+            setCurrentPage('money');
+            setAddingExpense(true);
+            setNewExpenseDescription('');
+            setNewExpenseAmount('');
+            setNewExpenseCategory(EXPENSE_CATEGORIES[0].id);
+            setNewExpenseDate(today);
+          } else {
+            setFabMenuOpen(false);
+          }
+        }}
+        onMouseDown={() => {
+          fabLongPressTimer.current = setTimeout(() => {
+            haptics.medium();
+            setFabMenuOpen(true);
+          }, 500);
+        }}
+        onMouseUp={() => {
+          if (fabLongPressTimer.current) clearTimeout(fabLongPressTimer.current);
+        }}
+        onMouseLeave={() => {
+          if (fabLongPressTimer.current) clearTimeout(fabLongPressTimer.current);
+        }}
+        onTouchStart={() => {
+          fabLongPressTimer.current = setTimeout(() => {
+            haptics.medium();
+            setFabMenuOpen(true);
+          }, 500);
+        }}
+        onTouchEnd={() => {
+          if (fabLongPressTimer.current) clearTimeout(fabLongPressTimer.current);
+        }}
+        onContextMenu={(e) => e.preventDefault()}
+        className={`
+          relative flex items-center justify-center
+          w-14 h-14 rounded-full
+          shadow-lg
+          transition-all duration-200
+          active:scale-90 hover:scale-105
+          ${fabMenuOpen ? 'rotate-45' : 'rotate-0'}
+          ${isDark
+            ? isGreen
+              ? 'bg-gradient-to-br from-green-400 to-green-600 shadow-green-500/40'
+              : isLgbt
+                ? 'bg-gradient-to-br from-purple-500 to-indigo-600 shadow-purple-500/40'
+                : 'bg-gradient-to-br from-pink-500 to-pink-700 shadow-pink-500/40'
+            : isGreen
+              ? 'bg-gradient-to-br from-green-500 to-green-700 shadow-green-400/50'
+              : isLgbt
+                ? 'bg-gradient-to-br from-purple-600 to-indigo-700 shadow-purple-400/50'
+                : 'bg-gradient-to-br from-pink-600 to-pink-800 shadow-pink-400/50'
+          }
+        `}
+        style={{ boxShadow: isDark
+          ? isGreen ? '0 4px 20px rgba(16,185,129,0.4)' : isLgbt ? '0 4px 20px rgba(139,92,246,0.4)' : '0 4px 20px rgba(236,72,153,0.4)'
+          : isGreen ? '0 4px 20px rgba(5,150,105,0.35)' : isLgbt ? '0 4px 20px rgba(124,58,237,0.35)' : '0 4px 20px rgba(190,24,93,0.35)'
+        }}
+      >
+        <Plus className="w-7 h-7 text-white transition-transform duration-200" strokeWidth={2.5} />
+      </button>
+
+    </div>
+
+    {/* INSIGHTS */}
     <button
-      onClick={() => setCurrentPage('todos')}
-      className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition min-w-[60px] ${
-        currentPage === 'todos'
-          ? (isDark 
-              ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-indigo-500/20 text-indigo-400' : 'bg-pink-500/20 text-pink-400')
-              : (isGreen ? 'bg-green-100 text-green-700' : isLgbt ? 'bg-indigo-100 text-indigo-700' : 'bg-pink-100 text-pink-700')
-            )
-          : (isDark ? 'text-slate-500' : 'text-slate-400')
-      }`}
+      onClick={() => setCurrentPage('stats')}
+      className={`
+        flex flex-col items-center justify-center gap-0.5
+        px-4 py-2.5 rounded-full
+        transition-all duration-200 active:scale-90
+        min-w-[60px]
+       ${currentPage === 'stats'
+  ? isDark
+    ? isGreen ? 'bg-green-500/25 text-green-400' : isLgbt ? 'bg-purple-500/25 text-purple-400' : 'bg-pink-500/25 text-pink-400'
+    : isGreen ? 'bg-green-100 text-green-700' : isLgbt ? 'bg-purple-100 text-purple-700' : 'bg-pink-100 text-pink-700'
+  : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-slate-600'
+}
+      `}
     >
-      <CheckCircle2 className="w-6 h-6" />
-      <span className="text-[10px] font-bold">Tasks</span>
+      <BarChart3 className="w-5 h-5" />
+      <span className="text-[9px] font-bold tracking-wide">Insights</span>
     </button>
-    
+
+    {/* PROFILE */}
     <button
-      onClick={() => setCurrentPage('money')}
-      className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition min-w-[60px] ${
-        currentPage === 'money'
-          ? (isDark 
-              ? (isGreen ? 'bg-green-500/20 text-green-400' : isLgbt ? 'bg-indigo-500/20 text-indigo-400' : 'bg-pink-500/20 text-pink-400')
-              : (isGreen ? 'bg-green-100 text-green-700' : isLgbt ? 'bg-indigo-100 text-indigo-700' : 'bg-pink-100 text-pink-700')
-            )
-          : (isDark ? 'text-slate-500' : 'text-slate-400')
-      }`}
+      onClick={() => setCurrentPage('more')}
+      className={`
+        flex flex-col items-center justify-center gap-0.5
+        px-4 py-2.5 rounded-full
+        transition-all duration-200 active:scale-90
+        min-w-[60px]
+        ${currentPage === 'more' || currentPage === 'debt' || currentPage === 'goals' || currentPage === 'awards'
+          ? isDark
+            ? isGreen ? 'bg-green-500/25 text-green-400' : isLgbt ? 'bg-purple-500/25 text-purple-400' : 'bg-pink-500/25 text-pink-400'
+            : isGreen ? 'bg-green-100 text-green-700' : isLgbt ? 'bg-purple-100 text-purple-700' : 'bg-pink-100 text-pink-700'
+          : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-slate-600'
+        }
+      `}
     >
-      <DollarSign className="w-6 h-6" />
-      <span className="text-[10px] font-bold">Money</span>
+      <UserCircle2 className="w-5 h-5" />
+      <span className="text-[9px] font-bold tracking-wide">Profile</span>
     </button>
-    
-    <button
-      onClick={() => setShowStats(true)}
-      className={`flex flex-col items-center justify-center gap-1 py-2 px-4 rounded-xl transition min-w-[60px] ${
-        isDark ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-slate-600'
-      }`}
-    >
-      <PieChart className="w-6 h-6" />
-      <span className="text-[10px] font-bold">Stats</span>
-    </button>
-  </div>
-</nav>
-</main>
+
+  </nav>
+</div>
+
+<ImportDataModal
+  isOpen={showImportModal}
+  onClose={() => setShowImportModal(false)}
+  onImport={handleImportRows}
+/>
       
       {reminderHabit && (
         <ReminderModal
@@ -12085,225 +26454,450 @@ const yearlyAnalytics = getYearlyData(selectedYear);
           <Toast toast={toast} onDismiss={() => setToast(null)} />
         </div>
       )}
-    </div>
+    </main>
+  </div>
   );
 };
 
+// ============ CSV / EXCEL IMPORT MODAL ============
+interface ImportRow {
+  type: 'expense' | 'income';
+  date: string;
+  amount: number;
+  category: string;
+  description: string;
+  source?: string;
+}
 
+interface ImportModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onImport: (rows: ImportRow[]) => Promise<void>;
+}
 
+const ImportDataModal: React.FC<ImportModalProps> = ({ isOpen, onClose, onImport }) => {
+  const { isDark, accent } = useTheme();
+  const isGreen = accent === 'green';
+  const isLgbt = accent === 'lgbt';
 
-// 🎓 ONBOARDING FLOW COMPONENT
-const OnboardingFlow = ({ 
-  onComplete, 
-  isDark, 
-  isGreen, 
-  isLgbt 
-}: { 
-  onComplete: () => void;
-  isDark: boolean;
-  isGreen: boolean;
-  isLgbt: boolean;
-}) => {
-  const [step, setStep] = useState(0);
-  const [budget, setBudget] = useState('');
-  const [selectedHabit, setSelectedHabit] = useState('');
+  const [step, setStep] = useState<'upload' | 'preview' | 'importing' | 'done'>('upload');
+  const [parsedRows, setParsedRows] = useState<ImportRow[]>([]);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [importProgress, setImportProgress] = useState(0);
+  const [fileName, setFileName] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
 
+  const accentColor = isGreen ? 'green' : isLgbt ? 'purple' : 'pink';
 
+  const VALID_CATEGORIES = ['food', 'transport', 'entertainment', 'shopping', 'bills', 'health', 'debt_payment', 'other'];
 
+  // Fuzzy match category from any user string
+  const matchCategory = (raw: string): string => {
+    if (!raw) return 'other';
+    const val = raw.toLowerCase().trim();
+    const map: Record<string, string> = {
+      food: 'food', eat: 'food', restaurant: 'food', grocery: 'food', groceries: 'food', meal: 'food', lunch: 'food', dinner: 'food', breakfast: 'food', snack: 'food', drinks: 'food', drink: 'food', coffee: 'food',
+      transport: 'transport', transportation: 'transport', gas: 'transport', fuel: 'transport', uber: 'transport', grab: 'transport', taxi: 'transport', commute: 'transport', bus: 'transport', jeep: 'transport', train: 'transport', car: 'transport',
+      entertainment: 'entertainment', fun: 'entertainment', movie: 'entertainment', movies: 'entertainment', game: 'entertainment', games: 'entertainment', music: 'entertainment', streaming: 'entertainment', netflix: 'entertainment', spotify: 'entertainment',
+      shopping: 'shopping', shop: 'shopping', clothes: 'shopping', clothing: 'shopping', shoes: 'shopping', online: 'shopping', lazada: 'shopping', shopee: 'shopping',
+      bills: 'bills', bill: 'bills', utilities: 'bills', electric: 'bills', electricity: 'bills', water: 'bills', rent: 'bills', internet: 'bills', phone: 'bills', wifi: 'bills',
+      health: 'health', medicine: 'health', medical: 'health', doctor: 'health', hospital: 'health', gym: 'health', fitness: 'health', pharmacy: 'health',
+      debt: 'debt_payment', loan: 'debt_payment', credit: 'debt_payment', payment: 'debt_payment',
+    };
+    return map[val] ?? VALID_CATEGORIES.find(c => val.includes(c)) ?? 'other';
+  };
 
-  const steps = [
-    {
-      title: "Welcome to HabitFlow! 🎉",
-      description: "Your all-in-one platform for habits, tasks, and money management",
-      emoji: "👋",
-      action: null
-    },
-    {
-      title: "Set Your Daily Budget 💰",
-      description: "How much can you spend each day?",
-      emoji: "💵",
-      action: (
-        <div className="w-full">
-          <input
-            type="number"
-            step="0.01"
-            placeholder="e.g., 50.00"
-            value={budget}
-            onChange={(e) => setBudget(e.target.value)}
-            className={`w-full px-6 py-4 rounded-2xl border-2 outline-none transition font-bold text-2xl text-center ${
-              isDark 
-                ? 'bg-slate-800 border-slate-700 text-white focus:border-green-400'
-                : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-green-500'
-            }`}
-            autoFocus
-          />
-        </div>
-      )
-    },
-    {
-      title: "Quick Start Habit 🎯",
-      description: "Choose a habit to track (or skip)",
-      emoji: "🚀",
-      action: (
-        <div className="grid grid-cols-2 gap-3 w-full">
-          {['Workout', 'Meditate', 'Read', 'Study'].map(habit => (
-            <button
-              key={habit}
-              onClick={() => setSelectedHabit(habit)}
-              className={`p-4 rounded-xl border-2 font-bold transition ${
-                selectedHabit === habit
-                  ? (isDark 
-                      ? 'bg-green-500 border-green-500 text-white'
-                      : 'bg-green-600 border-green-600 text-white'
-                    )
-                  : (isDark 
-                      ? 'bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-600'
-                      : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
-                    )
-              }`}
-            >
-              {habit}
-            </button>
-          ))}
-        </div>
-      )
-    },
-    {
-      title: "You're All Set! ✅",
-      description: "Start building better habits today",
-      emoji: "🎊",
-      action: null
+  const parseDate = (raw: string | number): string => {
+    if (!raw) return new Date().toISOString().split('T')[0];
+    // Excel serial date
+    if (typeof raw === 'number') {
+      const excelEpoch = new Date(1900, 0, 1);
+      excelEpoch.setDate(excelEpoch.getDate() + raw - 2);
+      return excelEpoch.toISOString().split('T')[0];
     }
-  ];
+    const str = String(raw).trim();
+    // Try native parse
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+    // Try MM/DD/YYYY or DD/MM/YYYY
+    const parts = str.split(/[\/\-\.]/);
+    if (parts.length === 3) {
+      const [a, b, c] = parts.map(Number);
+      const withYear = c > 31 ? new Date(c, a - 1, b) : new Date(a, b - 1, c);
+      if (!isNaN(withYear.getTime())) return withYear.toISOString().split('T')[0];
+    }
+    return new Date().toISOString().split('T')[0];
+  };
 
+  const parseFile = async (file: File) => {
+    setErrorMsg(null);
+    setFileName(file.name);
+    const isExcel = file.name.match(/\.xlsx?$/i);
+    const isCsv = file.name.match(/\.csv$/i);
+    const isJson = file.name.match(/\.json$/i);
+    if (!isExcel && !isCsv && !isJson) {
+      setErrorMsg('Please upload a .csv, .xls, .xlsx, or .json file.');
+      return;
+    }
 
+    if (isJson) {
+      try {
+        const text = await file.text();
+        const json = JSON.parse(text);
+        const rows: ImportRow[] = [];
 
+        // Support HabitFlow backup format: { expenses: [], incomes: [] }
+        const expenses = json.expenses ?? json.expense ?? [];
+        const incomes = json.incomes ?? json.income ?? [];
 
-  const currentStep = steps[step];
-  const isLastStep = step === steps.length - 1;
+        for (const e of expenses) {
+          const amount = Math.abs(parseFloat(String(e.amount ?? 0)));
+          if (!amount || isNaN(amount)) continue;
+          rows.push({
+            type: 'expense',
+            date: parseDate(e.date ?? ''),
+            amount,
+            category: matchCategory(String(e.category ?? '')),
+            description: String(e.description ?? e.desc ?? 'Imported'),
+            source: '',
+          });
+        }
 
+        for (const i of incomes) {
+          const amount = Math.abs(parseFloat(String(i.amount ?? 0)));
+          if (!amount || isNaN(amount)) continue;
+          rows.push({
+            type: 'income',
+            date: parseDate(i.date ?? ''),
+            amount,
+            category: 'other',
+            description: String(i.description ?? i.desc ?? 'Imported'),
+            source: String(i.source ?? i.description ?? 'Imported'),
+          });
+        }
 
+        if (rows.length === 0) {
+          setErrorMsg('No valid records found. Expected { expenses: [], incomes: [] } format.');
+          return;
+        }
 
+        setParsedRows(rows);
+        setStep('preview');
+      } catch (err) {
+        setErrorMsg('Failed to parse JSON. Make sure it is valid JSON.');
+      }
+      return;
+    }
+    try {
+      const XLSX = await import('xlsx');
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const raw: Record<string, any>[] = XLSX.utils.sheet_to_json(sheet, { defval: '' });
 
-  const handleNext = () => {
-    if (isLastStep) {
-      localStorage.setItem('onboardingCompleted', 'true');
-      onComplete();
-    } else {
-      setStep(step + 1);
+      if (raw.length === 0) {
+        setErrorMsg('The file appears to be empty.');
+        return;
+      }
+
+      // Normalize headers to lowercase
+      const rows: ImportRow[] = [];
+      for (const row of raw) {
+        const norm: Record<string, any> = {};
+        for (const key of Object.keys(row)) {
+          norm[key.toLowerCase().trim().replace(/\s+/g, '_')] = row[key];
+        }
+
+        // Detect type: look for 'type', 'income', or infer from amount sign
+        const rawType = String(norm.type ?? norm.record_type ?? '').toLowerCase();
+        const rawAmount = parseFloat(String(norm.amount ?? norm.value ?? norm.cost ?? norm.price ?? 0));
+        const type: 'expense' | 'income' =
+          rawType === 'income' || rawType === 'in' ? 'income' :
+          rawType === 'expense' || rawType === 'out' ? 'expense' :
+          rawAmount < 0 ? 'income' : 'expense';
+
+        const amount = Math.abs(rawAmount);
+        if (!amount || isNaN(amount)) continue; // skip rows with no valid amount
+
+        const rawDate = norm.date ?? norm.transaction_date ?? norm.day ?? '';
+        const date = parseDate(rawDate instanceof Date ? rawDate.toISOString() : rawDate);
+
+        const description = String(norm.description ?? norm.desc ?? norm.name ?? norm.note ?? norm.memo ?? norm.details ?? 'Imported');
+        const source = String(norm.source ?? norm.income_source ?? description);
+        const rawCat = String(norm.category ?? norm.cat ?? norm.type ?? '');
+        const category = matchCategory(rawCat);
+
+        rows.push({ type, date, amount, category, description, source });
+      }
+
+      if (rows.length === 0) {
+        setErrorMsg('No valid rows found. Make sure your file has columns: date, amount, description, category.');
+        return;
+      }
+
+      setParsedRows(rows);
+      setStep('preview');
+    } catch (err) {
+      console.error(err);
+      setErrorMsg('Failed to parse file. Please check the format and try again.');
     }
   };
 
-
-
-
-  const handleSkip = () => {
-    localStorage.setItem('onboardingCompleted', 'true');
-    onComplete();
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) parseFile(file);
   };
 
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) parseFile(file);
+  };
 
+  const handleImport = async () => {
+    setStep('importing');
+    setImportProgress(0);
+    try {
+      const total = parsedRows.length;
+      // Process in batches of 10 for Firestore
+      for (let i = 0; i < total; i += 10) {
+        const batch = parsedRows.slice(i, i + 10);
+        await onImport(batch);
+        setImportProgress(Math.min(100, Math.round(((i + batch.length) / total) * 100)));
+      }
+      setStep('done');
+    } catch (err) {
+      setErrorMsg('Import failed. Please try again.');
+      setStep('preview');
+    }
+  };
 
+  const handleClose = () => {
+    setStep('upload');
+    setParsedRows([]);
+    setErrorMsg(null);
+    setFileName('');
+    setImportProgress(0);
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  const cardBg = isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200';
+  const textPrimary = isDark ? 'text-white' : 'text-slate-900';
+  const textSecondary = isDark ? 'text-slate-400' : 'text-slate-500';
+  const rowBg = isDark ? 'bg-slate-800' : 'bg-slate-50';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
-      <div className={`w-full max-w-lg rounded-3xl shadow-2xl p-8 animate-pop ${
-        isDark ? 'bg-slate-900 border-2 border-slate-800' : 'bg-white border-2 border-slate-100'
-      }`}>
-        {/* Progress Bar */}
-        <div className="flex gap-2 mb-8">
-          {steps.map((_, idx) => (
-            <div
-              key={idx}
-              className={`h-1 flex-1 rounded-full transition-all duration-300 ${
-                idx <= step
-                  ? (isGreen ? 'bg-green-500' : isLgbt ? 'bg-indigo-500' : 'bg-pink-500')
-                  : (isDark ? 'bg-slate-700' : 'bg-slate-200')
-              }`}
-            />
-          ))}
-        </div>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={handleClose} />
 
-
-
-
-        {/* Content */}
-        <div className="text-center mb-8">
-          <div className="text-6xl mb-4 animate-bounce">{currentStep.emoji}</div>
-          <h2 className={`text-3xl font-black mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-            {currentStep.title}
-          </h2>
-          <p className={`text-lg ${isDark ? 'text-slate-400' : 'text-slate-600'}`}>
-            {currentStep.description}
-          </p>
-        </div>
-
-
-
-
-        {/* Action Area */}
-        {currentStep.action && (
-          <div className="mb-8 flex justify-center">
-            {currentStep.action}
+      <div className={`relative w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl border shadow-2xl ${cardBg} flex flex-col max-h-[92vh]`}>
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b border-slate-200/20">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center bg-${accentColor}-500/20`}>
+              <Upload className={`w-5 h-5 text-${accentColor}-500`} />
+            </div>
+            <div>
+              <h2 className={`font-bold text-lg ${textPrimary}`}>Import Financial Data</h2>
+              <p className={`text-xs ${textSecondary}`}>CSV or Excel → HabitFlow</p>
+            </div>
           </div>
-        )}
-
-
-
-
-        {/* Navigation */}
-        <div className="flex gap-3">
-          {step > 0 && step < steps.length - 1 && (
-            <button
-              onClick={handleSkip}
-              className={`flex-1 px-6 py-4 rounded-2xl font-bold transition ${
-                isDark ? 'bg-slate-800 text-slate-400 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              Skip
-            </button>
-          )}
-          <button
-            onClick={handleNext}
-            disabled={step === 1 && !budget}
-            className={`flex-1 px-6 py-4 rounded-2xl font-bold text-white transition shadow-lg ${
-              isDark 
-                ? (isGreen ? 'bg-green-500 hover:bg-green-400' : isLgbt ? 'bg-gradient-to-r from-red-500 to-blue-500 hover:opacity-90' : 'bg-pink-500 hover:bg-pink-400')
-                : (isGreen ? 'bg-green-600 hover:bg-green-700' : isLgbt ? 'bg-gradient-to-r from-red-600 to-blue-600 hover:opacity-90' : 'bg-pink-600 hover:bg-pink-700')
-            } ${step === 1 && !budget ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            {isLastStep ? "Let's Go!" : 'Continue'}
+          <button onClick={handleClose} className={`w-8 h-8 flex items-center justify-center rounded-full ${isDark ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
+            <X className={`w-5 h-5 ${textSecondary}`} />
           </button>
         </div>
 
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
 
+          {/* STEP: UPLOAD */}
+          {step === 'upload' && (
+            <div className="space-y-4">
+              {/* Drop Zone */}
+              <div
+                onDrop={handleDrop}
+                onDragOver={(e) => e.preventDefault()}
+                onClick={() => fileRef.current?.click()}
+                className={`
+                  border-2 border-dashed rounded-2xl p-8 flex flex-col items-center gap-3 cursor-pointer
+                  transition-all duration-200 active:scale-98
+                  ${isDark ? `border-${accentColor}-700 hover:border-${accentColor}-500 hover:bg-${accentColor}-900/20` : `border-${accentColor}-300 hover:border-${accentColor}-500 hover:bg-${accentColor}-50`}
+                `}
+              >
+                <div className={`w-16 h-16 rounded-2xl flex items-center justify-center bg-${accentColor}-500/15`}>
+                  <Download className={`w-8 h-8 text-${accentColor}-500`} />
+                </div>
+                <div className="text-center">
+                  <p className={`font-bold text-base ${textPrimary}`}>Drop your file here</p>
+                  <p className={`text-sm ${textSecondary}`}>or tap to browse</p>
+                 <p className={`text-xs mt-1 ${textSecondary}`}>.csv · .xls · .xlsx · .json</p>
+                </div>
+              </div>
+              <input ref={fileRef} type="file" accept=".csv,.xls,.xlsx,.json" className="hidden" onChange={handleFileChange} />
 
+              {errorMsg && (
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-2">
+                  <X className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                  <p className="text-sm text-red-500">{errorMsg}</p>
+                </div>
+              )}
 
-        {/* Step Counter */}
-        <p className={`text-center mt-6 text-sm font-bold ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
-          Step {step + 1} of {steps.length}
-        </p>
+              {/* Column guide */}
+              <div className={`rounded-2xl p-4 ${rowBg} space-y-2`}>
+                <p className={`text-xs font-bold ${textSecondary} uppercase tracking-wider`}>Accepted Column Names</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    ['date', 'date, transaction_date, day'],
+                    ['amount', 'amount, value, cost, price'],
+                    ['description', 'description, desc, name, memo'],
+                    ['category', 'category, cat, type'],
+                    ['type', 'type: "expense" or "income"'],
+                    ['source', 'source (for income rows)'],
+                  ].map(([col, vals]) => (
+                    <div key={col} className={`rounded-xl p-2 ${isDark ? 'bg-slate-700/60' : 'bg-white'}`}>
+                      <p className={`text-[10px] font-bold ${isDark ? `text-${accentColor}-400` : `text-${accentColor}-600`}`}>{col}</p>
+                      <p className={`text-[10px] ${textSecondary}`}>{vals}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className={`text-[10px] ${textSecondary} pt-1`}>
+                  💡 Negative amounts are auto-detected as income. Column names are case-insensitive.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* STEP: PREVIEW */}
+          {step === 'preview' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className={`text-sm font-bold ${textPrimary}`}>{parsedRows.length} records found in <span className={`text-${accentColor}-500`}>{fileName}</span></p>
+                <button onClick={() => { setStep('upload'); setParsedRows([]); }} className={`text-xs ${textSecondary} underline`}>Change file</button>
+              </div>
+
+              {/* Summary chips */}
+              <div className="flex gap-2">
+                <div className={`flex-1 rounded-xl p-3 text-center ${isDark ? 'bg-pink-900/30' : 'bg-pink-50'}`}>
+                  <p className="text-lg font-bold text-pink-500">{parsedRows.filter(r => r.type === 'expense').length}</p>
+                  <p className={`text-xs ${textSecondary}`}>Expenses</p>
+                </div>
+                <div className={`flex-1 rounded-xl p-3 text-center ${isDark ? 'bg-green-900/30' : 'bg-green-50'}`}>
+                  <p className="text-lg font-bold text-green-500">{parsedRows.filter(r => r.type === 'income').length}</p>
+                  <p className={`text-xs ${textSecondary}`}>Income</p>
+                </div>
+              </div>
+
+              {errorMsg && (
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30">
+                  <p className="text-sm text-red-500">{errorMsg}</p>
+                </div>
+              )}
+
+              {/* Scrollable preview table */}
+              <div className={`rounded-2xl overflow-hidden border ${isDark ? 'border-slate-700' : 'border-slate-200'}`}>
+                <div className={`grid grid-cols-4 text-[10px] font-bold uppercase tracking-wider px-3 py-2 ${isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>
+                  <span>Date</span><span>Type</span><span>Amount</span><span>Category</span>
+                </div>
+                <div className="max-h-[240px] overflow-y-auto divide-y divide-slate-700/30">
+                  {parsedRows.slice(0, 100).map((row, i) => (
+                    <div key={i} className={`grid grid-cols-4 px-3 py-2 text-xs ${i % 2 === 0 ? (isDark ? 'bg-slate-900' : 'bg-white') : rowBg}`}>
+                      <span className={textSecondary}>{row.date}</span>
+                      <span className={row.type === 'income' ? 'text-green-500 font-bold' : 'text-pink-500 font-bold'}>{row.type}</span>
+                      <span className={`font-bold ${textPrimary}`}>{row.amount.toFixed(2)}</span>
+                      <span className={textSecondary}>{row.category}</span>
+                    </div>
+                  ))}
+                </div>
+                {parsedRows.length > 100 && (
+                  <div className={`px-3 py-2 text-xs text-center ${textSecondary} ${isDark ? 'bg-slate-800' : 'bg-slate-50'}`}>
+                    +{parsedRows.length - 100} more rows (all will be imported)
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* STEP: IMPORTING */}
+          {step === 'importing' && (
+            <div className="flex flex-col items-center gap-5 py-6">
+              <div className={`w-20 h-20 rounded-full flex items-center justify-center bg-${accentColor}-500/15`}>
+                <Upload className={`w-10 h-10 text-${accentColor}-500 animate-bounce`} />
+              </div>
+              <div className="w-full space-y-2">
+                <div className={`w-full h-3 rounded-full ${isDark ? 'bg-slate-800' : 'bg-slate-100'} overflow-hidden`}>
+                  <div
+                    className={`h-full rounded-full bg-${accentColor}-500 transition-all duration-300`}
+                    style={{ width: `${importProgress}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className={textSecondary}>Importing to Firestore...</span>
+                  <span className={`font-bold text-${accentColor}-500`}>{importProgress}%</span>
+                </div>
+              </div>
+              <p className={`text-sm ${textSecondary} text-center`}>Please keep the app open while importing.</p>
+            </div>
+          )}
+
+          {/* STEP: DONE */}
+          {step === 'done' && (
+            <div className="flex flex-col items-center gap-4 py-6">
+              <div className="w-20 h-20 rounded-full flex items-center justify-center bg-green-500/15">
+                <CheckCircle2 className="w-10 h-10 text-green-500" />
+              </div>
+              <div className="text-center">
+                <p className={`text-xl font-bold ${textPrimary}`}>Import Complete!</p>
+                <p className={`text-sm ${textSecondary} mt-1`}>{parsedRows.length} records added to your account.</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer Buttons */}
+        <div className="p-5 border-t border-slate-200/20 flex gap-3">
+          {step === 'upload' && (
+            <button onClick={handleClose} className={`flex-1 py-3 rounded-2xl font-bold text-sm ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>Cancel</button>
+          )}
+          {step === 'preview' && (
+            <>
+              <button onClick={handleClose} className={`flex-1 py-3 rounded-2xl font-bold text-sm ${isDark ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-700'}`}>Cancel</button>
+              <button
+                onClick={handleImport}
+                className={`flex-1 py-3 rounded-2xl font-bold text-sm text-white bg-${accentColor}-500 hover:bg-${accentColor}-600 active:scale-95 transition-all`}
+              >
+                Import {parsedRows.length} Records
+              </button>
+            </>
+          )}
+          {step === 'done' && (
+            <button
+              onClick={handleClose}
+              className={`flex-1 py-3 rounded-2xl font-bold text-sm text-white bg-${accentColor}-500 active:scale-95 transition-all`}
+            >
+              Done
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
 };
-
-
-
+// ============ END IMPORT MODAL ============
 
 const PWAInstallPrompt = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showInstall, setShowInstall] = useState(false);
-  const { theme, accent, isDark } = useTheme(); // Use isDark from context
+  const { theme, accent, isDark, dc } = useTheme(); // Use isDark from context
   const isGreen = accent === 'green';
   const isLgbt = accent === 'lgbt';
   
   // Add platform detection hooks
   const platformInfo = usePlatformInfo();
   const safeArea = useSafeArea();
-
-
-
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -12322,17 +26916,12 @@ const PWAInstallPrompt = () => {
   }, []);
 
 
-
-
   useEffect(() => {
     const dismissed = localStorage.getItem('pwa-install-dismissed');
     if (dismissed && Date.now() - parseInt(dismissed) < 7 * 24 * 60 * 60 * 1000) {
       setShowInstall(false);
     }
   }, []);
-
-
-
 
   const handleInstall = async () => {
     if (!deferredPrompt) return;
@@ -12346,21 +26935,10 @@ const PWAInstallPrompt = () => {
     setDeferredPrompt(null);
   };
 
-
-
-
   const handleDismiss = () => {
     setShowInstall(false);
     localStorage.setItem('pwa-install-dismissed', Date.now().toString());
   };
-
-
-
-
- 
-
-
-
 
  // ============ REPLACE PWA PROMPT RETURN STATEMENT ============
   if (!showInstall) return null;
@@ -12398,7 +26976,7 @@ const PWAInstallPrompt = () => {
             <Download className="w-6 h-6" />
           </div>
           <div>
-            <p className="font-bold text-lg">Install HabitFlow</p>
+           <p className="font-bold text-lg">Install UnBroke</p>
             <p className="text-sm opacity-90">Quick access from your home screen!</p>
           </div>
         </div>
@@ -12427,14 +27005,11 @@ const PWAInstallPrompt = () => {
 };
 // ============ END OF PWA PROMPT REPLACEMENT ============
 
-
-
 // ============ REPLACE ENTIRE APP COMPONENT ============
-
 
 // 📊 Loading Screen Component
 const LoadingScreen: React.FC = () => {
-  const { accent, isDark } = useTheme();
+  const { accent, isDark, dc } = useTheme();
   
   const bgClass = isDark
     ? 'bg-slate-900'
@@ -12457,8 +27032,8 @@ const LoadingScreen: React.FC = () => {
         : 'bg-pink-600';
   
   return (
-    <div className={`min-h-screen flex items-center justify-center ${bgClass}`}>
-      <div className="flex flex-col items-center">
+    <div className={`fixed inset-0 flex items-center justify-center ${bgClass}`}>
+      <div className="flex flex-col items-center animate-fade-in">
         <div className={`w-16 h-16 rounded-2xl animate-spin mb-4 shadow-lg ${spinnerClass}`} />
         <p className={`font-bold text-lg animate-pulse ${
           isDark ? 'text-slate-100' : 
@@ -12466,7 +27041,7 @@ const LoadingScreen: React.FC = () => {
           accent === 'lgbt' ? 'text-purple-900' : 
           'text-pink-900'
         }`}>
-          Loading HabitFlow...
+          Loading UnBroke...
         </p>
         <p className={`text-sm mt-2 ${
           isDark ? 'text-slate-400' : 'text-slate-600'
@@ -12477,14 +27052,13 @@ const LoadingScreen: React.FC = () => {
     </div>
   );
 };
-
 // 🎯 Main App Component
 const App: React.FC = () => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState<'landing' | 'welcome' | 'dashboard'>('landing');
-  const [analyticsEnabled, setAnalyticsEnabled] = useState(false); // ADD THIS LINE
-  
+  const viewRef = useRef<'landing' | 'welcome' | 'dashboard'>('landing');
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(false);
   // Platform detection
   const platformInfo = usePlatformInfo();
   const safeArea = useSafeArea();
@@ -12496,6 +27070,7 @@ const App: React.FC = () => {
       haptics.medium(); // Haptic feedback
       await signOut(auth);
       setView('landing');
+      viewRef.current = 'landing';
       setUser(null);
     } catch (error) {
       console.error('❌ Logout error:', error);
@@ -12514,13 +27089,15 @@ const App: React.FC = () => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       console.log('🔐 Auth state changed:', currentUser ? 'Logged in' : 'Logged out');
       
-      if (currentUser) {
+     if (currentUser) {
         setUser(currentUser);
         setView('dashboard');
+        viewRef.current = 'dashboard';
       } else {
         setUser(null);
-        if (view === 'dashboard') {
+        if (viewRef.current === 'dashboard') {
           setView('landing');
+          viewRef.current = 'landing';
         }
       }
       
@@ -12544,7 +27121,7 @@ const App: React.FC = () => {
     initAuth();
     
     return () => unsubscribe();
-  }, [view]);
+  }, []);
   
   // Android back button handler
   useAndroidBackButton(() => {
@@ -12602,13 +27179,17 @@ const App: React.FC = () => {
   
   
   
-  return (
+ return (
     <ErrorBoundary>
       <ThemeProvider>
-        <div style={containerStyle} className="min-h-screen">
+        <div style={containerStyle} className="min-h-screen h-full flex flex-col bg-inherit">
           <Suspense fallback={<LoadingScreen />}>
-            <ConsentBanner onAccept={handleConsent} />
-            <PWAInstallPrompt />
+            {!authLoading && (
+              <>
+                <ConsentBanner onAccept={handleConsent} />
+                <PWAInstallPrompt />
+              </>
+            )}
             {renderedView}
           </Suspense>
         </div>
@@ -12616,6 +27197,5 @@ const App: React.FC = () => {
     </ErrorBoundary>
   );
 };
-
 export default App;
 // ============ END OF APP COMPONENT REPLACEMENT ============

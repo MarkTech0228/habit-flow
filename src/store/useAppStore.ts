@@ -1,55 +1,62 @@
 import { create } from 'zustand';
 
-
-// Simplified store - only for UI state first (safe migration)
 interface UIState {
-  currentPage: 'habits' | 'todos' | 'money';
+  currentPage: 'home' | 'habits' | 'todos' | 'money' | 'stats' | 'debt' | 'goals' | 'awards' | 'more';
+  theme: 'light' | 'dark';
+  accent: 'pink' | 'green' | 'lgbt';
+  isDark: boolean;
+  isLoading: boolean;
+  error: null;
+  notification: null;
+  modal: null;
+  isAdding: boolean;
+  showTemplates: boolean;
+  loading: boolean;
   showStats: boolean;
   showAchievements: boolean;
-  showTemplates: boolean;
-  showAllowanceModal: boolean;
+  showRecurringModal: boolean;
   showBudgetModal: boolean;
   showGoalsModal: boolean;
-  showRecurringModal: boolean;
+  showAllowanceModal: boolean;
   showIncomeModal: boolean;
   showDebtModal: boolean;
   showInvestmentModal: boolean;
-  isAdding: boolean;
-  loading: boolean;
   moneyView: 'overview' | 'monthly' | 'yearly';
   selectedMonth: number;
   selectedYear: number;
 }
 
-
 interface AppStore {
   ui: UIState;
-  updateUI: (updates: Partial<UIState>) => void;
+  updateUI: (partial: Partial<UIState>) => void;
 }
-
 
 export const useAppStore = create<AppStore>((set) => ({
   ui: {
-    currentPage: 'habits',
+    currentPage: 'home',
+    theme: 'light',
+    accent: 'pink',
+    isDark: false,
+    isLoading: false,
+    error: null,
+    notification: null,
+    modal: null,
+    isAdding: false,
+    showTemplates: false,
+    loading: false,
     showStats: false,
     showAchievements: false,
-    showTemplates: false,
-    showAllowanceModal: false,
+    showRecurringModal: false,
     showBudgetModal: false,
     showGoalsModal: false,
-    showRecurringModal: false,
+    showAllowanceModal: false,
     showIncomeModal: false,
     showDebtModal: false,
     showInvestmentModal: false,
-    isAdding: false,
-    loading: true,
     moneyView: 'overview',
     selectedMonth: new Date().getMonth(),
     selectedYear: new Date().getFullYear(),
   },
- 
-  updateUI: (updates) => set((state) => ({
-    ui: { ...state.ui, ...updates }
-  })),
+  updateUI: (partial) =>
+    set((state) => ({ ui: { ...state.ui, ...partial } })),
 }));
-
